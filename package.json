@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "CAFETIER - Sistema de gestión para tostado de café",
   "scripts": {
-    "start": "bun run src/server.ts",
-    "dev": "bun --watch run src/server.ts"
+    "start": "bun run server.ts",
+    "dev": "bun --watch run server.ts"
   },
   "dependencies": {
     "hono": "^4.4.0",
