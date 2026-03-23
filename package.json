@@ -2,15 +2,18 @@
   "name": "cafetier",
   "version": "1.0.0",
   "description": "CAFETIER - Sistema de gestión para tostado de café",
+  "type": "module",
   "scripts": {
-    "start": "bun run server.ts",
-    "dev": "bun --watch run server.ts"
+    "start": "tsx server.ts",
+    "dev": "tsx watch server.ts"
   },
   "dependencies": {
     "hono": "^4.4.0",
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
     "@types/better-sqlite3": "^7.6.11"
   }
 }
