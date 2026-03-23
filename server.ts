@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { serveStatic } from "hono/bun";
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { initDB } from "./db";
 import api from "./api";
 
@@ -10,16 +11,18 @@ const app = new Hono();
 // API routes
 app.route("/api", api);
 
-// Static files
-app.use("/*", serveStatic({ root: "./public" }));
+// Static files desde la raíz del proyecto
+app.use("/*", serveStatic({ root: "./" }));
 
 // SPA fallback
-app.get("*", serveStatic({ path: "./public/index.html" }));
+app.get("*", serveStatic({ path: "./index.html" }));
 
-const port = parseInt(process.env.PORT || "3000");
+const port = parseInt(process.env.PORT || "3000", 10);
+
 console.log(`☕ CAFETIER running on port ${port}`);
 
-export default {
-  port,
+serve({
   fetch: app.fetch,
-};
+  port,
+  hostname: "0.0.0.0",
+});
