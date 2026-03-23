@@ -13,6 +13,7 @@ RUN mkdir -p /data
 
 ENV DB_PATH=/data/cafetier.db
 ENV PORT=3000
+ENV NODE_ENV=production
 
 EXPOSE 3000
 
