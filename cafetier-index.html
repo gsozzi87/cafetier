@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAFETIER</title>
+<link rel="manifest" href="/manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #F7F7E2;
+  --bg-soft: #EFEFD8;
+  --card: #FFFDF7;
+  --card-2: #FAF8F0;
+  --line: #D9D4C4;
+  --text: #2E261F;
+  --muted: #6A5A49;
+  --muted-2: #8A7B6B;
+  --green: #006837;
+  --green-2: #009245;
+  --cream: #E3E49E;
+  --brown: #603813;
+  --brown-2: #8C6239;
+  --danger: #B64848;
+  --blue: #3F6F8A;
+  --shadow: 0 14px 40px rgba(96,56,19,.08);
+  --radius: 18px;
+  --radius-sm: 12px;
+  --sidebar-w: 286px;
+  --header-h: 74px;
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'Inter', sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:var(--font-body);
+  background:linear-gradient(180deg,#F7F7E2 0%, #F4F2DF 100%);
+  color:var(--text);
+}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+a{text-decoration:none;color:inherit}
+#app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;height:100vh}
+.sidebar{
+  background:linear-gradient(180deg,#fffdf7 0%, #f7f5ea 100%);
+  border-right:1px solid var(--line);
+  padding:20px 18px;
+  overflow:auto;
+}
+.brand{
+  display:flex;gap:14px;align-items:center;padding:10px 10px 20px;border-bottom:1px solid var(--line);margin-bottom:18px;
+}
+.brand-mark{
+  width:52px;height:52px;border-radius:16px;background:radial-gradient(circle at 30% 30%, var(--cream), #cfd27b 55%, #b6bc63 100%);
+  border:1px solid #d7d899;box-shadow:inset 0 1px 0 rgba(255,255,255,.5);
+}
+.brand h1{margin:0;font-family:var(--font-display);font-size:28px;line-height:1;color:var(--green);letter-spacing:1px}
+.brand p{margin:4px 0 0;color:var(--brown-2);font-size:12px;letter-spacing:.6px}
+.nav-group{margin-bottom:16px}
+.nav-title{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--muted-2);padding:10px 12px 8px}
+.nav-btn{
+  width:100%;border:none;background:transparent;color:var(--text);display:flex;align-items:center;gap:12px;
+  padding:12px 14px;border-radius:14px;font-weight:600;text-align:left;margin:2px 0;
+}
+.nav-btn .ico{
+  width:34px;height:34px;border-radius:10px;background:var(--bg-soft);display:grid;place-items:center;font-size:16px;color:var(--green);
+}
+.nav-btn.active{background:#fff;border:1px solid #dfdac8;box-shadow:var(--shadow)}
+.nav-btn.active .ico{background:var(--green);color:#fff}
+.main{display:grid;grid-template-rows:var(--header-h) 1fr;min-width:0}
+.header{
+  border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;
+  background:rgba(255,253,247,.78);backdrop-filter:blur(8px)
+}
+.header h2{margin:0;font-family:var(--font-display);font-size:31px;color:var(--green)}
+.header .sub{color:var(--brown-2);font-size:13px}
+.content{padding:24px;overflow:auto}
+.page{display:none}.page.active{display:block}
+.grid{display:grid;gap:14px}.grid.stats{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:20px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);
+}
+.card.soft{background:var(--card-2)}
+.stat .label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);margin-bottom:10px}
+.stat .value{font-family:var(--font-display);font-size:30px;line-height:1.05;color:var(--green)}
+.stat .meta{margin-top:8px;font-size:12px;color:var(--muted)}
+.section-title{margin:24px 0 12px;font-family:var(--font-display);font-size:22px;color:var(--brown)}
+.toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+.search{
+  min-width:260px;max-width:380px;width:100%;background:#fff;border:1px solid var(--line);border-radius:999px;padding:12px 16px;color:var(--text)
+}
+.btn{border:none;border-radius:12px;padding:11px 16px;font-weight:700}
+.btn.primary{background:var(--green);color:#fff}
+.btn.primary:hover{background:var(--green-2)}
+.btn.secondary{background:#fff;border:1px solid var(--line);color:var(--text)}
+.btn.secondary:hover{background:var(--bg-soft)}
+.btn.danger{background:var(--danger);color:#fff}
+.btn.small{padding:8px 12px;font-size:13px}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:separate;border-spacing:0 8px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted-2);text-align:left;padding:0 14px 4px}
+td{background:#fff;padding:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+td:first-child{border-left:1px solid var(--line);border-radius:12px 0 0 12px}td:last-child{border-right:1px solid var(--line);border-radius:0 12px 12px 0}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 16px;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;box-shadow:var(--shadow)}
+.item .title{font-weight:700}.item .sub{margin-top:4px;font-size:13px;color:var(--muted)}
+.item .amount{font-weight:800;color:var(--brown);white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.7px}
+.badge.green{background:rgba(0,104,55,.1);color:var(--green)}
+.badge.blue{background:rgba(63,111,138,.12);color:var(--blue)}
+.badge.brown{background:rgba(140,98,57,.12);color:var(--brown-2)}
+.badge.red{background:rgba(182,72,72,.12);color:var(--danger)}
+.progress{height:10px;background:#ebe7d6;border-radius:999px;overflow:hidden;margin-top:10px}.progress>span{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--green-2));border-radius:999px}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.kpi{background:var(--card-2);border:1px dashed #d8d2bd;border-radius:14px;padding:14px}.kpi .k{font-size:12px;color:var(--muted)}.kpi .v{margin-top:4px;font-weight:800;font-size:20px}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.form-group{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}.form-group.full{grid-column:1/-1}
+label{font-size:12px;font-weight:700;color:var(--muted)}
+input,select,textarea{width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--text)}
+textarea{min-height:84px;resize:vertical}
+.empty{padding:28px;border:1px dashed #d6cfbb;border-radius:16px;background:rgba(255,255,255,.45);text-align:center;color:var(--muted)}
+.modal-backdrop{position:fixed;inset:0;background:rgba(46,38,31,.38);display:none;place-items:center;z-index:1000;padding:24px}.modal-backdrop.open{display:grid}
+.modal{width:min(760px,100%);max-height:90vh;overflow:auto;background:#fffdf7;border:1px solid var(--line);border-radius:24px;box-shadow:0 30px 80px rgba(46,38,31,.22);padding:20px}
+.modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.modal-head h3{margin:0;font-family:var(--font-display);font-size:28px;color:var(--green)}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}
+.footer-note{margin-top:24px;font-size:12px;color:var(--muted-2)}
+@media (max-width: 1180px){.grid.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three,.grid.two,.form-grid{grid-template-columns:1fr}}
+@media (max-width: 920px){#app{grid-template-columns:1fr}.sidebar{display:none}.main{grid-template-rows:auto 1fr}.header{padding:18px 16px}.content{padding:16px}.grid.stats{grid-template-columns:1fr}.header h2{font-size:24px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <h1>CAFETIER</h1>
+        <p>Culto por el café</p>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Principal</div>
+      <button class="nav-btn active" data-page="dashboard"><span class="ico">◫</span>Dashboard</button>
+      <button class="nav-btn" data-page="pos"><span class="ico">🛒</span>Venta</button>
+      <button class="nav-btn" data-page="orders"><span class="ico">📋</span>Pedidos</button>
+      <button class="nav-btn" data-page="production"><span class="ico">🔥</span>Producción</button>
+      <button class="nav-btn" data-page="inventory"><span class="ico">📦</span>Inventario</button>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Gestión</div>
+      <button class="nav-btn" data-page="clients"><span class="ico">👥</span>Clientes</button>
+      <button class="nav-btn" data-page="products"><span class="ico">☕</span>Catálogo</button>
+      <button class="nav-btn" data-page="expenses"><span class="ico">💸</span>Gastos</button>
+      <button class="nav-btn" data-page="capital"><span class="ico">💰</span>Capital y utilidades</button>
+      <button class="nav-btn" data-page="machineLog"><span class="ico">🔧</span>Bitácora máquina</button>
+      <button class="nav-btn" data-page="config"><span class="ico">⚙️</span>Configuración</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="header">
+      <div>
+        <h2 id="headerTitle">Dashboard</h2>
+        <div class="sub">Casa tostadora · sistema abierto sin usuarios</div>
+      </div>
+      <div class="badge brown">Culto por el café</div>
+    </header>
+    <section id="content" class="content"></section>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">Modal</h3>
+      <button class="btn secondary small" onclick="closeModal()">Cerrar</button>
+    </div>
+    <div id="modalBody"></div>
+    <div id="modalActions" class="actions"></div>
+  </div>
+</div>
+
+<script>
+const APP = {
+  currentPage: 'dashboard',
+  currentActor: 'Sistema',
+  data: {}
+};
+
+const pageTitles = {
+  dashboard: 'Dashboard', pos: 'Venta', orders: 'Pedidos', production: 'Producción', inventory: 'Inventario',
+  clients: 'Clientes', products: 'Catálogo', expenses: 'Gastos', capital: 'Capital y utilidades', machineLog: 'Bitácora máquina', config: 'Configuración'
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  return res.json();
+}
+async function apiForm(path, formData) {
+  const res = await fetch('/api' + path, { method: 'POST', body: formData });
+  return res.json();
+}
+const fmt = (n) => new Intl.NumberFormat('es-MX', { style:'currency', currency:'MXN', maximumFractionDigits:2 }).format(Number(n||0));
+const fmtNum = (n) => new Intl.NumberFormat('es-MX').format(Number(n||0));
+const fmtKg = (n) => `${Number(n||0).toFixed(1)} kg`;
+const fmtPct = (n) => `${Number(n||0).toFixed(1)}%`;
+const esc = (s='') => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+function setPage(page) {
+  APP.currentPage = page;
+  document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.page === page));
+  document.getElementById('headerTitle').textContent = pageTitles[page] || 'CAFETIER';
+  renderPage(page);
+}
+
+function openModal(title, bodyHtml, actionsHtml='') {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = bodyHtml;
+  document.getElementById('modalActions').innerHTML = actionsHtml;
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+function closeModal(){ document.getElementById('modalBackdrop').classList.remove('open'); }
+
+function statusBadge(status='') {
+  const map = {
+    pendiente:['brown','Pendiente'], en_produccion:['blue','En producción'], listo:['green','Listo'],
+    enviado_parcial:['brown','Envío parcial'], entregado:['green','Entregado'], pagado:['green','Pagado'], cancelado:['red','Cancelado']
+  };
+  const [cls, label] = map[status] || ['brown', status];
+  return `<span class="badge ${cls}">${esc(label)}</span>`;
+}
+
+async function renderPage(page) {
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="empty">Cargando…</div>';
+  const pages = { dashboard: renderDashboard, pos: renderPOS, orders: renderOrders, production: renderProduction, inventory: renderInventory, clients: renderClients, products: renderProducts, expenses: renderExpenses, capital: renderCapital, machineLog: renderMachineLog, config: renderConfig };
+  if (pages[page]) await pages[page](el);
+}
+
+async function renderDashboard(el) {
+  const month = new Date().toISOString().slice(0,7);
+  const res = await api(`/dashboard?month=${month}`);
+  const d = res.data || {};
+  el.innerHTML = `
+    <div class="grid stats">
+      <div class="card stat"><div class="label">Ingresos del mes</div><div class="value">${fmt(d.revenue)}</div><div class="meta">Cobros registrados</div></div>
+      <div class="card stat"><div class="label">Utilidad neta</div><div class="value">${fmt(d.net_profit)}</div><div class="meta">Después de gastos</div></div>
+      <div class="card stat"><div class="label">Kg vendidos</div><div class="value">${fmtKg(d.kg_sold)}</div><div class="meta">Venta mostrador + pedidos</div></div>
+      <div class="card stat"><div class="label">Kg tostados</div><div class="value">${fmtKg(d.kg_roasted)}</div><div class="meta">Producción del mes</div></div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Resumen financiero</div>
+        <div class="kpis">
+          <div class="kpi"><div class="k">Costos directos</div><div class="v">${fmt(d.direct_costs)}</div></div>
+          <div class="kpi"><div class="k">Otros gastos</div><div class="v">${fmt(d.other_expenses)}</div></div>
+          <div class="kpi"><div class="k">Costo por kg</div><div class="v">${fmt(d.cost_per_kg)}</div></div>
+          <div class="kpi"><div class="k">Ganancia por kg</div><div class="v">${fmt(d.profit_per_kg)}</div></div>
+        </div>
+        <div class="footer-note">Merma promedio: ${fmtPct(d.avg_loss_pct)} · Pedidos activos: ${fmtNum(d.active_orders)}</div>
+      </div>
+
+      <div class="card soft">
+        <div class="section-title" style="margin-top:0">Reparto de utilidades</div>
+        <div class="list">
+          ${(d.profit_shares || []).map(p => `<div class="item"><div><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.share_label || (p.share + '%'))}</div></div><div class="amount">${fmt(p.amount)}</div></div>`).join('') || '<div class="empty">Sin datos</div>'}
+        </div>
+        <div class="footer-note">Configurado como 50% Itza + Gastón y 50% Axel.</div>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Capital invertido</div>
+        <div class="list">
+          ${(d.capital || []).map(c => `
+            <div class="item">
+              <div style="flex:1">
+                <div class="title">${esc(c.user_name)}</div>
+                <div class="sub">Invertido: ${fmt(c.invested)} · Recuperado: ${fmt(c.recovered)}</div>
+                <div class="progress"><span style="width:${c.invested > 0 ? Math.min(100, (c.recovered / c.invested) * 100) : 0}%"></span></div>
+              </div>
+              <div class="amount">${fmt((c.invested || 0) - (c.recovered || 0))}</div>
+            </div>`).join('') || '<div class="empty">Sin aportes de capital</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Gastos por socio</div>
+        <div class="list">
+          ${(d.expenses_by_user || []).map(g => `<div class="item"><div><div class="title">${esc(g.paid_by)}</div><div class="sub">Este mes</div></div><div class="amount">${fmt(g.total)}</div></div>`).join('') || '<div class="empty">Sin gastos este mes</div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+let cart = [];
+async function renderPOS(el) {
+  const res = await api('/products');
+  const products = res.data || [];
+  cart = [];
+  el.innerHTML = `
+    <div class="toolbar">
+      <input class="search" id="posSearch" placeholder="Buscar producto" oninput="filterProducts()">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn secondary" onclick="openBigOrderModal()">Nuevo pedido grande</button>
+      </div>
+    </div>
+    <div class="grid three" id="posGrid">
+      ${products.map(p => `<div class="card soft" data-name="${esc((p.name+' '+(p.presentation||'')).toLowerCase())}">
+        <div class="title">${esc(p.name)}</div>
+        <div class="sub">${esc(p.presentation || '')}</div>
+        <div style="margin:10px 0 14px;font-family:var(--font-display);font-size:28px;color:var(--green)">${fmt(p.price)}</div>
+        <button class="btn primary" onclick="addToCart(${p.id}, '${String(p.name).replace(/'/g, "\\'")}', ${Number(p.price)}, '${String(p.presentation || '').replace(/'/g, "\\'")}')">Agregar</button>
+      </div>`).join('') || '<div class="empty">No hay productos cargados</div>'}
+    </div>
+    <div class="section-title">Carrito</div>
+    <div class="card" id="cartBox"><div class="empty">No agregaste productos.</div></div>`;
+}
+function filterProducts() {
+  const q = document.getElementById('posSearch').value.toLowerCase();
+  document.querySelectorAll('#posGrid > .card').forEach(card => card.style.display = card.dataset.name.includes(q) ? '' : 'none');
+}
+function addToCart(id, name, price, presentation) {
+  const row = cart.find(x => x.id === id);
+  if (row) row.qty += 1; else cart.push({ id, name, price, presentation, qty: 1 });
+  drawCart();
+}
+function cartTotal() { return cart.reduce((s, x) => s + x.price * x.qty, 0); }
+function drawCart() {
+  const box = document.getElementById('cartBox');
+  if (!box) return;
+  if (!cart.length) { box.innerHTML = '<div class="empty">No agregaste productos.</div>'; return; }
+  box.innerHTML = `
+    <div class="list">
+      ${cart.map((p, idx) => `<div class="item"><div style="flex:1"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.presentation)} · ${fmt(p.price)}</div></div><div style="display:flex;align-items:center;gap:8px"><button class="btn secondary small" onclick="changeQty(${idx}, -1)">−</button><strong>${p.qty}</strong><button class="btn secondary small" onclick="changeQty(${idx}, 1)">+</button><div class="amount">${fmt(p.qty * p.price)}</div></div></div>`).join('')}
+    </div>
+    <div class="actions" style="justify-content:space-between;margin-top:18px">
+      <div class="title">Total: ${fmt(cartTotal())}</div>
+      <div style="display:flex;gap:10px"><button class="btn secondary" onclick="cart=[]; drawCart()">Vaciar</button><button class="btn primary" onclick="checkoutRetail()">Cobrar</button></div>
+    </div>`;
+}
+function changeQty(i, delta){ cart[i].qty += delta; if (cart[i].qty <= 0) cart.splice(i,1); drawCart(); }
+function openBigOrderModal() {
+  openModal('Nuevo pedido grande', `
+    <div class="form-grid">
+      <div class="form-group"><label>Cliente</label><input id="boClient"></div>
+      <div class="form-group"><label>Fecha de entrega</label><input type="date" id="boDelivery"></div>
+      <div class="form-group"><label>Kg totales</label><input type="number" step="0.1" id="boKg"></div>
+      <div class="form-group"><label>Precio por kg</label><input type="number" step="0.01" id="boPrice"></div>
+      <div class="form-group"><label>Anticipo</label><input type="number" step="0.01" id="boAdvance" value="0"></div>
+      <div class="form-group"><label>Método anticipo</label><select id="boMethod"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option></select></div>
+      <div class="form-group full"><label>Notas</label><textarea id="boNotes"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveBigOrder()">Guardar pedido</button>`);
+}
+async function saveBigOrder() {
+  const total_kg = Number(document.getElementById('boKg').value || 0);
+  const price_per_kg = Number(document.getElementById('boPrice').value || 0);
+  const total_amount = total_kg * price_per_kg;
+  const r = await api('/orders', { method:'POST', body:{ client_name: document.getElementById('boClient').value || 'Sin nombre', delivery_date: document.getElementById('boDelivery').value, total_kg, price_per_kg, total_amount, status:'pendiente', notes: document.getElementById('boNotes').value, is_retail:false, created_by: APP.currentActor } });
+  const anticipo = Number(document.getElementById('boAdvance').value || 0);
+  if (r.success && anticipo > 0) {
+    await api(`/orders/${r.data.id}/payments`, { method:'POST', body:{ amount: anticipo, payment_method: document.getElementById('boMethod').value, notes:'Anticipo', registered_by: APP.currentActor } });
+  }
+  closeModal();
+  setPage('orders');
+}
+async function checkoutRetail() {
+  if (!cart.length) return;
+  const total_amount = cartTotal();
+  await api('/orders', { method:'POST', body:{ client_name:'Mostrador', total_amount, is_retail:true, payment_method:'efectivo', created_by: APP.currentActor, status:'pagado', items: cart.map(x => ({ product_id:x.id, product_name:x.name, quantity:x.qty, unit:'pz', unit_price:x.price, subtotal:x.price * x.qty })) } });
+  cart = [];
+  drawCart();
+  alert('Venta registrada');
+}
+
+async function renderOrders(el) {
+  const r = await api('/orders');
+  const orders = (r.data || []).filter(o => !o.is_retail);
+  el.innerHTML = `
+    <div class="toolbar"><input class="search" id="ordersSearch" placeholder="Buscar pedido" oninput="filterItems('ordersList','ordersSearch')"><button class="btn primary" onclick="openBigOrderModal()">Nuevo pedido</button></div>
+    <div class="list" id="ordersList">
+      ${orders.map(o => {
+        const pct = o.total_amount > 0 ? Math.min(100, ((o.total_paid || 0) / o.total_amount) * 100) : 0;
+        return `<div class="item" data-filter="${esc((`${o.client_name || ''} ${o.delivery_date || ''} ${o.status || ''}`).toLowerCase())}">
+          <div style="flex:1">
+            <div class="title">${esc(o.client_name || o.client_name_full || 'Sin nombre')}</div>
+            <div class="sub">${fmtKg(o.total_kg)} · Entrega: ${esc(o.delivery_date || 'Sin fecha')}</div>
+            <div class="progress"><span style="width:${pct}%"></span></div>
+          </div>
+          <div style="text-align:right">
+            <div class="amount">${fmt(o.total_amount)}</div>
+            <div style="margin-top:6px">${statusBadge(o.status)}</div>
+            <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end"><button class="btn secondary small" onclick="openOrderStatus(${o.id}, '${o.status}')">Estado</button><button class="btn danger small" onclick="deleteOrder(${o.id})">Eliminar</button></div>
+          </div>
+        </div>`;
+      }).join('') || '<div class="empty">Sin pedidos grandes</div>'}
+    </div>`;
+}
+function filterItems(listId, inputId) {
+  const q = document.getElementById(inputId).value.toLowerCase();
+  document.querySelectorAll(`#${listId} [data-filter]`).forEach(x => x.style.display = x.dataset.filter.includes(q) ? '' : 'none');
+}
+function openOrderStatus(id, current) {
+  openModal('Cambiar estado del pedido', `<div class="form-group"><label>Estado</label><select id="ordStatus">
+    <option value="pendiente" ${current==='pendiente'?'selected':''}>Pendiente</option>
+    <option value="en_produccion" ${current==='en_produccion'?'selected':''}>En producción</option>
+    <option value="listo" ${current==='listo'?'selected':''}>Listo</option>
+    <option value="enviado_parcial" ${current==='enviado_parcial'?'selected':''}>Envío parcial</option>
+    <option value="entregado" ${current==='entregado'?'selected':''}>Entregado</option>
+    <option value="pagado" ${current==='pagado'?'selected':''}>Pagado</option>
+    <option value="cancelado" ${current==='cancelado'?'selected':''}>Cancelado</option>
+  </select></div>`, `<button class="btn primary" onclick="saveOrderStatus(${id})">Guardar</button>`);
+}
+async function saveOrderStatus(id) {
+  const get = await api(`/orders/${id}`); const order = get.data.order;
+  await api(`/orders/${id}`, { method:'PUT', body:{ ...order, status: document.getElementById('ordStatus').value } });
+  closeModal(); setPage('orders');
+}
+async function deleteOrder(id){ if(!confirm('¿Eliminar pedido?')) return; await api(`/orders/${id}`, {method:'DELETE'}); setPage('orders'); }
+
+async function renderProduction(el) {
+  const res = await api('/roasting');
+  const rows = res.data || [];
+  el.innerHTML = `
+    <div class="toolbar"><div></div><button class="btn primary" onclick="openRoastSessionModal()">Nueva sesión</button></div>
+    <div class="list">
+      ${rows.map(s => `<div class="item"><div style="flex:1"><div class="title">${esc(s.session_date)} · ${esc(s.operator)}</div><div class="sub">${s.batch_count} batches · ${fmtKg(s.total_green)} verde → ${fmtKg(s.total_roasted)}</div></div><div style="display:flex;gap:8px"><button class="btn secondary small" onclick="openBatchModal(${s.id})">Agregar batch</button><button class="btn danger small" onclick="deleteSession(${s.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin sesiones de tostado</div>'}
+    </div>`;
+}
+function openRoastSessionModal() {
+  openModal('Nueva sesión de tostado', `
+    <div class="form-grid">
+      <div class="form-group"><label>Fecha</label><input type="date" id="rsDate" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group"><label>Operador</label><select id="rsOperator"><option>Itza</option><option>Gastón</option><option>Axel</option></select></div>
+      <div class="form-group full"><label>Notas</label><textarea id="rsNotes"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveRoastSession()">Guardar</button>`);
+}
+async function saveRoastSession() {
+  await api('/roasting', { method:'POST', body:{ session_date: document.getElementById('rsDate').value, operator: document.getElementById('rsOperator').value, notes: document.getElementById('rsNotes').value } });
+  closeModal(); setPage('production');
+}
+async function openBatchModal(sessionId) {
+  const [origins, varieties, profiles] = await Promise.all([api('/origins'), api('/varieties'), api('/roast_profiles')]);
+  openModal('Agregar batch', `
+    <div class="form-grid">
+      <div class="form-group"><label>Origen</label><select id="rbOrigin">${(origins.data||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Variedad</label><select id="rbVariety">${(varieties.data||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Perfil</label><select id="rbProfile">${(profiles.data||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Horas máquina</label><input type="number" step="0.01" id="rbHours" value="0"></div>
+      <div class="form-group"><label>Kg verde</label><input type="number" step="0.01" id="rbGreen"></div>
+      <div class="form-group"><label>Kg tostado</label><input type="number" step="0.01" id="rbRoasted"></div>
+      <div class="form-group full"><label>Notas</label><textarea id="rbNotes"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveBatch(${sessionId})">Guardar</button>`);
+}
+async function saveBatch(sessionId) {
+  await api(`/roasting/${sessionId}/batches`, { method:'POST', body:{ origin_id: document.getElementById('rbOrigin').value, variety_id: document.getElementById('rbVariety').value, roast_profile_id: document.getElementById('rbProfile').value, green_kg: Number(document.getElementById('rbGreen').value || 0), roasted_kg: Number(document.getElementById('rbRoasted').value || 0), machine_hours: Number(document.getElementById('rbHours').value || 0), notes: document.getElementById('rbNotes').value } });
+  closeModal(); setPage('production');
+}
+async function deleteSession(id){ if(!confirm('¿Eliminar sesión?')) return; await api(`/roasting/${id}`, {method:'DELETE'}); setPage('production'); }
+
+async function renderInventory(el) {
+  const r = await api('/inventory');
+  const items = r.data || [];
+  el.innerHTML = `
+    <div class="toolbar"><input class="search" id="invSearch" placeholder="Buscar item" oninput="filterItems('inventoryList','invSearch')"><button class="btn primary" onclick="openInventoryModal()">Agregar item</button></div>
+    <div class="list" id="inventoryList">
+      ${items.map(i => `<div class="item" data-filter="${esc((`${i.item_name} ${i.item_type} ${i.origin_name || ''} ${i.variety_name || ''}`).toLowerCase())}"><div style="flex:1"><div class="title">${esc(i.item_name)}</div><div class="sub">${esc(i.item_type)}${i.origin_name ? ' · ' + esc(i.origin_name) : ''}${i.variety_name ? ' · ' + esc(i.variety_name) : ''}${i.lot_label ? ' · lote ' + esc(i.lot_label) : ''}</div></div><div style="text-align:right"><div class="amount">${fmtNum(i.quantity)} ${esc(i.unit)}</div><div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end"><button class="btn secondary small" onclick="openInvMovement(${i.id}, '${String(i.item_name).replace(/'/g, "\\'")}')">Movimiento</button><button class="btn danger small" onclick="deleteInventory(${i.id})">Eliminar</button></div></div></div>`).join('') || '<div class="empty">Sin inventario</div>'}
+    </div>`;
+}
+async function openInventoryModal() {
+  const [origins, varieties] = await Promise.all([api('/origins'), api('/varieties')]);
+  openModal('Agregar item de inventario', `
+    <div class="form-grid">
+      <div class="form-group"><label>Tipo</label><select id="invType"><option value="cafe_verde">Café verde</option><option value="cafe_tostado">Café tostado</option><option value="cafe_empaquetado">Café empaquetado</option><option value="insumo">Insumo</option></select></div>
+      <div class="form-group"><label>Nombre</label><input id="invName"></div>
+      <div class="form-group"><label>Cantidad</label><input type="number" step="0.01" id="invQty"></div>
+      <div class="form-group"><label>Unidad</label><select id="invUnit"><option>kg</option><option>pz</option><option>lt</option></select></div>
+      <div class="form-group"><label>Stock mínimo</label><input type="number" step="0.01" id="invMin" value="0"></div>
+      <div class="form-group"><label>Lote</label><input id="invLot"></div>
+      <div class="form-group"><label>Origen</label><select id="invOrigin"><option value="">—</option>${(origins.data||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Variedad</label><select id="invVariety"><option value="">—</option>${(varieties.data||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group full"><label>Notas</label><textarea id="invNotes"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveInventory()">Guardar</button>`);
+}
+async function saveInventory() {
+  await api('/inventory', { method:'POST', body:{ item_type: document.getElementById('invType').value, item_name: document.getElementById('invName').value, quantity: Number(document.getElementById('invQty').value || 0), unit: document.getElementById('invUnit').value, min_stock: Number(document.getElementById('invMin').value || 0), origin_id: document.getElementById('invOrigin').value || null, variety_id: document.getElementById('invVariety').value || null, lot_label: document.getElementById('invLot').value, notes: document.getElementById('invNotes').value } });
+  closeModal(); setPage('inventory');
+}
+function openInvMovement(id, name) {
+  openModal(`Movimiento: ${name}`, `
+    <div class="form-grid">
+      <div class="form-group"><label>Tipo</label><select id="mvType"><option value="entrada">Entrada</option><option value="salida">Salida</option><option value="ajuste">Ajuste</option></select></div>
+      <div class="form-group"><label>Cantidad</label><input type="number" step="0.01" id="mvQty"></div>
+      <div class="form-group full"><label>Razón</label><input id="mvReason"></div>
+    </div>`, `<button class="btn primary" onclick="saveMovement(${id})">Guardar</button>`);
+}
+async function saveMovement(id) {
+  await api(`/inventory/${id}/movements`, { method:'POST', body:{ movement_type: document.getElementById('mvType').value, quantity: Number(document.getElementById('mvQty').value || 0), reason: document.getElementById('mvReason').value, registered_by: APP.currentActor } });
+  closeModal(); setPage('inventory');
+}
+async function deleteInventory(id){ if(!confirm('¿Eliminar item?')) return; await api(`/inventory/${id}`, {method:'DELETE'}); setPage('inventory'); }
+
+async function renderClients(el) {
+  const r = await api('/clients');
+  const rows = r.data || [];
+  el.innerHTML = `
+    <div class="toolbar"><input class="search" id="clientsSearch" placeholder="Buscar cliente" oninput="filterItems('clientsList','clientsSearch')"><button class="btn primary" onclick="openClientModal()">Nuevo cliente</button></div>
+    <div class="list" id="clientsList">
+      ${rows.map(c => `<div class="item" data-filter="${esc((`${c.name} ${c.phone || ''} ${c.city || ''}`).toLowerCase())}"><div style="flex:1"><div class="title">${esc(c.name)}</div><div class="sub">${esc(c.phone || '')}${c.city ? ' · ' + esc(c.city) : ''}${c.email ? ' · ' + esc(c.email) : ''}</div></div><div style="display:flex;gap:8px"><button class="btn danger small" onclick="deleteClient(${c.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin clientes</div>'}
+    </div>`;
+}
+function openClientModal() {
+  openModal('Nuevo cliente', `
+    <div class="form-grid">
+      <div class="form-group"><label>Nombre</label><input id="clName"></div>
+      <div class="form-group"><label>Teléfono</label><input id="clPhone"></div>
+      <div class="form-group"><label>Email</label><input id="clEmail"></div>
+      <div class="form-group"><label>Ciudad</label><input id="clCity"></div>
+      <div class="form-group full"><label>Dirección</label><input id="clAddress"></div>
+      <div class="form-group full"><label>Notas</label><textarea id="clNotes"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveClient()">Guardar</button>`);
+}
+async function saveClient() {
+  await api('/clients', { method:'POST', body:{ name: document.getElementById('clName').value, phone: document.getElementById('clPhone').value, email: document.getElementById('clEmail').value, city: document.getElementById('clCity').value, address: document.getElementById('clAddress').value, notes: document.getElementById('clNotes').value } });
+  closeModal(); setPage('clients');
+}
+async function deleteClient(id){ if(!confirm('¿Eliminar cliente?')) return; await api(`/clients/${id}`, {method:'DELETE'}); setPage('clients'); }
+
+async function renderProducts(el) {
+  const [products, origins, varieties, profiles] = await Promise.all([api('/products'), api('/origins'), api('/varieties'), api('/roast_profiles')]);
+  APP.data.origins = origins.data || []; APP.data.varieties = varieties.data || []; APP.data.profiles = profiles.data || [];
+  el.innerHTML = `
+    <div class="toolbar"><input class="search" id="productsSearch" placeholder="Buscar producto" oninput="filterItems('productsList','productsSearch')"><button class="btn primary" onclick="openProductModal()">Nuevo producto</button></div>
+    <div class="list" id="productsList">
+      ${(products.data || []).map(p => `<div class="item" data-filter="${esc((`${p.name} ${p.presentation || ''} ${p.origin_name || ''} ${p.variety_name || ''}`).toLowerCase())}"><div style="flex:1"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.presentation || '')}${p.origin_name ? ' · ' + esc(p.origin_name) : ''}${p.variety_name ? ' · ' + esc(p.variety_name) : ''}${p.roast_name ? ' · ' + esc(p.roast_name) : ''}</div></div><div style="text-align:right"><div class="amount">${fmt(p.price)}</div><button class="btn danger small" style="margin-top:10px" onclick="deleteProduct(${p.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin catálogo</div>'}
+    </div>`;
+}
+function openProductModal() {
+  openModal('Nuevo producto', `
+    <div class="form-grid">
+      <div class="form-group full"><label>Nombre</label><input id="prName"></div>
+      <div class="form-group"><label>Origen</label><select id="prOrigin"><option value="">—</option>${(APP.data.origins||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Variedad</label><select id="prVariety"><option value="">—</option>${(APP.data.varieties||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Perfil</label><select id="prProfile"><option value="">—</option>${(APP.data.profiles||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Presentación</label><select id="prPres"><option value="250g">250g</option><option value="500g">500g</option><option value="1kg">1kg</option><option value="granel">Granel</option></select></div>
+      <div class="form-group full"><label>Precio</label><input type="number" step="0.01" id="prPrice"></div>
+    </div>`, `<button class="btn primary" onclick="saveProduct()">Guardar</button>`);
+}
+async function saveProduct() {
+  await api('/products', { method:'POST', body:{ name: document.getElementById('prName').value, origin_id: document.getElementById('prOrigin').value || null, variety_id: document.getElementById('prVariety').value || null, roast_profile_id: document.getElementById('prProfile').value || null, presentation: document.getElementById('prPres').value, price: Number(document.getElementById('prPrice').value || 0) } });
+  closeModal(); setPage('products');
+}
+async function deleteProduct(id){ if(!confirm('¿Eliminar producto?')) return; await api(`/products/${id}`, {method:'DELETE'}); setPage('products'); }
+
+async function renderExpenses(el) {
+  const month = new Date().toISOString().slice(0,7);
+  const [expenses, categories] = await Promise.all([api(`/expenses?month=${month}`), api('/expense_categories')]);
+  APP.data.expenseCategories = categories.data || [];
+  el.innerHTML = `
+    <div class="toolbar"><div></div><button class="btn primary" onclick="openExpenseModal()">Registrar gasto</button></div>
+    <div class="list">
+      ${(expenses.data || []).map(g => `<div class="item"><div style="flex:1"><div class="title">${esc(g.description || g.category_name)}</div><div class="sub">${esc(g.expense_date)} · ${esc(g.paid_by)} · ${esc(g.category_name || '')}${g.supplier ? ' · ' + esc(g.supplier) : ''}</div></div><div style="text-align:right"><div class="amount">${fmt(g.amount)}</div><button class="btn danger small" style="margin-top:10px" onclick="deleteExpense(${g.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin gastos este mes</div>'}
+    </div>`;
+}
+function openExpenseModal() {
+  openModal('Registrar gasto', `
+    <div class="form-grid">
+      <div class="form-group"><label>Fecha</label><input type="date" id="exDate" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group"><label>Categoría</label><select id="exCat">${(APP.data.expenseCategories||[]).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Monto</label><input type="number" step="0.01" id="exAmount"></div>
+      <div class="form-group"><label>Pagado por</label><select id="exPaid"><option>Itza</option><option>Gastón</option><option>Axel</option></select></div>
+      <div class="form-group full"><label>Descripción</label><input id="exDesc"></div>
+      <div class="form-group"><label>Proveedor</label><input id="exSupplier"></div>
+      <div class="form-group"><label>Lote</label><input id="exLot"></div>
+      <div class="form-group full"><label>Notas</label><textarea id="exNotes"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveExpense()">Guardar</button>`);
+}
+async function saveExpense() {
+  await api('/expenses', { method:'POST', body:{ expense_date: document.getElementById('exDate').value, category_id: document.getElementById('exCat').value, amount: Number(document.getElementById('exAmount').value || 0), description: document.getElementById('exDesc').value, paid_by: document.getElementById('exPaid').value, supplier: document.getElementById('exSupplier').value, lot_label: document.getElementById('exLot').value, notes: document.getElementById('exNotes').value } });
+  closeModal(); setPage('expenses');
+}
+async function deleteExpense(id){ if(!confirm('¿Eliminar gasto?')) return; await api(`/expenses/${id}`, {method:'DELETE'}); setPage('expenses'); }
+
+async function renderCapital(el) {
+  const [cap, withs] = await Promise.all([api('/capital'), api('/withdrawals')]);
+  el.innerHTML = `
+    <div class="toolbar"><div style="display:flex;gap:8px"><button class="btn primary" onclick="openCapitalModal()">Registrar aporte</button><button class="btn secondary" onclick="openWithdrawalModal()">Registrar retiro</button></div></div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Aportes de capital</div>
+        <div class="list">${(cap.data || []).map(c => `<div class="item"><div style="flex:1"><div class="title">${esc(c.user_name)}</div><div class="sub">${esc(c.contribution_date)} · ${esc(c.description || '')}</div><div class="progress"><span style="width:${c.amount > 0 ? Math.min(100, (c.recovered / c.amount) * 100) : 0}%"></span></div></div><div style="text-align:right"><div class="amount">${fmt(c.amount)}</div><div class="sub">Recup. ${fmt(c.recovered)}</div><button class="btn danger small" style="margin-top:10px" onclick="deleteCapital(${c.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin aportes</div>'}</div>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Retiros de utilidades</div>
+        <div class="list">${(withs.data || []).map(w => `<div class="item"><div><div class="title">${esc(w.user_name)}</div><div class="sub">${esc(w.month)} · ${esc(w.withdrawal_date || '')}</div></div><div style="text-align:right"><div class="amount">${fmt(w.amount)}</div><button class="btn danger small" style="margin-top:10px" onclick="deleteWithdrawal(${w.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin retiros</div>'}</div>
+      </div>
+    </div>`;
+}
+function openCapitalModal() {
+  openModal('Registrar aporte de capital', `
+    <div class="form-grid">
+      <div class="form-group"><label>Socio</label><select id="capUser"><option>Itza</option><option>Gastón</option><option>Axel</option></select></div>
+      <div class="form-group"><label>Monto</label><input type="number" step="0.01" id="capAmount"></div>
+      <div class="form-group"><label>Fecha</label><input type="date" id="capDate" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group full"><label>Descripción</label><input id="capDesc"></div>
+    </div>`, `<button class="btn primary" onclick="saveCapital()">Guardar</button>`);
+}
+async function saveCapital() {
+  await api('/capital', { method:'POST', body:{ user_name: document.getElementById('capUser').value, amount: Number(document.getElementById('capAmount').value || 0), description: document.getElementById('capDesc').value, contribution_date: document.getElementById('capDate').value } });
+  closeModal(); setPage('capital');
+}
+function openWithdrawalModal() {
+  openModal('Registrar retiro de utilidades', `
+    <div class="form-grid">
+      <div class="form-group"><label>Socio</label><select id="wdUser"><option>Itza</option><option>Gastón</option><option>Axel</option></select></div>
+      <div class="form-group"><label>Monto</label><input type="number" step="0.01" id="wdAmount"></div>
+      <div class="form-group"><label>Mes</label><input type="month" id="wdMonth" value="${new Date().toISOString().slice(0,7)}"></div>
+      <div class="form-group full"><label>Notas</label><input id="wdNotes"></div>
+    </div>`, `<button class="btn primary" onclick="saveWithdrawal()">Guardar</button>`);
+}
+async function saveWithdrawal() {
+  await api('/withdrawals', { method:'POST', body:{ user_name: document.getElementById('wdUser').value, amount: Number(document.getElementById('wdAmount').value || 0), month: document.getElementById('wdMonth').value, notes: document.getElementById('wdNotes').value } });
+  closeModal(); setPage('capital');
+}
+async function deleteCapital(id){ if(!confirm('¿Eliminar aporte?')) return; await api(`/capital/${id}`, {method:'DELETE'}); setPage('capital'); }
+async function deleteWithdrawal(id){ if(!confirm('¿Eliminar retiro?')) return; await api(`/withdrawals/${id}`, {method:'DELETE'}); setPage('capital'); }
+
+async function renderMachineLog(el) {
+  const r = await api('/machine-log');
+  el.innerHTML = `
+    <div class="toolbar"><div></div><button class="btn primary" onclick="openMachineModal()">Nuevo registro</button></div>
+    <div class="list">
+      ${(r.data || []).map(m => `<div class="item"><div style="flex:1"><div class="title">${esc(m.description)}</div><div class="sub">${esc(m.log_date)} · ${esc(m.log_type)}${m.registered_by ? ' · ' + esc(m.registered_by) : ''}</div></div><div style="text-align:right"><div class="amount">${m.cost ? fmt(m.cost) : (m.hours ? fmtNum(m.hours) + ' h' : '—')}</div><button class="btn danger small" style="margin-top:10px" onclick="deleteMachineLog(${m.id})">Eliminar</button></div></div>`).join('') || '<div class="empty">Sin bitácora</div>'}
+    </div>`;
+}
+function openMachineModal() {
+  openModal('Nuevo registro de máquina', `
+    <div class="form-grid">
+      <div class="form-group"><label>Fecha</label><input type="date" id="mlDate" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group"><label>Tipo</label><select id="mlType"><option value="mantenimiento">Mantenimiento</option><option value="mejora">Mejora</option><option value="pieza">Pieza</option><option value="incidencia">Incidencia</option><option value="horas">Horas</option></select></div>
+      <div class="form-group"><label>Costo</label><input type="number" step="0.01" id="mlCost" value="0"></div>
+      <div class="form-group"><label>Horas</label><input type="number" step="0.01" id="mlHours" value="0"></div>
+      <div class="form-group full"><label>Descripción</label><textarea id="mlDesc"></textarea></div>
+    </div>`, `<button class="btn primary" onclick="saveMachineLog()">Guardar</button>`);
+}
+async function saveMachineLog() {
+  await api('/machine-log', { method:'POST', body:{ log_date: document.getElementById('mlDate').value, log_type: document.getElementById('mlType').value, description: document.getElementById('mlDesc').value, cost: Number(document.getElementById('mlCost').value || 0), hours: Number(document.getElementById('mlHours').value || 0), registered_by: APP.currentActor } });
+  closeModal(); setPage('machineLog');
+}
+async function deleteMachineLog(id){ if(!confirm('¿Eliminar registro?')) return; await api(`/machine-log/${id}`, {method:'DELETE'}); setPage('machineLog'); }
+
+async function renderConfig(el) {
+  const [settings, profiles, origins, varieties, cats] = await Promise.all([api('/settings'), api('/roast_profiles'), api('/origins'), api('/varieties'), api('/expense_categories')]);
+  const s = settings.data || {};
+  el.innerHTML = `
+    <div class="grid two">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Parámetros generales</div>
+        <div class="form-grid">
+          <div class="form-group"><label>kW máquina</label><input id="cfgKw" type="number" step="0.01" value="${esc(s.machine_kw || 0)}"></div>
+          <div class="form-group"><label>Precio kWh</label><input id="cfgKwh" type="number" step="0.01" value="${esc(s.kwh_price || 0)}"></div>
+          <div class="form-group full"><label>API Key Claude</label><input id="cfgClaude" value="${esc(s.claude_api_key || '')}"></div>
+        </div>
+        <button class="btn primary" onclick="saveSettings()">Guardar configuración</button>
+      </div>
+      <div class="card soft">
+        <div class="section-title" style="margin-top:0">Modelo abierto</div>
+        <div class="list">
+          <div class="item"><div><div class="title">Sin login</div><div class="sub">Todos ven todo.</div></div><div>${statusBadge('pagado')}</div></div>
+          <div class="item"><div><div class="title">Reparto fijo</div><div class="sub">Itza + Gastón = 50% · Axel = 50%</div></div><div class="badge brown">Activo</div></div>
+          <div class="item"><div><div class="title">Tema claro</div><div class="sub">Adaptado al manual de marca.</div></div><div class="badge green">Marca</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid three" style="margin-top:16px">
+      ${configListCard('Perfiles de tueste', profiles.data || [], 'roast_profiles')}
+      ${configListCard('Orígenes', origins.data || [], 'origins')}
+      ${configListCard('Variedades', varieties.data || [], 'varieties')}
+    </div>
+    <div class="grid three" style="margin-top:16px">
+      ${configListCard('Categorías de gasto', cats.data || [], 'expense_categories')}
+    </div>`;
+}
+function configListCard(title, items, table) {
+  return `<div class="card"><div class="section-title" style="margin-top:0">${title}</div><div class="list">${items.map(i => `<div class="item"><div class="title">${esc(i.name)}</div><button class="btn danger small" onclick="deleteConfigItem('${table}', ${i.id})">Eliminar</button></div>`).join('') || '<div class="empty">Vacío</div>'}</div><div class="actions"><input id="new_${table}" placeholder="Nuevo elemento"><button class="btn primary" onclick="addConfigItem('${table}')">Agregar</button></div></div>`;
+}
+async function saveSettings(){ await api('/settings', {method:'PUT', body:{ machine_kw: document.getElementById('cfgKw').value, kwh_price: document.getElementById('cfgKwh').value, claude_api_key: document.getElementById('cfgClaude').value }}); alert('Configuración guardada'); }
+async function addConfigItem(table){ const input = document.getElementById('new_' + table); const name = input.value.trim(); if(!name) return; const body = table === 'expense_categories' ? {name, is_direct_cost:0} : {name}; await api('/' + table, {method:'POST', body}); setPage('config'); }
+async function deleteConfigItem(table,id){ if(!confirm('¿Eliminar elemento?')) return; await api(`/${table}/${id}`, {method:'DELETE'}); setPage('config'); }
+
+Array.from(document.querySelectorAll('.nav-btn')).forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.page)));
+document.getElementById('modalBackdrop').addEventListener('click', e => { if(e.target.id === 'modalBackdrop') closeModal(); });
+setPage('dashboard');
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+*** a/api.ts
+--- b/api.ts
+@@
+-// ===================== AUTH =====================
+-api.post("/auth/login", async (c) => {
+-  const { username, password } = await c.req.json();
+-  const user = db.prepare("SELECT id, username, display_name, profit_share FROM users WHERE username = ? AND password = ?").get(username, password) as any;
+-  if (!user) return c.json(err("Credenciales incorrectas"), 401);
+-  return c.json(ok(user));
+-});
++// ===================== AUTH =====================
++// Sin login: la app queda abierta para todos.
+@@
+-// ===================== USERS =====================
+-api.get("/users", (c) => {
+-  return c.json(ok(db.prepare("SELECT * FROM users ORDER BY id").all()));
+-});
+-
+-api.put("/users/:id", async (c) => {
+-  const id = c.req.param("id");
+-  const body = await c.req.json();
+-  db.prepare("UPDATE users SET display_name=?, profit_share=?, password=? WHERE id=?")
+-    .run(body.display_name, body.profit_share, body.password, id);
+-  return c.json(ok(true));
+-});
++// ===================== USERS =====================
++// Ya no se usan usuarios para iniciar sesión.
+@@
+-  // Users profit share
+-  const users = db.prepare("SELECT display_name, profit_share FROM users").all() as any[];
+-  const profitShares = users.map((u: any) => ({
+-    name: u.display_name,
+-    share: u.profit_share,
+-    amount: netProfit > 0 ? (netProfit * u.profit_share / 100) : 0
+-  }));
++  // Reparto fijo solicitado: Itza + Gastón = 50%, Axel = 50%
++  const profitShares = [
++    {
++      name: 'Itza + Gastón',
++      share: 50,
++      share_label: '50% conjunto',
++      amount: netProfit > 0 ? netProfit * 0.5 : 0,
++    },
++    {
++      name: 'Axel',
++      share: 50,
++      share_label: '50%',
++      amount: netProfit > 0 ? netProfit * 0.5 : 0,
++    },
++  ];
+*** End Patch
