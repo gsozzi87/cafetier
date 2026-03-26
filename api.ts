@@ -655,13 +655,19 @@ api.get("/dashboard", (c) => {
   const costPerKg = kgSold.total > 0 ? totalDirectCosts / kgSold.total : 0;
   const revenuePerKg = kgSold.total > 0 ? revenue.total / kgSold.total : 0;
 
-  // Users profit share
-  const users = db.prepare("SELECT display_name, profit_share FROM users").all() as any[];
-  const profitShares = users.map((u: any) => ({
-    name: u.display_name,
-    share: u.profit_share,
-    amount: netProfit > 0 ? (netProfit * u.profit_share / 100) : 0
-  }));
+// Profit split fijo Cafetier
+const profitShares = [
+  {
+    name: "Itza + Gastón",
+    share: 50,
+    amount: netProfit > 0 ? netProfit * 0.5 : 0
+  },
+  {
+    name: "Axel",
+    share: 50,
+    amount: netProfit > 0 ? netProfit * 0.5 : 0
+  }
+];
 
   return c.json(ok({
     month,
