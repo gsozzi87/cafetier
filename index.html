@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>CAFETIER</title>
+<link rel="manifest" href="/manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #FAFAF7;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F5F3EF;
+  --bg-input: #F0EDE6;
+  --border: #E2DFD6;
+  --border-focus: #8B6914;
+  --text: #1A1814;
+  --text-sec: #6B655B;
+  --text-dim: #9C958A;
+  --gold: #8B6914;
+  --gold-light: #C4960C;
+  --gold-bg: #FDF6E3;
+  --green: #2D7A3A;
+  --green-bg: #E8F5EA;
+  --red: #B83232;
+  --red-bg: #FDECEC;
+  --blue: #2B6CB0;
+  --blue-bg: #EBF4FF;
+  --orange: #B87333;
+  --orange-bg: #FFF4E6;
+  --radius: 10px;
+  --radius-sm: 7px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --font-d: 'Playfair Display', Georgia, serif;
+  --font-b: 'DM Sans', -apple-system, sans-serif;
+  --sidebar-w: 220px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; overflow:hidden; }
+body { font-family:var(--font-b); background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; }
+
+/* LAYOUT */
+#app { display:flex; height:100dvh; }
+
+/* SIDEBAR */
+#sidebar {
+  width: var(--sidebar-w);
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+  z-index: 50;
+}
+#sidebar .logo-area {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+}
+#sidebar .logo-area h1 {
+  font-family: var(--font-d);
+  font-weight: 900;
+  font-size: 24px;
+  letter-spacing: 4px;
+  color: var(--gold);
+}
+#sidebar .logo-area p {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+  margin-top: 2px;
+  text-transform: uppercase;
+}
+.nav-section { padding: 12px 0 4px; }
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 0 20px 6px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-sec);
+  transition: all 0.15s;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover { background:var(--bg-hover); color:var(--text); }
+.nav-item.active { background:var(--gold-bg); color:var(--gold); border-left-color:var(--gold); font-weight:600; }
+.nav-item svg { width:18px; height:18px; flex-shrink:0; }
+
+/* MAIN */
+#mainContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* MOBILE */
+#mobileHeader {
+  display: none;
+  height: 56px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  padding: 0 16px;
+  justify-content: space-between;
+}
+#mobileHeader h1 { font-family:var(--font-d); font-weight:900; font-size:20px; letter-spacing:3px; color:var(--gold); }
+#menuToggle { background:none; border:none; color:var(--text); font-size:22px; cursor:pointer; padding:4px; }
+#sidebarOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:40; }
+
+@media (max-width: 768px) {
+  #sidebar { position:fixed; left:-260px; top:0; bottom:0; width:260px; z-index:50; transition:left 0.25s; box-shadow:var(--shadow-md); }
+  #sidebar.open { left:0; }
+  #sidebarOverlay.open { display:block; }
+  #mobileHeader { display:flex; }
+  #mainContent { padding:16px; }
+  .stat-grid { grid-template-columns: repeat(2,1fr) !important; }
+  .form-row { grid-template-columns: 1fr !important; }
+}
+
+/* COMPONENTS */
+.page-title { font-family:var(--font-d); font-size:26px; font-weight:700; margin-bottom:20px; color:var(--text); }
+.section-title { font-family:var(--font-d); font-size:16px; font-weight:600; margin:20px 0 10px; color:var(--text); }
+
+.card {
+  background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius);
+  padding:16px; margin-bottom:10px; box-shadow:var(--shadow);
+}
+.card-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; }
+.card-label { font-size:12px; color:var(--text-sec); font-weight:500; }
+.card-value { font-size:15px; font-weight:600; }
+.card-value.gold { color:var(--gold); }
+.card-value.green { color:var(--green); }
+.card-value.red { color:var(--red); }
+
+.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
+.stat-box {
+  background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:14px; text-align:center; box-shadow:var(--shadow);
+}
+.stat-box .sv { font-family:var(--font-d); font-size:22px; font-weight:700; color:var(--gold); }
+.stat-box .sl { font-size:10px; color:var(--text-sec); margin-top:3px; text-transform:uppercase; letter-spacing:0.5px; }
+
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:8px 18px; border:none; border-radius:var(--radius-sm);
+  font-family:var(--font-b); font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s;
+}
+.btn-primary { background:var(--gold); color:#fff; }
+.btn-primary:hover { background:var(--gold-light); }
+.btn-secondary { background:var(--bg-input); color:var(--text); border:1px solid var(--border); }
+.btn-secondary:hover { background:var(--border); }
+.btn-danger { background:var(--red); color:#fff; }
+.btn-danger:hover { opacity:0.9; }
+.btn-success { background:var(--green); color:#fff; }
+.btn-sm { padding:5px 12px; font-size:12px; }
+.btn-block { width:100%; }
+
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:11px; font-weight:600; color:var(--text-sec); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; }
+.form-group input, .form-group select, .form-group textarea {
+  width:100%; padding:9px 12px; background:var(--bg-input); border:1px solid var(--border);
+  border-radius:var(--radius-sm); color:var(--text); font-family:var(--font-b); font-size:13px; outline:none;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color:var(--border-focus); }
+.form-group select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236B655B'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; padding-right:28px; }
+.form-group textarea { resize:vertical; min-height:50px; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+.badge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; }
+.badge-gold { background:var(--gold-bg); color:var(--gold); }
+.badge-green { background:var(--green-bg); color:var(--green); }
+.badge-red { background:var(--red-bg); color:var(--red); }
+.badge-blue { background:var(--blue-bg); color:var(--blue); }
+.badge-orange { background:var(--orange-bg); color:var(--orange); }
+
+.progress-bar { width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin:5px 0; }
+.progress-bar .fill { height:100%; background:linear-gradient(90deg,var(--gold),var(--gold-light)); border-radius:3px; transition:width 0.4s; }
+
+.list-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 14px; background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-sm); margin-bottom:6px; cursor:pointer; transition:background 0.15s;
+  box-shadow:var(--shadow);
+}
+.list-item:hover { background:var(--bg-hover); }
+.list-item .it { font-weight:600; font-size:13px; }
+.list-item .is { font-size:11px; color:var(--text-sec); margin-top:2px; }
+.list-item .ia { font-weight:700; font-size:15px; }
+
+.delete-btn { background:none; border:none; color:var(--red); cursor:pointer; padding:3px 6px; font-size:16px; opacity:0.5; }
+.delete-btn:hover { opacity:1; }
+.edit-btn { background:none; border:none; color:var(--gold); cursor:pointer; padding:3px 6px; font-size:13px; opacity:0.5; }
+.edit-btn:hover { opacity:1; }
+
+.search-box {
+  width:100%; padding:9px 12px 9px 34px; background:var(--bg-input); border:1px solid var(--border);
+  border-radius:var(--radius-sm); color:var(--text); font-size:13px; outline:none; margin-bottom:10px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%239C958A' stroke-width='2' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:10px center;
+}
+
+/* MODAL */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.25); z-index:200; display:flex; align-items:center; justify-content:center; animation:fadeIn .15s; }
+.modal { background:var(--bg-card); border-radius:var(--radius); width:90%; max-width:460px; max-height:85dvh; overflow-y:auto; padding:24px; box-shadow:var(--shadow-md); animation:scaleIn .2s; }
+.modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.modal-header h3 { font-family:var(--font-d); font-size:18px; font-weight:700; }
+.modal-close { width:28px; height:28px; border-radius:50%; background:var(--bg-input); border:none; color:var(--text); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.modal-actions { display:flex; gap:8px; margin-top:16px; }
+.modal-actions .btn { flex:1; }
+
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+@keyframes scaleIn { from{transform:scale(0.95);opacity:0} to{transform:scale(1);opacity:1} }
+
+/* POS */
+.pos-products { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-bottom:14px; }
+.pos-product { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; text-align:center; cursor:pointer; transition:all .15s; box-shadow:var(--shadow); }
+.pos-product:hover { border-color:var(--gold); }
+.pos-product .pn { font-size:11px; font-weight:600; margin-bottom:2px; }
+.pos-product .pp { font-size:14px; font-weight:700; color:var(--gold); }
+.pos-product .ps { font-size:10px; color:var(--text-dim); }
+
+.cart-item { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); }
+.cart-item button { width:26px; height:26px; border-radius:50%; background:var(--bg-input); border:1px solid var(--border); color:var(--text); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.cart-total { display:flex; justify-content:space-between; align-items:center; padding:12px 0; font-size:18px; font-weight:700; }
+.cart-total .ta { color:var(--gold); font-family:var(--font-d); font-size:24px; }
+
+.tab-bar { display:flex; gap:3px; background:var(--bg-input); border-radius:var(--radius-sm); padding:3px; margin-bottom:14px; }
+.tab-item { padding:7px 14px; border-radius:5px; font-size:12px; font-weight:500; cursor:pointer; color:var(--text-sec); transition:all .15s; }
+.tab-item.active { background:var(--gold); color:#fff; }
+
+.empty-state { text-align:center; padding:32px 16px; color:var(--text-dim); font-size:13px; }
+
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <aside id="sidebar">
+    <div class="logo-area">
+      <h1>CAFETIER</h1>
+      <p>Tostaduría de café</p>
+    </div>
+    <nav>
+      <div class="nav-section"><div class="nav-section-label">General</div></div>
+      <div class="nav-item active" data-p="dashboard" onclick="nav('dashboard')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" data-p="pos" onclick="nav('pos')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
+        Venta Rápida
+      </div>
+
+      <div class="nav-section"><div class="nav-section-label">Producción</div></div>
+      <div class="nav-item" data-p="production" onclick="nav('production')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        Tostado
+      </div>
+      <div class="nav-item" data-p="inventory" onclick="nav('inventory')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        Inventario
+      </div>
+      <div class="nav-item" data-p="machineLog" onclick="nav('machineLog')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        Bitácora Máquina
+      </div>
+
+      <div class="nav-section"><div class="nav-section-label">Comercial</div></div>
+      <div class="nav-item" data-p="orders" onclick="nav('orders')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Pedidos
+      </div>
+      <div class="nav-item" data-p="clients" onclick="nav('clients')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+        Clientes
+      </div>
+      <div class="nav-item" data-p="products" onclick="nav('products')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        Catálogo
+      </div>
+
+      <div class="nav-section"><div class="nav-section-label">Finanzas</div></div>
+      <div class="nav-item" data-p="expenses" onclick="nav('expenses')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Gastos
+      </div>
+      <div class="nav-item" data-p="capital" onclick="nav('capital')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+        Capital & Utilidades
+      </div>
+
+      <div class="nav-section"><div class="nav-section-label">Sistema</div></div>
+      <div class="nav-item" data-p="config" onclick="nav('config')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Configuración
+      </div>
+    </nav>
+  </aside>
+
+  <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <div id="mobileHeader">
+      <button id="menuToggle" onclick="toggleSidebar()">☰</button>
+      <h1>CAFETIER</h1>
+      <div style="width:28px"></div>
+    </div>
+    <div id="mainContent"></div>
+  </div>
+</div>
+
+<script>
+const PARTNERS = ['Itzamara','Gastón','Axel'];
+let _d; // page data
+
+async function api(p, o={}) {
+  const r = await fetch('/api'+p, {...o, headers:{'Content-Type':'application/json',...o.headers}, body:o.body?JSON.stringify(o.body):undefined});
+  return r.json();
+}
+async function apiForm(p, fd) { return (await fetch('/api'+p, {method:'POST',body:fd})).json(); }
+const fmt = n => new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(n||0);
+const fk = n => (n||0).toFixed(1)+' kg';
+const fp = n => (n||0).toFixed(1)+'%';
+
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebarOverlay').classList.toggle('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
+
+function nav(page, data) {
+  _d = data;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.p===page));
+  const mc = document.getElementById('mainContent');
+  mc.scrollTop = 0;
+  closeSidebar();
+  const P = {dashboard:renderDash,pos:renderPOS,production:renderProd,inventory:renderInv,machineLog:renderML,orders:renderOrders,orderDetail:renderOD,clients:renderClients,clientDetail:renderCD,products:renderProds,expenses:renderExp,capital:renderCap,config:renderCfg,sessionDetail:renderSD};
+  if (P[page]) P[page](mc, data);
+}
+
+function modal(title, contentFn, actionsFn) {
+  const ov = document.createElement('div'); ov.className='modal-overlay';
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const m = document.createElement('div'); m.className='modal';
+  m.innerHTML=`<div class="modal-header"><h3>${title}</h3><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button></div><div class="mb"></div><div class="modal-actions"></div>`;
+  ov.appendChild(m); document.body.appendChild(ov);
+  contentFn(m.querySelector('.mb'));
+  if(actionsFn) actionsFn(m.querySelector('.modal-actions'));
+  return ov;
+}
+
+function partnerSelect(id, selected) {
+  return `<select id="${id}">${PARTNERS.map(p=>`<option ${p===selected?'selected':''}>${p}</option>`).join('')}</select>`;
+}
+
+// ===== DASHBOARD =====
+async function renderDash(el) {
+  const d = (await api(`/dashboard?month=${new Date().toISOString().slice(0,7)}`)).data;
+  el.innerHTML=`
+    <h1 class="page-title">Dashboard</h1>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="sv">${fmt(d.revenue)}</div><div class="sl">Ingresos</div></div>
+      <div class="stat-box"><div class="sv">${fmt(d.net_profit)}</div><div class="sl">Utilidad Neta</div></div>
+      <div class="stat-box"><div class="sv">${fk(d.kg_sold)}</div><div class="sl">Kg Vendidos</div></div>
+      <div class="stat-box"><div class="sv">${fk(d.kg_roasted)}</div><div class="sl">Kg Tostados</div></div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="sv">${fmt(d.cost_per_kg)}</div><div class="sl">Costo/Kg</div></div>
+      <div class="stat-box"><div class="sv">${fmt(d.profit_per_kg)}</div><div class="sl">Ganancia/Kg</div></div>
+      <div class="stat-box"><div class="sv">${fp(d.avg_loss_pct)}</div><div class="sl">Merma Prom</div></div>
+      <div class="stat-box"><div class="sv">${d.active_orders}</div><div class="sl">Pedidos Activos</div></div>
+    </div>
+
+    <h2 class="section-title">Costos del Mes</h2>
+    <div class="card">
+      <div class="card-row"><span class="card-label">Costos Directos</span><span class="card-value">${fmt(d.direct_costs)}</span></div>
+      <div class="card-row" style="padding-left:10px"><span class="card-label">↳ Electricidad máquina</span><span style="font-size:12px">${fmt(d.electricity_cost)}</span></div>
+      <div class="card-row"><span class="card-label">Otros Gastos</span><span class="card-value">${fmt(d.other_expenses)}</span></div>
+      <div class="card-row" style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+        <span class="card-label">Utilidad Neta</span><span class="card-value ${d.net_profit>=0?'green':'red'}">${fmt(d.net_profit)}</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Reparto de Utilidades</h2>
+    <div class="card">
+      <div class="card-row" style="margin-bottom:8px"><span class="card-label">Itzamara + Gastón (50%)</span><span class="card-value gold">${fmt((d.profit_shares.find(p=>p.name==='Itzamara')?.amount||0)+(d.profit_shares.find(p=>p.name==='Gastón')?.amount||0))}</span></div>
+      <div class="card-row" style="padding-left:10px"><span class="card-label">↳ Itzamara (25%)</span><span>${fmt(d.profit_shares.find(p=>p.name==='Itzamara')?.amount)}</span></div>
+      <div class="card-row" style="padding-left:10px"><span class="card-label">↳ Gastón (25%)</span><span>${fmt(d.profit_shares.find(p=>p.name==='Gastón')?.amount)}</span></div>
+      <div class="card-row" style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px"><span class="card-label">Axel (50%)</span><span class="card-value gold">${fmt(d.profit_shares.find(p=>p.name==='Axel')?.amount)}</span></div>
+    </div>
+
+    <h2 class="section-title">Capital Invertido</h2>
+    ${(d.capital||[]).map(c=>`<div class="card">
+      <div class="card-row"><span class="card-label">${c.partner_name}</span><span class="card-value">${fmt(c.invested)}</span></div>
+      <div class="card-row"><span class="card-label">Recuperado</span><span class="card-value green">${fmt(c.recovered)}</span></div>
+      <div class="card-row"><span class="card-label">Pendiente</span><span class="card-value ${(c.invested-c.recovered)>0?'red':'green'}">${fmt(c.invested-c.recovered)}</span></div>
+      <div class="progress-bar"><div class="fill" style="width:${c.invested>0?Math.min(100,(c.recovered/c.invested)*100):0}%"></div></div>
+    </div>`).join('')||'<div class="card"><p style="color:var(--text-dim);font-size:13px">Sin aportes</p></div>'}
+
+    <h2 class="section-title">Gastos por Socio (este mes)</h2>
+    ${(d.expenses_by_user||[]).map(e=>`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600">${e.paid_by}</span><span class="card-value">${fmt(e.total)}</span></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin gastos este mes</p>'}
+  `;
+}
+
+// ===== POS =====
+let cart=[];
+async function renderPOS(el) {
+  const prods = (await api('/products')).data||[];
+  cart=[];
+  el.innerHTML=`
+    <h1 class="page-title">Venta Rápida</h1>
+    <div class="tab-bar">
+      <div class="tab-item active" onclick="switchPOS('r',this)">Mostrador</div>
+      <div class="tab-item" onclick="switchPOS('o',this)">Pedido Grande</div>
+    </div>
+    <div id="posR">
+      <input type="text" class="search-box" placeholder="Buscar producto..." oninput="fprod(this.value)">
+      <div class="pos-products" id="ppg">${prods.map(p=>`<div class="pos-product" onclick="addCart(${p.id},'${p.name.replace(/'/g,"\\'")}',${p.price},'${p.presentation}')"><div class="pn">${p.name}</div><div class="ps">${p.presentation}</div><div class="pp">${fmt(p.price)}</div></div>`).join('')||'<p style="color:var(--text-dim);grid-column:1/-1;text-align:center;font-size:13px">Agrega productos en Catálogo</p>'}</div>
+      <div id="cartSec" style="display:none">
+        <h2 class="section-title">Carrito</h2>
+        <div id="cartItems"></div>
+        <div class="cart-total"><span>Total</span><span class="ta" id="cartT">$0</span></div>
+        <div class="form-group"><label>Método de Pago</label><select id="posPay"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option></select></div>
+        <div class="form-group"><label>Cliente (opcional)</label><input type="text" id="posCl" placeholder="Nombre"></div>
+        <button class="btn btn-primary btn-block" onclick="doSale()">Cobrar</button>
+      </div>
+    </div>
+    <div id="posO" style="display:none">
+      <div class="form-group"><label>Cliente</label><input type="text" id="oC" placeholder="Nombre" list="cList"><datalist id="cList"></datalist></div>
+      <div class="form-row">
+        <div class="form-group"><label>Kg Totales</label><input type="number" id="oKg" step="0.1"></div>
+        <div class="form-group"><label>Precio/Kg</label><input type="number" id="oPk" step="0.01"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Fecha Entrega</label><input type="date" id="oDel"></div>
+        <div class="form-group"><label>Anticipo</label><input type="number" id="oAnt" step="0.01" value="0"></div>
+      </div>
+      <div class="form-group"><label>Método Pago Anticipo</label><select id="oPM"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option></select></div>
+      <div class="form-group"><label>Notas</label><textarea id="oNotes"></textarea></div>
+      <div id="oGC" style="display:none" class="card"></div>
+      <button class="btn btn-secondary btn-block" onclick="checkGreen()" style="margin-bottom:8px">Verificar Café Verde</button>
+      <button class="btn btn-primary btn-block" onclick="createOrder()">Crear Pedido</button>
+    </div>`;
+  const cl=(await api('/clients')).data||[];
+  document.getElementById('cList').innerHTML=cl.map(c=>`<option value="${c.name}">`).join('');
+}
+
+function switchPOS(m,t){document.querySelectorAll('.tab-item').forEach(x=>x.classList.remove('active'));t.classList.add('active');document.getElementById('posR').style.display=m==='r'?'':'none';document.getElementById('posO').style.display=m==='o'?'':'none';}
+function fprod(q){document.querySelectorAll('#ppg .pos-product').forEach(p=>{p.style.display=p.textContent.toLowerCase().includes(q.toLowerCase())?'':'none'});}
+function addCart(id,name,price,pres){const e=cart.find(c=>c.id===id);if(e)e.qty++;else cart.push({id,name,price,presentation:pres,qty:1});rCart();}
+function rCart(){
+  const s=document.getElementById('cartSec');if(!cart.length){s.style.display='none';return;}s.style.display='';
+  document.getElementById('cartItems').innerHTML=cart.map((c,i)=>`<div class="cart-item"><div><div style="font-weight:600;font-size:13px">${c.name}</div><div style="font-size:11px;color:var(--text-sec)">${c.presentation} × ${fmt(c.price)}</div></div><div style="display:flex;align-items:center;gap:8px"><button onclick="uCQ(${i},-1)">−</button><span style="font-weight:600;min-width:18px;text-align:center">${c.qty}</span><button onclick="uCQ(${i},1)">+</button></div><div style="font-weight:700;min-width:70px;text-align:right">${fmt(c.price*c.qty)}</div></div>`).join('');
+  document.getElementById('cartT').textContent=fmt(cart.reduce((s,c)=>s+c.price*c.qty,0));
+}
+function uCQ(i,d){cart[i].qty+=d;if(cart[i].qty<=0)cart.splice(i,1);rCart();}
+async function doSale(){
+  if(!cart.length)return;
+  const total=cart.reduce((s,c)=>s+c.price*c.qty,0);
+  const items=cart.map(c=>({product_id:c.id,product_name:c.name,quantity:c.qty,unit:'pz',unit_price:c.price,subtotal:c.price*c.qty}));
+  await api('/orders',{method:'POST',body:{client_name:document.getElementById('posCl').value||'Mostrador',total_amount:total,is_retail:true,payment_method:document.getElementById('posPay').value,items,status:'pagado'}});
+  cart=[];alert('¡Venta registrada!');nav('pos');
+}
+async function checkGreen(){
+  const kg=parseFloat(document.getElementById('oKg').value);if(!kg){alert('Ingresa los kg');return;}
+  const dd=(await api('/dashboard')).data; const ml=dd?.max_loss_pct||20; const gn=kg/(1-ml/100);
+  const inv=(await api('/inventory')).data||[]; const gs=inv.filter(i=>i.item_type==='cafe_verde').reduce((s,i)=>s+i.quantity,0);
+  const ok=gs>=gn; const div=document.getElementById('oGC'); div.style.display='';
+  div.innerHTML=`<div class="card-row"><span class="card-label">Kg tostados requeridos</span><span class="card-value">${fk(kg)}</span></div><div class="card-row"><span class="card-label">Merma máxima</span><span class="card-value">${fp(ml)}</span></div><div class="card-row"><span class="card-label">Café verde necesario</span><span class="card-value">${fk(gn)}</span></div><div class="card-row"><span class="card-label">En stock</span><span class="card-value ${ok?'green':'red'}">${fk(gs)}</span></div><div class="card-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span class="card-label">${ok?'✅ Alcanza':'⚠️ Falta comprar'}</span><span class="card-value ${ok?'green':'red'}">${ok?fk(gs-gn)+' de sobra':fk(gn-gs)+' faltantes'}</span></div>`;
+}
+async function createOrder(){
+  const kg=parseFloat(document.getElementById('oKg').value),pk=parseFloat(document.getElementById('oPk').value);
+  if(!kg||!pk){alert('Completa kg y precio');return;}
+  const ant=parseFloat(document.getElementById('oAnt').value)||0;
+  const r=await api('/orders',{method:'POST',body:{client_name:document.getElementById('oC').value||'Sin nombre',total_kg:kg,price_per_kg:pk,total_amount:kg*pk,delivery_date:document.getElementById('oDel').value,notes:document.getElementById('oNotes').value,is_retail:false,status:'pendiente'}});
+  if(r.success&&ant>0) await api(`/orders/${r.data.id}/payments`,{method:'POST',body:{amount:ant,payment_method:document.getElementById('oPM').value,notes:'Anticipo'}});
+  if(r.success){alert('¡Pedido creado!');nav('orders');}
+}
+
+// ===== ORDERS =====
+async function renderOrders(el){
+  const orders=(await api('/orders')).data||[];
+  const sc={pendiente:'badge-orange',en_produccion:'badge-blue',listo:'badge-green',enviado_parcial:'badge-gold',entregado:'badge-green',pagado:'badge-green',cancelado:'badge-red'};
+  el.innerHTML=`<h1 class="page-title">Pedidos</h1><input type="text" class="search-box" placeholder="Buscar..." oninput="fL(this,'oL')">
+    <div id="oL">${orders.filter(o=>!o.is_retail).map(o=>{const pp=o.total_amount>0?(o.total_paid/o.total_amount*100):0;return`<div class="list-item" onclick="nav('orderDetail',{id:${o.id}})"><div style="flex:1"><div class="it">${o.client_name||o.client_name_full||'?'}</div><div class="is">${o.total_kg?fk(o.total_kg):''} · Entrega: ${o.delivery_date||'?'}</div><div class="progress-bar" style="margin-top:4px"><div class="fill" style="width:${pp}%"></div></div></div><div style="text-align:right"><div class="ia">${fmt(o.total_amount)}</div><span class="badge ${sc[o.status]||'badge-gold'}">${o.status}</span></div></div>`;}).join('')||'<div class="empty-state">Sin pedidos grandes</div>'}</div>
+    <h2 class="section-title">Ventas Mostrador (últimas 20)</h2>
+    ${orders.filter(o=>o.is_retail).slice(0,20).map(o=>`<div class="list-item"><div style="flex:1"><div class="it">${o.client_name||'Mostrador'}</div><div class="is">${new Date(o.created_at).toLocaleDateString('es-MX')}</div></div><div style="text-align:right"><div class="ia">${fmt(o.total_amount)}</div><span class="badge badge-green">${o.payment_method||'pagado'}</span></div></div>`).join('')||'<div class="empty-state">Sin ventas</div>'}`;
+}
+function fL(input,cid){const q=input.value.toLowerCase();document.querySelectorAll(`#${cid} .list-item`).forEach(i=>{i.style.display=i.textContent.toLowerCase().includes(q)?'':'none'});}
+
+// ===== ORDER DETAIL =====
+async function renderOD(el,data){
+  const r=await api(`/orders/${data.id}`);if(!r.success)return;
+  const{order:o,items,payments,shipments,batches,roasted_kg:rk,max_loss_pct:mlp}=r.data;
+  const tp=payments.reduce((s,p)=>s+p.amount,0), ts=shipments.reduce((s,x)=>s+x.kg_shipped,0), rem=(o.total_kg||0)-rk;
+  el.innerHTML=`
+    <button class="btn btn-secondary btn-sm" onclick="nav('orders')">← Pedidos</button>
+    <h1 class="page-title" style="margin-top:12px">${o.client_name||'Pedido'} #${o.id}</h1>
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-box"><div class="sv">${fmt(o.total_amount)}</div><div class="sl">Total</div></div>
+      <div class="stat-box"><div class="sv">${fmt(tp)}</div><div class="sl">Pagado</div></div>
+      <div class="stat-box"><div class="sv">${fk(o.total_kg)}</div><div class="sl">Pedido</div></div>
+      <div class="stat-box"><div class="sv">${fk(ts)}</div><div class="sl">Enviado</div></div>
+    </div>
+    ${o.total_kg?`<div class="card"><h3 style="font-size:13px;font-weight:600;margin-bottom:6px">Progreso</h3>
+      <div class="card-row"><span class="card-label">Tostado</span><span class="card-value">${fk(rk)} / ${fk(o.total_kg)}</span></div>
+      <div class="progress-bar"><div class="fill" style="width:${Math.min(100,(rk/o.total_kg)*100)}%"></div></div>
+      <div class="card-row"><span class="card-label">Falta tostar</span><span class="card-value ${rem>0?'red':'green'}">${fk(Math.max(0,rem))}</span></div>
+      <div class="card-row"><span class="card-label">Verde necesario (merma ${fp(mlp)})</span><span class="card-value">${fk(rem>0?rem/(1-mlp/100):0)}</span></div>
+      <div class="card-row"><span class="card-label">Envíos</span><span class="card-value">${fk(ts)} / ${fk(o.total_kg)}</span></div>
+      <div class="progress-bar"><div class="fill" style="width:${Math.min(100,(ts/(o.total_kg||1))*100)}%"></div></div>
+    </div>`:''}
+    <div class="form-group" style="max-width:200px"><label>Estado</label><select onchange="updOS(${o.id},this.value)">${['pendiente','en_produccion','listo','enviado_parcial','entregado','pagado','cancelado'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <h2 class="section-title">Pagos</h2>
+    ${payments.map(p=>`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:600">${fmt(p.amount)}</div><div style="font-size:11px;color:var(--text-sec)">${p.payment_date?.slice(0,10)} · ${p.payment_method} ${p.notes?'· '+p.notes:''}</div></div><button class="delete-btn" onclick="delPay(${p.id},${o.id})">×</button></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin pagos</p>'}
+    <button class="btn btn-secondary btn-sm" onclick="addPayM(${o.id})">+ Pago</button>
+    <h2 class="section-title">Envíos</h2>
+    ${shipments.map(s=>`<div class="card"><div class="card-row"><span class="card-label">Fecha</span><span>${s.shipment_date?.slice(0,10)}</span></div><div class="card-row"><span class="card-label">Kg</span><span class="card-value">${fk(s.kg_shipped)}</span></div><div class="card-row"><span class="card-label">Destino</span><span>${s.destination_address||'-'}</span></div><div class="card-row"><span class="card-label">Paquetería</span><span>${s.carrier||'-'} ${s.tracking_number?'('+s.tracking_number+')':''}</span></div><div class="card-row"><span class="card-label">Costo</span><span class="card-value">${fmt(s.shipping_cost)}</span></div><button class="delete-btn" onclick="delShip(${s.id},${o.id})" style="float:right">×</button></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin envíos</p>'}
+    <button class="btn btn-secondary btn-sm" onclick="addShipM(${o.id})">+ Envío</button>
+    <div style="margin-top:16px"><button class="btn btn-danger btn-sm" onclick="delOrder(${o.id})">Eliminar Pedido</button></div>`;
+}
+async function updOS(id,st){const r=await api(`/orders/${id}`);if(r.success){const o=r.data.order;await api(`/orders/${id}`,{method:'PUT',body:{...o,status:st}});}}
+function addPayM(oid){modal('Registrar Pago',b=>{b.innerHTML=`<div class="form-group"><label>Monto</label><input type="number" id="mpA" step="0.01"></div><div class="form-group"><label>Método</label><select id="mpM"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option></select></div><div class="form-group"><label>Notas</label><input type="text" id="mpN"></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="subPay(${oid})">Guardar</button>`;});}
+async function subPay(oid){await api(`/orders/${oid}/payments`,{method:'POST',body:{amount:parseFloat(document.getElementById('mpA').value),payment_method:document.getElementById('mpM').value,notes:document.getElementById('mpN').value}});document.querySelector('.modal-overlay').remove();nav('orderDetail',{id:oid});}
+async function delPay(pid,oid){if(!confirm('¿Eliminar?'))return;await api(`/payments/${pid}`,{method:'DELETE'});nav('orderDetail',{id:oid});}
+function addShipM(oid){modal('Registrar Envío',b=>{b.innerHTML=`<div class="form-group"><label>Kg Enviados</label><input type="number" id="msK" step="0.1"></div><div class="form-group"><label>Dirección</label><input type="text" id="msA"></div><div class="form-group"><label>Paquetería</label><input type="text" id="msC"></div><div class="form-group"><label>Guía</label><input type="text" id="msT"></div><div class="form-group"><label>Costo Envío</label><input type="number" id="msCo" step="0.01"></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="subShip(${oid})">Guardar</button>`;});}
+async function subShip(oid){await api(`/orders/${oid}/shipments`,{method:'POST',body:{kg_shipped:parseFloat(document.getElementById('msK').value),destination_address:document.getElementById('msA').value,carrier:document.getElementById('msC').value,tracking_number:document.getElementById('msT').value,shipping_cost:parseFloat(document.getElementById('msCo').value)||0}});document.querySelector('.modal-overlay').remove();nav('orderDetail',{id:oid});}
+async function delShip(sid,oid){if(!confirm('¿Eliminar?'))return;await api(`/shipments/${sid}`,{method:'DELETE'});nav('orderDetail',{id:oid});}
+async function delOrder(id){if(!confirm('¿Eliminar pedido?'))return;await api(`/orders/${id}`,{method:'DELETE'});nav('orders');}
+
+// ===== PRODUCTION =====
+async function renderProd(el){
+  const ss=(await api('/roasting')).data||[];
+  el.innerHTML=`<h1 class="page-title">Producción / Tostado</h1><button class="btn btn-primary btn-sm" onclick="newSessM()" style="margin-bottom:12px">+ Nueva Sesión</button>
+    ${ss.map(s=>`<div class="list-item" onclick="nav('sessionDetail',{id:${s.id}})"><div style="flex:1"><div class="it">${s.session_date} · ${s.operator}</div><div class="is">${s.batch_count} batches · ${fk(s.total_green)} verde → ${fk(s.total_roasted)} tostado</div></div><span style="color:var(--gold)">→</span></div>`).join('')||'<div class="empty-state">Sin sesiones</div>'}`;
+}
+function newSessM(){modal('Nueva Sesión',b=>{b.innerHTML=`<div class="form-group"><label>Fecha</label><input type="date" id="nsD" value="${new Date().toISOString().slice(0,10)}"></div><div class="form-group"><label>Operador</label>${partnerSelect('nsO')}</div><div class="form-group"><label>Notas</label><textarea id="nsN"></textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crSess()">Crear</button>`;});}
+async function crSess(){const r=await api('/roasting',{method:'POST',body:{session_date:document.getElementById('nsD').value,operator:document.getElementById('nsO').value,notes:document.getElementById('nsN').value}});document.querySelector('.modal-overlay').remove();if(r.success)nav('sessionDetail',{id:r.data.id});}
+
+// ===== SESSION DETAIL =====
+async function renderSD(el,data){
+  const r=await api(`/roasting/${data.id}`);if(!r.success)return;
+  const{session:s,batches:bs}=r.data;
+  window._so=(await api('/origins')).data||[];window._sv=(await api('/varieties')).data||[];window._sp=(await api('/roast_profiles')).data||[];window._sOrds=((await api('/orders')).data||[]).filter(o=>!o.is_retail&&o.status!=='pagado'&&o.status!=='cancelado');window._sid=s.id;
+  el.innerHTML=`<button class="btn btn-secondary btn-sm" onclick="nav('production')">← Sesiones</button>
+    <h1 class="page-title" style="margin-top:12px">Sesión ${s.session_date}</h1><p style="color:var(--text-sec);margin-bottom:12px;font-size:13px">Operador: ${s.operator}</p>
+    <button class="btn btn-primary btn-sm" onclick="addBatchM(${s.id})" style="margin-bottom:12px">+ Batch</button>
+    ${bs.map(b=>`<div class="card">
+      <div class="card-row"><span style="font-weight:700;color:var(--gold)">${b.batch_number}</span>${b.quality_rating?`<span class="badge ${b.quality_rating==='vender'?'badge-green':b.quality_rating==='blendear'?'badge-orange':'badge-red'}">${b.quality_rating}</span>`:''}</div>
+      <div class="card-row"><span class="card-label">Origen</span><span>${b.origin_name||'-'} ${b.variety_name?'('+b.variety_name+')':''}</span></div>
+      <div class="card-row"><span class="card-label">Perfil</span><span>${b.roast_name||'-'}</span></div>
+      <div class="card-row"><span class="card-label">Verde → Tostado</span><span class="card-value">${fk(b.green_kg)} → ${b.roasted_kg?fk(b.roasted_kg):'?'}</span></div>
+      ${b.loss_pct!==null?`<div class="card-row"><span class="card-label">Merma</span><span class="card-value ${b.loss_pct>18?'red':'green'}">${fp(b.loss_pct)}</span></div>`:''}
+      ${b.machine_hours?`<div class="card-row"><span class="card-label">Horas máquina</span><span>${b.machine_hours}h</span></div>`:''}
+      ${b.ai_analysis?`<div style="margin-top:8px;padding:10px;background:var(--bg);border-radius:6px;font-size:12px;line-height:1.5;white-space:pre-wrap">${b.ai_analysis}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="editBatchM(${b.id})">Editar</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer">Subir Curva<input type="file" accept=".alog,.csv,.json" style="display:none" onchange="upArt(${b.id},this)"></label>
+        ${b.artisan_file_name?`<span style="font-size:10px;color:var(--green);align-self:center">📎 ${b.artisan_file_name}</span>`:''}
+        <button class="delete-btn" onclick="delBatch(${b.id},${s.id})">×</button>
+      </div>
+    </div>`).join('')||'<div class="empty-state">Sin batches</div>'}
+    <div style="margin-top:16px"><button class="btn btn-danger btn-sm" onclick="delSess(${s.id})">Eliminar Sesión</button></div>`;
+}
+function addBatchM(sid){modal('Nuevo Batch',b=>{b.innerHTML=`<div class="form-group"><label>Origen</label><select id="bO">${window._so.map(o=>`<option value="${o.id}">${o.name}</option>`).join('')}</select></div><div class="form-group"><label>Variedad</label><select id="bV">${window._sv.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')}</select></div><div class="form-group"><label>Perfil</label><select id="bP">${window._sp.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label>Kg Verde</label><input type="number" id="bG" step="0.01"></div><div class="form-group"><label>Kg Tostado</label><input type="number" id="bR" step="0.01"></div></div><div class="form-group"><label>Horas Máquina</label><input type="number" id="bH" step="0.01" value="0"></div><div class="form-group"><label>Pedido (opcional)</label><select id="bOr"><option value="">Ninguno</option>${window._sOrds.map(o=>`<option value="${o.id}">${o.client_name||o.client_name_full} - ${fk(o.total_kg)}</option>`).join('')}</select></div><div class="form-group"><label>Notas</label><textarea id="bN"></textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crBatch(${sid})">Guardar</button>`;});}
+async function crBatch(sid){await api(`/roasting/${sid}/batches`,{method:'POST',body:{origin_id:document.getElementById('bO').value,variety_id:document.getElementById('bV').value,roast_profile_id:document.getElementById('bP').value,green_kg:parseFloat(document.getElementById('bG').value),roasted_kg:parseFloat(document.getElementById('bR').value)||null,machine_hours:parseFloat(document.getElementById('bH').value)||0,order_id:document.getElementById('bOr').value||null,notes:document.getElementById('bN').value}});document.querySelector('.modal-overlay').remove();nav('sessionDetail',{id:sid});}
+async function editBatchM(bid){const r=await api(`/roasting/${window._sid}`);const b=r.data.batches.find(x=>x.id===bid);if(!b)return;modal('Editar Batch',body=>{body.innerHTML=`<div class="form-group"><label>Origen</label><select id="bO">${window._so.map(o=>`<option value="${o.id}" ${o.id==b.origin_id?'selected':''}>${o.name}</option>`).join('')}</select></div><div class="form-group"><label>Variedad</label><select id="bV">${window._sv.map(v=>`<option value="${v.id}" ${v.id==b.variety_id?'selected':''}>${v.name}</option>`).join('')}</select></div><div class="form-group"><label>Perfil</label><select id="bP">${window._sp.map(p=>`<option value="${p.id}" ${p.id==b.roast_profile_id?'selected':''}>${p.name}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label>Kg Verde</label><input type="number" id="bG" step="0.01" value="${b.green_kg}"></div><div class="form-group"><label>Kg Tostado</label><input type="number" id="bR" step="0.01" value="${b.roasted_kg||''}"></div></div><div class="form-group"><label>Horas Máquina</label><input type="number" id="bH" step="0.01" value="${b.machine_hours||0}"></div><div class="form-group"><label>Calificación</label><select id="bQ"><option value="">Sin calificar</option><option value="vender" ${b.quality_rating==='vender'?'selected':''}>✅ Vender</option><option value="blendear" ${b.quality_rating==='blendear'?'selected':''}>🔄 Blendear</option><option value="descartar" ${b.quality_rating==='descartar'?'selected':''}>❌ Descartar</option></select></div><div class="form-group"><label>Notas</label><textarea id="bN">${b.notes||''}</textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="updBatch(${bid})">Guardar</button>`;});}
+async function updBatch(bid){await api(`/batches/${bid}`,{method:'PUT',body:{origin_id:document.getElementById('bO').value,variety_id:document.getElementById('bV').value,roast_profile_id:document.getElementById('bP').value,green_kg:parseFloat(document.getElementById('bG').value),roasted_kg:parseFloat(document.getElementById('bR').value)||null,machine_hours:parseFloat(document.getElementById('bH').value)||0,quality_rating:document.getElementById('bQ').value||null,notes:document.getElementById('bN').value}});document.querySelector('.modal-overlay').remove();nav('sessionDetail',{id:window._sid});}
+async function upArt(bid,input){if(!input.files[0])return;const fd=new FormData();fd.append('file',input.files[0]);const r=await apiForm(`/batches/${bid}/artisan`,fd);if(r.success){alert(r.data.analysis?'Análisis completado':'Subido');nav('sessionDetail',{id:window._sid});}}
+async function delBatch(bid,sid){if(!confirm('¿Eliminar?'))return;await api(`/batches/${bid}`,{method:'DELETE'});nav('sessionDetail',{id:sid});}
+async function delSess(sid){if(!confirm('¿Eliminar sesión?'))return;await api(`/roasting/${sid}`,{method:'DELETE'});nav('production');}
+
+// ===== INVENTORY =====
+async function renderInv(el){
+  const items=(await api('/inventory')).data||[];
+  const types=[{k:'cafe_verde',l:'Café Verde',i:'🌿'},{k:'cafe_tostado',l:'Café Tostado',i:'☕'},{k:'cafe_empaquetado',l:'Café Empaquetado',i:'📦'},{k:'insumo',l:'Insumos',i:'🏷️'}];
+  el.innerHTML=`<h1 class="page-title">Inventario</h1><button class="btn btn-primary btn-sm" onclick="addInvM()" style="margin-bottom:12px">+ Item</button>
+    ${types.map(t=>{const ti=items.filter(i=>i.item_type===t.k);return`<h2 class="section-title">${t.i} ${t.l}</h2>${ti.length?ti.map(i=>`<div class="list-item"><div style="flex:1" onclick="showMov(${i.id},'${i.item_name.replace(/'/g,"\\'")}')"><div class="it">${i.item_name}</div><div class="is">${i.lot_label||''} ${i.origin_name?'· '+i.origin_name:''}</div></div><div style="display:flex;align-items:center;gap:6px"><div style="text-align:right"><div class="ia ${i.quantity<=i.min_stock?'red':''}" style="color:${i.quantity<=i.min_stock?'var(--red)':'var(--text)'}">${i.quantity} ${i.unit}</div>${i.min_stock>0?`<div style="font-size:9px;color:var(--text-dim)">Mín: ${i.min_stock}</div>`:''}</div><button class="btn btn-sm btn-secondary" onclick="addMovM(${i.id},'${i.item_name.replace(/'/g,"\\'")}')">±</button><button class="edit-btn" onclick="editInvM(${i.id})">✎</button><button class="delete-btn" onclick="delInv(${i.id})">×</button></div></div>`).join(''):'<p style="color:var(--text-dim);font-size:12px;padding:0 14px">Vacío</p>'}`;}).join('')}`;
+}
+async function addInvM(){const o=(await api('/origins')).data||[],v=(await api('/varieties')).data||[];modal('Agregar Item',b=>{b.innerHTML=`<div class="form-group"><label>Tipo</label><select id="iT"><option value="cafe_verde">Café Verde</option><option value="cafe_tostado">Café Tostado</option><option value="cafe_empaquetado">Empaquetado</option><option value="insumo">Insumo</option></select></div><div class="form-group"><label>Nombre</label><input type="text" id="iN"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input type="number" id="iQ" step="0.01" value="0"></div><div class="form-group"><label>Unidad</label><select id="iU"><option>kg</option><option>pz</option><option>lt</option></select></div></div><div class="form-group"><label>Stock Mín</label><input type="number" id="iM" step="0.01" value="0"></div><div class="form-group"><label>Lote</label><input type="text" id="iL"></div><div class="form-group"><label>Origen</label><select id="iOr"><option value="">-</option>${o.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')}</select></div><div class="form-group"><label>Variedad</label><select id="iVr"><option value="">-</option>${v.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')}</select></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crInv()">Guardar</button>`;});}
+async function crInv(){await api('/inventory',{method:'POST',body:{item_type:document.getElementById('iT').value,item_name:document.getElementById('iN').value,quantity:parseFloat(document.getElementById('iQ').value),unit:document.getElementById('iU').value,min_stock:parseFloat(document.getElementById('iM').value),lot_label:document.getElementById('iL').value,origin_id:document.getElementById('iOr').value||null,variety_id:document.getElementById('iVr').value||null}});document.querySelector('.modal-overlay').remove();nav('inventory');}
+async function editInvM(id){const items=(await api('/inventory')).data||[];const i=items.find(x=>x.id===id);if(!i)return;modal('Editar',b=>{b.innerHTML=`<div class="form-group"><label>Nombre</label><input type="text" id="iN" value="${i.item_name}"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input type="number" id="iQ" step="0.01" value="${i.quantity}"></div><div class="form-group"><label>Unidad</label><select id="iU"><option ${i.unit==='kg'?'selected':''}>kg</option><option ${i.unit==='pz'?'selected':''}>pz</option><option ${i.unit==='lt'?'selected':''}>lt</option></select></div></div><div class="form-group"><label>Stock Mín</label><input type="number" id="iM" step="0.01" value="${i.min_stock}"></div><div class="form-group"><label>Lote</label><input type="text" id="iL" value="${i.lot_label||''}"></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="updInv(${id})">Guardar</button>`;});}
+async function updInv(id){const items=(await api('/inventory')).data||[];const i=items.find(x=>x.id===id);await api(`/inventory/${id}`,{method:'PUT',body:{...i,item_name:document.getElementById('iN').value,quantity:parseFloat(document.getElementById('iQ').value),unit:document.getElementById('iU').value,min_stock:parseFloat(document.getElementById('iM').value),lot_label:document.getElementById('iL').value}});document.querySelector('.modal-overlay').remove();nav('inventory');}
+function addMovM(invId,name){modal(`Movimiento: ${name}`,b=>{b.innerHTML=`<div class="form-group"><label>Tipo</label><select id="mvT"><option value="entrada">Entrada</option><option value="salida">Salida</option><option value="ajuste">Ajuste</option></select></div><div class="form-group"><label>Cantidad</label><input type="number" id="mvQ" step="0.01"></div><div class="form-group"><label>Razón</label><input type="text" id="mvR"></div><div class="form-group"><label>Registrado por</label>${partnerSelect('mvBy')}</div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crMov(${invId})">Guardar</button>`;});}
+async function crMov(invId){await api(`/inventory/${invId}/movements`,{method:'POST',body:{movement_type:document.getElementById('mvT').value,quantity:parseFloat(document.getElementById('mvQ').value),reason:document.getElementById('mvR').value,registered_by:document.getElementById('mvBy').value}});document.querySelector('.modal-overlay').remove();nav('inventory');}
+async function showMov(invId,name){const r=await api(`/inventory/${invId}/movements`);const mvs=r.success?r.data:[];modal(`Movimientos: ${name}`,b=>{b.innerHTML=mvs.length?mvs.map(m=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><div><span class="badge ${m.movement_type==='entrada'?'badge-green':m.movement_type==='salida'?'badge-red':'badge-gold'}">${m.movement_type}</span><span style="margin-left:6px;font-size:12px">${m.reason||''}</span></div><div style="text-align:right"><div style="font-weight:600">${m.movement_type==='salida'?'-':''}${m.quantity}</div><div style="font-size:10px;color:var(--text-dim)">${m.created_at?.slice(0,10)} · ${m.registered_by||''}</div></div></div>`).join(''):'<p style="color:var(--text-dim);font-size:13px">Sin movimientos</p>';});}
+async function delInv(id){if(!confirm('¿Eliminar?'))return;await api(`/inventory/${id}`,{method:'DELETE'});nav('inventory');}
+
+// ===== EXPENSES =====
+async function renderExp(el){
+  const m=new Date().toISOString().slice(0,7);const exps=(await api(`/expenses?month=${m}`)).data||[];const cats=(await api('/expense_categories')).data||[];window._ec=cats;window._exps=exps;
+  el.innerHTML=`<h1 class="page-title">Gastos</h1><button class="btn btn-primary btn-sm" onclick="addExpM()" style="margin-bottom:12px">+ Gasto</button>
+    ${exps.map(e=>`<div class="list-item"><div style="flex:1"><div class="it">${e.description||e.category_name}</div><div class="is">${e.expense_date} · ${e.paid_by} · ${e.category_name} ${e.supplier?'· '+e.supplier:''} ${e.lot_label?'· Lote: '+e.lot_label:''}</div></div><div style="display:flex;align-items:center;gap:6px"><div class="ia">${fmt(e.amount)}</div><button class="edit-btn" onclick="editExpM(${e.id})">✎</button><button class="delete-btn" onclick="delExp(${e.id})">×</button></div></div>`).join('')||'<div class="empty-state">Sin gastos este mes</div>'}`;
+}
+async function addExpM(){const cats=window._ec||[];modal('Registrar Gasto',b=>{b.innerHTML=`<div class="form-group"><label>Fecha</label><input type="date" id="exD" value="${new Date().toISOString().slice(0,10)}"></div><div class="form-group"><label>Categoría</label><select id="exC">${cats.map(c=>`<option value="${c.id}">${c.name}${c.is_direct_cost?' (directo)':''}</option>`).join('')}</select></div><div class="form-group"><label>Monto</label><input type="number" id="exA" step="0.01"></div><div class="form-group"><label>Descripción</label><input type="text" id="exDe"></div><div class="form-group"><label>Pagado por</label>${partnerSelect('exP')}</div><div class="form-group"><label>Proveedor</label><input type="text" id="exS"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input type="number" id="exQ" step="0.01"></div><div class="form-group"><label>Unidad</label><input type="text" id="exU" placeholder="kg, pz..."></div></div><div class="form-group"><label>Lote</label><input type="text" id="exL"></div><div class="form-group"><label>Notas</label><textarea id="exN"></textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crExp()">Guardar</button>`;});}
+async function crExp(){await api('/expenses',{method:'POST',body:{expense_date:document.getElementById('exD').value,category_id:document.getElementById('exC').value,amount:parseFloat(document.getElementById('exA').value),description:document.getElementById('exDe').value,paid_by:document.getElementById('exP').value,supplier:document.getElementById('exS').value,quantity:parseFloat(document.getElementById('exQ').value)||null,quantity_unit:document.getElementById('exU').value,lot_label:document.getElementById('exL').value,notes:document.getElementById('exN').value}});document.querySelector('.modal-overlay').remove();nav('expenses');}
+async function editExpM(id){const e=(window._exps||[]).find(x=>x.id===id);if(!e)return;const cats=window._ec||[];modal('Editar Gasto',b=>{b.innerHTML=`<div class="form-group"><label>Fecha</label><input type="date" id="exD" value="${e.expense_date}"></div><div class="form-group"><label>Categoría</label><select id="exC">${cats.map(c=>`<option value="${c.id}" ${c.id==e.category_id?'selected':''}>${c.name}</option>`).join('')}</select></div><div class="form-group"><label>Monto</label><input type="number" id="exA" step="0.01" value="${e.amount}"></div><div class="form-group"><label>Descripción</label><input type="text" id="exDe" value="${e.description||''}"></div><div class="form-group"><label>Pagado por</label>${partnerSelect('exP',e.paid_by)}</div><div class="form-group"><label>Proveedor</label><input type="text" id="exS" value="${e.supplier||''}"></div><div class="form-group"><label>Lote</label><input type="text" id="exL" value="${e.lot_label||''}"></div><div class="form-group"><label>Notas</label><textarea id="exN">${e.notes||''}</textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="updExp(${id})">Guardar</button>`;});}
+async function updExp(id){await api(`/expenses/${id}`,{method:'PUT',body:{expense_date:document.getElementById('exD').value,category_id:document.getElementById('exC').value,amount:parseFloat(document.getElementById('exA').value),description:document.getElementById('exDe').value,paid_by:document.getElementById('exP').value,supplier:document.getElementById('exS').value,lot_label:document.getElementById('exL').value,notes:document.getElementById('exN').value}});document.querySelector('.modal-overlay').remove();nav('expenses');}
+async function delExp(id){if(!confirm('¿Eliminar?'))return;await api(`/expenses/${id}`,{method:'DELETE'});nav('expenses');}
+
+// ===== CLIENTS =====
+async function renderClients(el){
+  const cls=(await api('/clients')).data||[];
+  el.innerHTML=`<h1 class="page-title">Clientes</h1><button class="btn btn-primary btn-sm" onclick="addClM()" style="margin-bottom:12px">+ Cliente</button><input type="text" class="search-box" placeholder="Buscar..." oninput="fL(this,'clL')">
+    <div id="clL">${cls.map(c=>`<div class="list-item" onclick="nav('clientDetail',{id:${c.id}})"><div style="flex:1"><div class="it">${c.name}</div><div class="is">${c.phone||''} ${c.city?'· '+c.city:''}</div></div><span style="color:var(--gold)">→</span></div>`).join('')||'<div class="empty-state">Sin clientes</div>'}</div>`;
+}
+function addClM(){modal('Nuevo Cliente',b=>{b.innerHTML=`<div class="form-group"><label>Nombre</label><input type="text" id="clN"></div><div class="form-group"><label>Teléfono</label><input type="tel" id="clP"></div><div class="form-group"><label>Email</label><input type="email" id="clE"></div><div class="form-group"><label>Dirección</label><input type="text" id="clA"></div><div class="form-group"><label>Ciudad</label><input type="text" id="clC"></div><div class="form-group"><label>Notas</label><textarea id="clNo"></textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crCl()">Guardar</button>`;});}
+async function crCl(){await api('/clients',{method:'POST',body:{name:document.getElementById('clN').value,phone:document.getElementById('clP').value,email:document.getElementById('clE').value,address:document.getElementById('clA').value,city:document.getElementById('clC').value,notes:document.getElementById('clNo').value}});document.querySelector('.modal-overlay').remove();nav('clients');}
+
+async function renderCD(el,data){
+  const r=await api(`/clients/${data.id}`);if(!r.success)return;const{client:c,orders:os}=r.data;const tot=os.reduce((s,o)=>s+(o.total_amount||0),0);window._cc=c;
+  el.innerHTML=`<button class="btn btn-secondary btn-sm" onclick="nav('clients')">← Clientes</button>
+    <h1 class="page-title" style="margin-top:12px">${c.name}</h1>
+    <div class="card">${c.phone?`<div class="card-row"><span class="card-label">Tel</span><span>${c.phone}</span></div>`:''}${c.email?`<div class="card-row"><span class="card-label">Email</span><span>${c.email}</span></div>`:''}${c.address?`<div class="card-row"><span class="card-label">Dir</span><span>${c.address}</span></div>`:''}${c.city?`<div class="card-row"><span class="card-label">Ciudad</span><span>${c.city}</span></div>`:''}<div class="card-row"><span class="card-label">Total gastado</span><span class="card-value gold">${fmt(tot)}</span></div></div>
+    <div style="display:flex;gap:6px;margin-bottom:14px"><button class="btn btn-secondary btn-sm" onclick="editClM(${c.id})">Editar</button><button class="btn btn-danger btn-sm" onclick="delCl(${c.id})">Eliminar</button></div>
+    <h2 class="section-title">Historial</h2>
+    ${os.map(o=>`<div class="list-item" onclick="nav('orderDetail',{id:${o.id}})"><div style="flex:1"><div class="it">${o.is_retail?'Mostrador':fk(o.total_kg)}</div><div class="is">${new Date(o.created_at).toLocaleDateString('es-MX')} · ${o.status}</div></div><div class="ia">${fmt(o.total_amount)}</div></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin pedidos</p>'}`;
+}
+async function editClM(id){const c=window._cc;modal('Editar',b=>{b.innerHTML=`<div class="form-group"><label>Nombre</label><input type="text" id="clN" value="${c.name}"></div><div class="form-group"><label>Teléfono</label><input type="tel" id="clP" value="${c.phone||''}"></div><div class="form-group"><label>Email</label><input type="email" id="clE" value="${c.email||''}"></div><div class="form-group"><label>Dirección</label><input type="text" id="clA" value="${c.address||''}"></div><div class="form-group"><label>Ciudad</label><input type="text" id="clC" value="${c.city||''}"></div><div class="form-group"><label>Notas</label><textarea id="clNo">${c.notes||''}</textarea></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="updCl(${id})">Guardar</button>`;});}
+async function updCl(id){await api(`/clients/${id}`,{method:'PUT',body:{name:document.getElementById('clN').value,phone:document.getElementById('clP').value,email:document.getElementById('clE').value,address:document.getElementById('clA').value,city:document.getElementById('clC').value,notes:document.getElementById('clNo').value}});document.querySelector('.modal-overlay').remove();nav('clientDetail',{id});}
+async function delCl(id){if(!confirm('¿Eliminar?'))return;await api(`/clients/${id}`,{method:'DELETE'});nav('clients');}
+
+// ===== PRODUCTS =====
+async function renderProds(el){
+  const prods=(await api('/products')).data||[];
+  el.innerHTML=`<h1 class="page-title">Catálogo de Productos</h1><button class="btn btn-primary btn-sm" onclick="addProdM()" style="margin-bottom:12px">+ Producto</button>
+    ${prods.map(p=>`<div class="list-item"><div style="flex:1"><div class="it">${p.name}</div><div class="is">${p.origin_name||''} ${p.variety_name?'· '+p.variety_name:''} · ${p.roast_name||''} · ${p.presentation}</div></div><div style="display:flex;align-items:center;gap:6px"><div class="ia">${fmt(p.price)}</div><button class="edit-btn" onclick="editProdM(${p.id})">✎</button><button class="delete-btn" onclick="delProd(${p.id})">×</button></div></div>`).join('')||'<div class="empty-state">Sin productos</div>'}`;
+}
+async function addProdM(){const o=(await api('/origins')).data||[],v=(await api('/varieties')).data||[],p=(await api('/roast_profiles')).data||[];modal('Nuevo Producto',b=>{b.innerHTML=`<div class="form-group"><label>Nombre</label><input type="text" id="prN"></div><div class="form-group"><label>Origen</label><select id="prO"><option value="">-</option>${o.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')}</select></div><div class="form-group"><label>Variedad</label><select id="prV"><option value="">-</option>${v.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')}</select></div><div class="form-group"><label>Perfil</label><select id="prP"><option value="">-</option>${p.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label>Presentación</label><select id="prPr"><option value="250g">250g</option><option value="500g">500g</option><option value="1kg">1 kg</option><option value="granel">Granel</option></select></div><div class="form-group"><label>Precio</label><input type="number" id="prPx" step="0.01"></div></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crProd()">Guardar</button>`;});}
+async function crProd(){await api('/products',{method:'POST',body:{name:document.getElementById('prN').value,origin_id:document.getElementById('prO').value||null,variety_id:document.getElementById('prV').value||null,roast_profile_id:document.getElementById('prP').value||null,presentation:document.getElementById('prPr').value,price:parseFloat(document.getElementById('prPx').value)}});document.querySelector('.modal-overlay').remove();nav('products');}
+async function editProdM(id){const prods=(await api('/products')).data||[];const pr=prods.find(x=>x.id===id);if(!pr)return;const o=(await api('/origins')).data||[],v=(await api('/varieties')).data||[],p=(await api('/roast_profiles')).data||[];modal('Editar Producto',b=>{b.innerHTML=`<div class="form-group"><label>Nombre</label><input type="text" id="prN" value="${pr.name}"></div><div class="form-group"><label>Origen</label><select id="prO"><option value="">-</option>${o.map(x=>`<option value="${x.id}" ${x.id==pr.origin_id?'selected':''}>${x.name}</option>`).join('')}</select></div><div class="form-group"><label>Variedad</label><select id="prV"><option value="">-</option>${v.map(x=>`<option value="${x.id}" ${x.id==pr.variety_id?'selected':''}>${x.name}</option>`).join('')}</select></div><div class="form-group"><label>Perfil</label><select id="prP"><option value="">-</option>${p.map(x=>`<option value="${x.id}" ${x.id==pr.roast_profile_id?'selected':''}>${x.name}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label>Presentación</label><select id="prPr">${['250g','500g','1kg','granel'].map(s=>`<option ${s===pr.presentation?'selected':''}>${s}</option>`).join('')}</select></div><div class="form-group"><label>Precio</label><input type="number" id="prPx" step="0.01" value="${pr.price}"></div></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="updProd(${id})">Guardar</button>`;});}
+async function updProd(id){await api(`/products/${id}`,{method:'PUT',body:{name:document.getElementById('prN').value,origin_id:document.getElementById('prO').value||null,variety_id:document.getElementById('prV').value||null,roast_profile_id:document.getElementById('prP').value||null,presentation:document.getElementById('prPr').value,price:parseFloat(document.getElementById('prPx').value)}});document.querySelector('.modal-overlay').remove();nav('products');}
+async function delProd(id){if(!confirm('¿Eliminar?'))return;await api(`/products/${id}`,{method:'DELETE'});nav('products');}
+
+// ===== CAPITAL =====
+async function renderCap(el){
+  const caps=(await api('/capital')).data||[],wths=(await api('/withdrawals')).data||[];
+  el.innerHTML=`<h1 class="page-title">Capital & Utilidades</h1><button class="btn btn-primary btn-sm" onclick="addCapM()" style="margin-bottom:12px">+ Aporte</button>
+    <h2 class="section-title">Aportes de Capital</h2>
+    ${caps.map(c=>`<div class="card"><div class="card-row"><span class="card-label">${c.partner_name}</span><span class="card-value">${fmt(c.amount)}</span></div><div class="card-row"><span class="card-label">Desc</span><span style="font-size:13px">${c.description||'-'}</span></div><div class="card-row"><span class="card-label">Fecha</span><span>${c.contribution_date}</span></div><div class="card-row"><span class="card-label">Recuperado</span><span class="card-value green">${fmt(c.recovered)}</span></div><div class="progress-bar"><div class="fill" style="width:${c.amount>0?Math.min(100,(c.recovered/c.amount)*100):0}%"></div></div><div style="display:flex;gap:6px;margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="recCapM(${c.id},${c.amount},${c.recovered})">Recuperar</button><button class="delete-btn" onclick="delCap(${c.id})">×</button></div></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin aportes</p>'}
+    <h2 class="section-title">Retiros de Utilidades</h2>
+    <button class="btn btn-success btn-sm" onclick="addWthM()" style="margin-bottom:8px">+ Retiro</button>
+    ${wths.map(w=>`<div class="list-item"><div style="flex:1"><div class="it">${w.partner_name}</div><div class="is">${w.month} · ${w.withdrawal_date}</div></div><div style="display:flex;align-items:center;gap:6px"><div class="ia">${fmt(w.amount)}</div><button class="delete-btn" onclick="delWth(${w.id})">×</button></div></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin retiros</p>'}`;
+}
+function addCapM(){modal('Aporte de Capital',b=>{b.innerHTML=`<div class="form-group"><label>Socio</label>${partnerSelect('capN')}</div><div class="form-group"><label>Monto</label><input type="number" id="capA" step="0.01"></div><div class="form-group"><label>Descripción</label><input type="text" id="capD"></div><div class="form-group"><label>Fecha</label><input type="date" id="capF" value="${new Date().toISOString().slice(0,10)}"></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crCap()">Guardar</button>`;});}
+async function crCap(){await api('/capital',{method:'POST',body:{partner_name:document.getElementById('capN').value,amount:parseFloat(document.getElementById('capA').value),description:document.getElementById('capD').value,contribution_date:document.getElementById('capF').value}});document.querySelector('.modal-overlay').remove();nav('capital');}
+function recCapM(id,tot,rec){modal('Recuperar',b=>{b.innerHTML=`<p style="margin-bottom:10px;color:var(--text-sec);font-size:13px">Pendiente: ${fmt(tot-rec)}</p><div class="form-group"><label>Monto</label><input type="number" id="recA" step="0.01" value="${tot-rec}"></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="recCap(${id},${rec})">Guardar</button>`;});}
+async function recCap(id,prev){const amt=parseFloat(document.getElementById('recA').value);const caps=(await api('/capital')).data||[];const c=caps.find(x=>x.id===id);const nr=prev+amt;await api(`/capital/${id}`,{method:'PUT',body:{...c,recovered:nr,fully_recovered:nr>=c.amount}});document.querySelector('.modal-overlay').remove();nav('capital');}
+async function delCap(id){if(!confirm('¿Eliminar?'))return;await api(`/capital/${id}`,{method:'DELETE'});nav('capital');}
+function addWthM(){modal('Retiro de Utilidades',b=>{b.innerHTML=`<div class="form-group"><label>Socio</label>${partnerSelect('wN')}</div><div class="form-group"><label>Monto</label><input type="number" id="wA" step="0.01"></div><div class="form-group"><label>Mes</label><input type="month" id="wM" value="${new Date().toISOString().slice(0,7)}"></div><div class="form-group"><label>Notas</label><input type="text" id="wNo"></div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crWth()">Guardar</button>`;});}
+async function crWth(){await api('/withdrawals',{method:'POST',body:{partner_name:document.getElementById('wN').value,amount:parseFloat(document.getElementById('wA').value),month:document.getElementById('wM').value,notes:document.getElementById('wNo').value}});document.querySelector('.modal-overlay').remove();nav('capital');}
+async function delWth(id){if(!confirm('¿Eliminar?'))return;await api(`/withdrawals/${id}`,{method:'DELETE'});nav('capital');}
+
+// ===== MACHINE LOG =====
+async function renderML(el){
+  const logs=(await api('/machine-log')).data||[];
+  el.innerHTML=`<h1 class="page-title">Bitácora de Máquina</h1><button class="btn btn-primary btn-sm" onclick="addMLM()" style="margin-bottom:12px">+ Registro</button>
+    ${logs.map(l=>`<div class="list-item"><div style="flex:1"><div class="it">${l.description}</div><div class="is"><span class="badge ${l.log_type==='mantenimiento'?'badge-blue':l.log_type==='mejora'?'badge-green':l.log_type==='incidencia'?'badge-red':'badge-gold'}">${l.log_type}</span> ${l.log_date} · ${l.registered_by||''}</div></div><div style="display:flex;align-items:center;gap:6px"><div style="text-align:right">${l.cost?`<div class="ia">${fmt(l.cost)}</div>`:''}${l.hours?`<div style="font-size:11px;color:var(--text-dim)">${l.hours}h</div>`:''}</div><button class="delete-btn" onclick="delML(${l.id})">×</button></div></div>`).join('')||'<div class="empty-state">Sin registros</div>'}`;
+}
+function addMLM(){modal('Registro de Máquina',b=>{b.innerHTML=`<div class="form-group"><label>Fecha</label><input type="date" id="mlD" value="${new Date().toISOString().slice(0,10)}"></div><div class="form-group"><label>Tipo</label><select id="mlT"><option value="mantenimiento">Mantenimiento</option><option value="mejora">Mejora</option><option value="pieza">Pieza</option><option value="incidencia">Incidencia</option><option value="horas">Horas</option></select></div><div class="form-group"><label>Descripción</label><textarea id="mlDe"></textarea></div><div class="form-row"><div class="form-group"><label>Costo</label><input type="number" id="mlC" step="0.01" value="0"></div><div class="form-group"><label>Horas</label><input type="number" id="mlH" step="0.01" value="0"></div></div><div class="form-group"><label>Registrado por</label>${partnerSelect('mlBy')}</div>`;},a=>{a.innerHTML=`<button class="btn btn-primary" onclick="crML()">Guardar</button>`;});}
+async function crML(){await api('/machine-log',{method:'POST',body:{log_date:document.getElementById('mlD').value,log_type:document.getElementById('mlT').value,description:document.getElementById('mlDe').value,cost:parseFloat(document.getElementById('mlC').value)||0,hours:parseFloat(document.getElementById('mlH').value)||0,registered_by:document.getElementById('mlBy').value}});document.querySelector('.modal-overlay').remove();nav('machineLog');}
+async function delML(id){if(!confirm('¿Eliminar?'))return;await api(`/machine-log/${id}`,{method:'DELETE'});nav('machineLog');}
+
+// ===== CONFIG =====
+async function renderCfg(el){
+  const s=(await api('/settings')).data||{};const pr=(await api('/roast_profiles')).data||[];const or=(await api('/origins')).data||[];const vr=(await api('/varieties')).data||[];const ec=(await api('/expense_categories')).data||[];
+  el.innerHTML=`<h1 class="page-title">Configuración</h1>
+    <div class="card"><h3 style="font-size:13px;font-weight:600;margin-bottom:10px">Electricidad de Máquina</h3><div class="form-row"><div class="form-group"><label>kW Máquina</label><input type="number" id="cfgK" step="0.01" value="${s.machine_kw||0}"></div><div class="form-group"><label>Precio/kWh</label><input type="number" id="cfgP" step="0.01" value="${s.kwh_price||0}"></div></div><button class="btn btn-primary btn-sm" onclick="saveElec()">Guardar</button></div>
+    <div class="card"><h3 style="font-size:13px;font-weight:600;margin-bottom:10px">API Key de Claude</h3><div class="form-group"><label>API Key</label><input type="password" id="cfgA" value="${s.claude_api_key||''}" placeholder="sk-ant-..."></div><p style="font-size:10px;color:var(--text-dim);margin-bottom:6px">Para análisis AI de curvas de Artisan</p><button class="btn btn-primary btn-sm" onclick="saveKey()">Guardar</button></div>
+    ${cfgList('Perfiles de Tueste',pr,'roast_profiles')}${cfgList('Orígenes',or,'origins')}${cfgList('Variedades',vr,'varieties')}${cfgList('Categorías de Gasto',ec,'expense_categories')}`;
+}
+function cfgList(title,items,table){return`<div class="card" style="margin-top:8px"><h3 style="font-size:13px;font-weight:600;margin-bottom:8px">${title}</h3>${items.map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)"><span style="font-size:12px">${i.name}</span><button class="delete-btn" onclick="delCfg('${table}',${i.id})">×</button></div>`).join('')}<div style="display:flex;gap:6px;margin-top:8px"><input type="text" id="ni_${table}" placeholder="Nuevo..." style="flex:1;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px"><button class="btn btn-secondary btn-sm" onclick="addCfg('${table}')">+</button></div></div>`;}
+async function saveElec(){await api('/settings',{method:'PUT',body:{machine_kw:document.getElementById('cfgK').value,kwh_price:document.getElementById('cfgP').value}});alert('Guardado');}
+async function saveKey(){await api('/settings',{method:'PUT',body:{claude_api_key:document.getElementById('cfgA').value}});alert('Guardado');}
+async function addCfg(t){const v=document.getElementById(`ni_${t}`).value.trim();if(!v)return;await api(`/${t}`,{method:'POST',body:t==='expense_categories'?{name:v,is_direct_cost:0}:{name:v}});nav('config');}
+async function delCfg(t,id){if(!confirm('¿Eliminar?'))return;await api(`/${t}/${id}`,{method:'DELETE'});nav('config');}
+
+// INIT
+nav('dashboard');
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "CAFETIER",
+  "short_name": "CAFETIER",
+  "description": "Sistema de gestión para tostaduría de café",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0D0B08",
+  "theme_color": "#C4960C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
