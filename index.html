@@ -409,9 +409,41 @@ async function renderDash(el) {
       <div class="progress-bar"><div class="fill" style="width:${c.invested>0?Math.min(100,(c.recovered/c.invested)*100):0}%"></div></div>
     </div>`).join('')||'<div class="card"><p style="color:var(--text-dim);font-size:13px">Sin aportes</p></div>'}
 
+    <h2 class="section-title">Inventario Actual</h2>
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-box"><div class="sv">${fk(d.green_stock||0)}</div><div class="sl">🌿 Café Verde</div></div>
+      <div class="stat-box"><div class="sv">${fk(d.roasted_stock||0)}</div><div class="sl">☕ Café Tostado</div></div>
+      <div class="stat-box"><div class="sv">${fk(d.packaged_stock||0)}</div><div class="sl">📦 Empaquetado</div></div>
+    </div>
+
+    ${d.pending_actions_count > 0 ? `<h2 class="section-title" style="color:var(--orange)">⚠️ Acciones Pendientes (${d.pending_actions_count})</h2><div id="dashPending"></div>` : ''}
+
     <h2 class="section-title">Gastos por Socio (este mes)</h2>
     ${(d.expenses_by_user||[]).map(e=>`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600">${e.paid_by}</span><span class="card-value">${fmt(e.total)}</span></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin gastos este mes</p>'}
   `;
+
+  // Load pending actions if any
+  if (d.pending_actions_count > 0) {
+    const pa = (await api('/pending-actions')).data || [];
+    const paDiv = document.getElementById('dashPending');
+    if (paDiv) {
+      paDiv.innerHTML = pa.map(a => `
+        <div class="card" style="border-left:3px solid ${a.action_type==='orden_compra'?'var(--red)':'var(--orange)'}">
+          <div class="card-row">
+            <span class="badge ${a.action_type==='orden_compra'?'badge-red':'badge-orange'}">${a.action_type==='orden_compra'?'🛒 Comprar':'🔥 Tostar'}</span>
+            ${a.client_name ? `<span style="font-size:12px;color:var(--text-sec)">Pedido: ${a.client_name}</span>` : ''}
+          </div>
+          <p style="font-size:13px;margin:6px 0">${a.description}</p>
+          <button class="btn btn-sm btn-success" onclick="completePending(${a.id})">✓ Completada</button>
+        </div>
+      `).join('');
+    }
+  }
+}
+
+async function completePending(id) {
+  await api(`/pending-actions/${id}`, {method:'PUT', body:{status:'completada'}});
+  nav('dashboard');
 }
 
 // ===== POS =====
@@ -469,16 +501,33 @@ function uCQ(i,d){cart[i].qty+=d;if(cart[i].qty<=0)cart.splice(i,1);rCart();}
 async function doSale(){
   if(!cart.length)return;
   const total=cart.reduce((s,c)=>s+c.price*c.qty,0);
-  const items=cart.map(c=>({product_id:c.id,product_name:c.name,quantity:c.qty,unit:'pz',unit_price:c.price,subtotal:c.price*c.qty}));
-  await api('/orders',{method:'POST',body:{client_name:document.getElementById('posCl').value||'Mostrador',total_amount:total,is_retail:true,payment_method:document.getElementById('posPay').value,items,status:'pagado'}});
-  cart=[];alert('¡Venta registrada!');nav('pos');
+  const items=cart.map(c=>({product_id:c.id,product_name:c.name,quantity:c.qty,unit:'pz',unit_price:c.price,subtotal:c.price*c.qty,presentation:c.presentation}));
+  const r=await api('/orders',{method:'POST',body:{client_name:document.getElementById('posCl').value||'Mostrador',total_amount:total,is_retail:true,payment_method:document.getElementById('posPay').value,items,status:'pagado'}});
+  cart=[];
+  if(r.success && r.data.inventory_check){
+    const ic=r.data.inventory_check;
+    const msgs=ic.actions.join('\n');
+    alert('¡Venta registrada!\n\n'+msgs);
+  } else { alert('¡Venta registrada!'); }
+  nav('pos');
 }
 async function checkGreen(){
   const kg=parseFloat(document.getElementById('oKg').value);if(!kg){alert('Ingresa los kg');return;}
-  const dd=(await api('/dashboard')).data; const ml=dd?.max_loss_pct||20; const gn=kg/(1-ml/100);
-  const inv=(await api('/inventory')).data||[]; const gs=inv.filter(i=>i.item_type==='cafe_verde').reduce((s,i)=>s+i.quantity,0);
-  const ok=gs>=gn; const div=document.getElementById('oGC'); div.style.display='';
-  div.innerHTML=`<div class="card-row"><span class="card-label">Kg tostados requeridos</span><span class="card-value">${fk(kg)}</span></div><div class="card-row"><span class="card-label">Merma máxima</span><span class="card-value">${fp(ml)}</span></div><div class="card-row"><span class="card-label">Café verde necesario</span><span class="card-value">${fk(gn)}</span></div><div class="card-row"><span class="card-label">En stock</span><span class="card-value ${ok?'green':'red'}">${fk(gs)}</span></div><div class="card-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span class="card-label">${ok?'✅ Alcanza':'⚠️ Falta comprar'}</span><span class="card-value ${ok?'green':'red'}">${ok?fk(gs-gn)+' de sobra':fk(gn-gs)+' faltantes'}</span></div>`;
+  const r=await api(`/inventory-check?kg=${kg}`);
+  if(!r.success){alert('Error');return;}
+  const ic=r.data; const div=document.getElementById('oGC'); div.style.display='';
+  div.innerHTML=`
+    <div class="card-row"><span class="card-label">Kg tostados requeridos</span><span class="card-value">${fk(ic.kg_needed)}</span></div>
+    <div class="card-row"><span class="card-label">Merma máxima histórica</span><span class="card-value">${fp(ic.max_loss_pct)}</span></div>
+    <div class="card-row"><span class="card-label">Café tostado disponible</span><span class="card-value ${ic.has_roasted?'green':'red'}">${fk(ic.roasted_available)}</span></div>
+    <div class="card-row"><span class="card-label">Café verde disponible</span><span class="card-value">${fk(ic.green_available)}</span></div>
+    <div class="card-row"><span class="card-label">Verde necesario (con merma)</span><span class="card-value">${fk(ic.green_needed_for_roast)}</span></div>
+    ${ic.green_deficit>0?`<div class="card-row"><span class="card-label" style="color:var(--red)">⚠️ Déficit de verde</span><span class="card-value red">${fk(ic.green_deficit)}</span></div>`:''}
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      ${ic.actions.map(a=>`<p style="font-size:12px;margin:4px 0;line-height:1.4">${a}</p>`).join('')}
+    </div>
+    ${ic.auto_actions.length?`<div style="margin-top:8px"><p style="font-size:11px;font-weight:600;color:var(--orange);margin-bottom:4px">Acciones automáticas al crear pedido:</p>${ic.auto_actions.map(a=>`<p style="font-size:12px;margin:2px 0">• ${a.type==='orden_compra'?'🛒':'🔥'} ${a.description}</p>`).join('')}</div>`:''}
+  `;
 }
 async function createOrder(){
   const kg=parseFloat(document.getElementById('oKg').value),pk=parseFloat(document.getElementById('oPk').value);
@@ -486,7 +535,11 @@ async function createOrder(){
   const ant=parseFloat(document.getElementById('oAnt').value)||0;
   const r=await api('/orders',{method:'POST',body:{client_name:document.getElementById('oC').value||'Sin nombre',total_kg:kg,price_per_kg:pk,total_amount:kg*pk,delivery_date:document.getElementById('oDel').value,notes:document.getElementById('oNotes').value,is_retail:false,status:'pendiente'}});
   if(r.success&&ant>0) await api(`/orders/${r.data.id}/payments`,{method:'POST',body:{amount:ant,payment_method:document.getElementById('oPM').value,notes:'Anticipo'}});
-  if(r.success){alert('¡Pedido creado!');nav('orders');}
+  if(r.success){
+    let msg='¡Pedido creado!';
+    if(r.data.inventory_check){const ic=r.data.inventory_check;msg+='\n\n'+ic.actions.join('\n');if(ic.auto_actions.length)msg+='\n\nAcciones generadas:\n'+ic.auto_actions.map(a=>'• '+a.description).join('\n');}
+    alert(msg);nav('orders');
+  }
 }
 
 // ===== ORDERS =====
@@ -503,7 +556,7 @@ function fL(input,cid){const q=input.value.toLowerCase();document.querySelectorA
 // ===== ORDER DETAIL =====
 async function renderOD(el,data){
   const r=await api(`/orders/${data.id}`);if(!r.success)return;
-  const{order:o,items,payments,shipments,batches,roasted_kg:rk,max_loss_pct:mlp}=r.data;
+  const{order:o,items,payments,shipments,batches,roasted_kg:rk,max_loss_pct:mlp,pending_actions:pa}=r.data;
   const tp=payments.reduce((s,p)=>s+p.amount,0), ts=shipments.reduce((s,x)=>s+x.kg_shipped,0), rem=(o.total_kg||0)-rk;
   el.innerHTML=`
     <button class="btn btn-secondary btn-sm" onclick="nav('orders')">← Pedidos</button>
@@ -522,6 +575,7 @@ async function renderOD(el,data){
       <div class="card-row"><span class="card-label">Envíos</span><span class="card-value">${fk(ts)} / ${fk(o.total_kg)}</span></div>
       <div class="progress-bar"><div class="fill" style="width:${Math.min(100,(ts/(o.total_kg||1))*100)}%"></div></div>
     </div>`:''}
+    ${(pa&&pa.length)?`<h2 class="section-title" style="color:var(--orange)">⚠️ Acciones Pendientes</h2>${pa.map(a=>`<div class="card" style="border-left:3px solid ${a.action_type==='orden_compra'?'var(--red)':'var(--orange)'}"><div class="card-row"><span class="badge ${a.action_type==='orden_compra'?'badge-red':'badge-orange'}">${a.action_type==='orden_compra'?'🛒 Comprar café verde':'🔥 Orden de tueste'}</span></div><p style="font-size:13px;margin:6px 0">${a.description}</p><button class="btn btn-sm btn-success" onclick="completePending(${a.id});nav('orderDetail',{id:${o.id}})">✓ Completada</button></div>`).join('')}`:''}
     <div class="form-group" style="max-width:200px"><label>Estado</label><select onchange="updOS(${o.id},this.value)">${['pendiente','en_produccion','listo','enviado_parcial','entregado','pagado','cancelado'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <h2 class="section-title">Pagos</h2>
     ${payments.map(p=>`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:600">${fmt(p.amount)}</div><div style="font-size:11px;color:var(--text-sec)">${p.payment_date?.slice(0,10)} · ${p.payment_method} ${p.notes?'· '+p.notes:''}</div></div><button class="delete-btn" onclick="delPay(${p.id},${o.id})">×</button></div>`).join('')||'<p style="color:var(--text-dim);font-size:13px">Sin pagos</p>'}
