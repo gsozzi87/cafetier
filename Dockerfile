@@ -7,8 +7,10 @@ WORKDIR /app
 COPY package.json ./
 RUN bun install --production
 
-COPY src/ ./src/
-COPY public/ ./public/
+COPY server.ts db.ts api.ts ./
+RUN mkdir -p public
+COPY index.html manifest.json ./public/
+COPY logo.png ./public/ 2>/dev/null || true
 
 RUN mkdir -p /data
 
@@ -17,4 +19,4 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["bun", "run", "src/server.ts"]
+CMD ["bun", "run", "server.ts"]
