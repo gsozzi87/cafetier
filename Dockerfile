@@ -10,7 +10,7 @@ RUN bun install --production
 COPY server.ts db.ts api.ts ./
 RUN mkdir -p public
 COPY index.html manifest.json ./public/
-COPY logo.png ./public/ 2>/dev/null || true
+COPY logo.png ./public/
 
 RUN mkdir -p /data
 
