@@ -192,9 +192,21 @@ export function recalcPurchaseOrder(poId: number) {
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id = ?", poId);
   if (!po) return null;
 
+  const hasEntryShipping = columnExists("purchase_entries", "shipping_cost");
   const received = Number(qVal("SELECT COALESCE(SUM(quantity_kg), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
-  const actualCost = Number(qVal("SELECT COALESCE(SUM(total_cost + shipping_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
-  const actualShipping = Number(qVal("SELECT COALESCE(SUM(shipping_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
+  const actualCost = Number(
+    qVal(
+      hasEntryShipping
+        ? "SELECT COALESCE(SUM(total_cost + shipping_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?"
+        : "SELECT COALESCE(SUM(total_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?",
+      poId,
+    ) ?? 0,
+  );
+  const actualShipping = Number(
+    hasEntryShipping
+      ? qVal("SELECT COALESCE(SUM(shipping_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0
+      : 0,
+  );
   const openCapital = qGet<{ amount_missing: number }>(
     `SELECT amount_requested - amount_funded AS amount_missing
        FROM capital_requests
@@ -418,6 +430,53 @@ function columnExists(table: string, column: string) {
 function renameTableIfNeeded(from: string, to: string) {
   if (tableExists(from) && !tableExists(to)) {
     db.exec(`ALTER TABLE "${from}" RENAME TO "${to}"`);
+  }
+}
+
+function addColumnIfMissing(table: string, column: string, definition: string) {
+  if (tableExists(table) && !columnExists(table, column)) {
+    db.exec(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`);
+  }
+}
+
+function upgradeSchemaIfNeeded() {
+  addColumnIfMissing("partners", "share_pct", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("sales_orders", "order_type", "TEXT NOT NULL DEFAULT 'wholesale'");
+  addColumnIfMissing("sales_orders", "order_no", "TEXT");
+  addColumnIfMissing("sales_orders", "updated_at", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  addColumnIfMissing("sales_orders", "total_weight_kg", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("sales_order_items", "unit_weight_kg", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("sales_shipments", "shipping_cost", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("sales_shipments", "expense_id", "INTEGER");
+
+  addColumnIfMissing("purchase_orders", "ordered_green_kg", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("purchase_orders", "received_green_kg", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("purchase_orders", "estimated_shipping_cost", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("purchase_orders", "actual_shipping_cost", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("purchase_orders", "updated_at", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  addColumnIfMissing("purchase_orders", "po_no", "TEXT");
+  addColumnIfMissing("purchase_orders", "source_type", "TEXT NOT NULL DEFAULT 'manual'");
+
+  addColumnIfMissing("purchase_entries", "shipping_cost", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("purchase_entries", "supplier", "TEXT");
+  addColumnIfMissing("purchase_entries", "lot_label", "TEXT");
+  addColumnIfMissing("purchase_entries", "origin_id", "INTEGER");
+  addColumnIfMissing("purchase_entries", "variety_id", "INTEGER");
+  addColumnIfMissing("purchase_entries", "registered_by", "TEXT");
+
+  addColumnIfMissing("capital_contributions", "capital_request_id", "INTEGER");
+  addColumnIfMissing("withdrawals", "kind", "TEXT NOT NULL DEFAULT 'dividend'");
+  addColumnIfMissing("withdrawals", "contribution_id", "INTEGER");
+  addColumnIfMissing("withdrawals", "dividend_order_id", "INTEGER");
+
+  if (tableExists("sales_orders") && columnExists("sales_orders", "order_no")) {
+    qRun(`UPDATE sales_orders SET order_no = COALESCE(order_no, 'SO-' || id) WHERE order_no IS NULL OR order_no = ''`);
+  }
+  if (tableExists("purchase_orders") && columnExists("purchase_orders", "po_no")) {
+    qRun(`UPDATE purchase_orders SET po_no = COALESCE(po_no, 'PO-' || id) WHERE po_no IS NULL OR po_no = ''`);
+    qRun(`UPDATE purchase_orders SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`);
   }
 }
 
@@ -1219,6 +1278,7 @@ function backfillFromLegacy() {
 export function initDB() {
   migrateLegacyTablesIfNeeded();
   createSchema();
+  upgradeSchemaIfNeeded();
   backfillFromLegacy();
   qRun(`INSERT OR REPLACE INTO settings(key, value) VALUES ('migration_v3_done', '1')`);
   ensureInventoryItem({
