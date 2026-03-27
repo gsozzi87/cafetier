@@ -1,7 +1,5 @@
 FROM oven/bun:1-alpine
 
-RUN apk add --no-cache python3 make g++ gcc
-
 WORKDIR /app
 
 COPY package.json ./
