@@ -459,6 +459,7 @@ function upgradeSchemaIfNeeded() {
   addColumnIfMissing("purchase_orders", "po_no", "TEXT");
   addColumnIfMissing("purchase_orders", "source_type", "TEXT NOT NULL DEFAULT 'manual'");
 
+  addColumnIfMissing("purchase_entries", "unit_cost", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("purchase_entries", "shipping_cost", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("purchase_entries", "supplier", "TEXT");
   addColumnIfMissing("purchase_entries", "lot_label", "TEXT");

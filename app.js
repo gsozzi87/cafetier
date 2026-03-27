@@ -845,6 +845,16 @@ async function newRetailSale() {
       setView("sales");
     }
   }]);
+  const kgEl = modal.querySelector("#rcvKg");
+  const unitEl = modal.querySelector("#rcvUnitCost");
+  const totalEl = modal.querySelector("#rcvCost");
+  const syncTotal = () => {
+    const kg = Number(kgEl?.value || 0);
+    const unit = Number(unitEl?.value || 0);
+    if (totalEl) totalEl.value = kg > 0 && unit > 0 ? String(round2(kg * unit)) : "";
+  };
+  kgEl?.addEventListener("input", syncTotal);
+  unitEl?.addEventListener("input", syncTotal);
 }
 
 async function newWholesaleSale() {
@@ -989,12 +999,12 @@ function openPurchase(id) { setView("purchaseDetail", { id }); }
 function receivePurchase(poId) {
   const o = state.master.origins || [];
   const v = state.master.varieties || [];
-  openModal("Ejecutar compra / registrar recepción", `
+  const modal = openModal("Ejecutar compra / registrar recepción", `
     <div class="notice warn">Al ejecutar la compra se valida caja total = mercancía + envío. Si no alcanza, se genera automáticamente la orden de ingreso de capital.</div>
     <div class="form-grid">
       <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" /></div>
-      <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" /></div>
+      <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" readonly /></div>
       <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Proveedor</label><input class="input" id="rcvSupplier" /></div>
       <div class="field"><label>Lote</label><input class="input" id="rcvLot" /></div>
