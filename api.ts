@@ -10,6 +10,7 @@ import {
   inventoryTotals,
   monthIso,
   newDocNo,
+  normalizePartnerName,
   nowIso,
   pushInventoryMovement,
   qAll,
@@ -673,11 +674,14 @@ api.post("/purchase-orders", async c => {
   const b = await bodyOf<any>(c);
   required(b.description, "Descripción obligatoria.");
   required(num(b.requested_green_kg, 0) > 0, "Kg requeridos inválidos.");
+  const requestedKg = num(b.requested_green_kg);
+  const estimatedCost = num(b.estimated_cost, 0) > 0 ? num(b.estimated_cost) : round2(requestedKg * num(b.estimated_cost_per_kg, 0));
   const po = createPurchaseOrder({
     sourceType: "manual",
     description: b.description,
-    requestedGreenKg: num(b.requested_green_kg),
-    estimatedCost: num(b.estimated_cost),
+    requestedGreenKg: requestedKg,
+    estimatedCost,
+    estimatedShippingCost: num(b.estimated_shipping_cost),
     supplier: b.supplier || null,
     notes: b.notes || null,
   });
@@ -690,19 +694,26 @@ api.post("/purchase-orders/:id/receive", async c => {
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id = ?", poId);
   if (!po) return c.json(fail("Orden de compra no encontrada"), 404);
   required(num(b.quantity_kg, 0) > 0, "Cantidad inválida.");
-  required(num(b.total_cost, 0) > 0, "Costo inválido.");
+
+  const quantityKg = round2(num(b.quantity_kg));
+  const unitCost = num(b.unit_cost, 0) > 0 ? num(b.unit_cost) : quantityKg > 0 ? round2(num(b.total_cost, 0) / quantityKg) : 0;
+  const greenCost = num(b.total_cost, 0) > 0 ? round2(num(b.total_cost)) : round2(quantityKg * unitCost);
+  const shippingCost = round2(num(b.shipping_cost, 0));
+  const landedCost = round2(greenCost + shippingCost);
+  required(unitCost > 0 || greenCost > 0, "Costo por kilo o costo total inválido.");
+  required(landedCost > 0, "Costo total inválido.");
 
   const finance = computeFinanceSummary();
-  if (finance.availableCash < num(b.total_cost)) {
-    const missing = round2(num(b.total_cost) - finance.availableCash);
+  if (finance.availableCash < landedCost) {
+    const missing = round2(landedCost - finance.availableCash);
     const req = createCapitalRequest({
       amountRequested: missing,
-      notes: `Capital adicional para recibir ${po.po_no}`,
+      notes: `Capital adicional para ejecutar ${po.po_no}`,
       sourceType: "purchase_order",
       sourceId: poId,
     });
     recalcPurchaseOrder(poId);
-    return c.json(fail(`No hay capital disponible. Se creó la orden de ingreso de capital ${req?.request_no}.`), 400);
+    return c.json(fail(`No hay capital disponible para ejecutar la compra. Se creó la orden de ingreso de capital ${req?.request_no}.`), 400);
   }
 
   const receive = tx(() => {
@@ -727,7 +738,7 @@ api.post("/purchase-orders/:id/receive", async c => {
     pushInventoryMovement({
       itemId,
       direction: "in",
-      quantity: round2(num(b.quantity_kg)),
+      quantity: quantityKg,
       reason: `Recepción ${po.po_no}`,
       refType: "purchase_order",
       refId: poId,
@@ -735,12 +746,14 @@ api.post("/purchase-orders/:id/receive", async c => {
     });
 
     qRun(
-      `INSERT INTO purchase_entries(purchase_order_id, inventory_item_id, quantity_kg, total_cost, supplier, lot_label, origin_id, variety_id, registered_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO purchase_entries(purchase_order_id, inventory_item_id, quantity_kg, unit_cost, total_cost, shipping_cost, supplier, lot_label, origin_id, variety_id, registered_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       poId,
       itemId,
-      round2(num(b.quantity_kg)),
-      round2(num(b.total_cost)),
+      quantityKg,
+      round2(unitCost),
+      greenCost,
+      shippingCost,
       b.supplier || po.supplier || null,
       lotLabel,
       b.origin_id || null,
@@ -755,7 +768,7 @@ api.post("/purchase-orders/:id/receive", async c => {
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'purchase_order', ?, ?)`,
       todayIso(),
       greenCat?.id || 1,
-      round2(num(b.total_cost)),
+      greenCost,
       `Compra verde ${po.po_no}`,
       b.registered_by || "Sistema",
       b.supplier || po.supplier || null,
@@ -763,6 +776,23 @@ api.post("/purchase-orders/:id/receive", async c => {
       poId,
       nowIso(),
     );
+
+    if (shippingCost > 0) {
+      const shipCat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name = 'Envíos' LIMIT 1");
+      qRun(
+        `INSERT INTO expenses(expense_date, category_id, amount, description, paid_by, supplier, notes, auto_generated, ref_type, ref_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'purchase_order_shipping', ?, ?)`,
+        todayIso(),
+        shipCat?.id || 1,
+        shippingCost,
+        `Envío compra ${po.po_no}`,
+        b.registered_by || "Sistema",
+        b.supplier || po.supplier || null,
+        b.shipping_notes || b.notes || po.notes || null,
+        poId,
+        nowIso(),
+      );
+    }
 
     recalcPurchaseOrder(poId);
     if (po.source_type === "sales_order" && po.source_id) recalcSalesOrder(po.source_id);
@@ -816,14 +846,14 @@ api.get("/capital-contributions", c =>
 );
 api.post("/capital-contributions", async c => {
   const b = await bodyOf<any>(c);
-  required(b.partner_name, "Socio obligatorio.");
+  required(normalizePartnerName(b.partner_name), "Socio obligatorio.");
   required(num(b.amount, 0) > 0, "Monto inválido.");
   required(b.description, "Descripción obligatoria.");
   const res = qRun(
     `INSERT INTO capital_contributions(capital_request_id, partner_name, amount, description, contribution_date, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
     b.capital_request_id || null,
-    b.partner_name,
+    normalizePartnerName(b.partner_name),
     round2(num(b.amount)),
     b.description,
     b.contribution_date || todayIso(),
@@ -925,19 +955,20 @@ api.get("/withdrawals", c =>
 
 api.post("/withdrawals/capital-return", async c => {
   const b = await bodyOf<any>(c);
-  required(b.partner_name, "Socio obligatorio.");
+  required(normalizePartnerName(b.partner_name), "Socio obligatorio.");
   required(num(b.amount, 0) > 0, "Monto inválido.");
   const finance = computeFinanceSummary();
   required(finance.availableCash >= num(b.amount), "No hay efectivo disponible para devolver capital.");
 
-  const contributed = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions WHERE partner_name = ?", b.partner_name) ?? 0);
-  const recovered = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind = 'capital_return' AND partner_name = ?", b.partner_name) ?? 0);
+  const partnerName = normalizePartnerName(b.partner_name);
+  const contributed = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions WHERE partner_name = ?", partnerName) ?? 0);
+  const recovered = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind = 'capital_return' AND partner_name = ?", partnerName) ?? 0);
   required(contributed - recovered >= num(b.amount), "El monto supera el capital pendiente de recuperar de ese socio.");
 
   const res = qRun(
     `INSERT INTO withdrawals(kind, partner_name, amount, month, contribution_id, notes, created_at)
      VALUES ('capital_return', ?, ?, ?, ?, ?, ?)`,
-    b.partner_name,
+    normalizePartnerName(b.partner_name),
     round2(num(b.amount)),
     b.month || monthIso(),
     b.contribution_id || null,

@@ -57,6 +57,17 @@ export function round2(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+export function normalizePartnerName(name: string | null | undefined) {
+  const raw = String(name || '').trim();
+  if (!raw) return raw;
+  const key = raw.toLowerCase();
+  if (["itzamara", "itza", "gaston", "gastón", "itza + gaston", "itza + gastón", "itza y gaston", "itza y gastón", "itza/gaston", "itza/gastón"].includes(key)) {
+    return "Itza + Gastón";
+  }
+  if (key === "axel") return "Axel";
+  return raw;
+}
+
 export function getSettingsObject() {
   const rows = qAll<{ key: string; value: string }>("SELECT key, value FROM settings");
   const out: Record<string, string> = {};
@@ -182,7 +193,8 @@ export function recalcPurchaseOrder(poId: number) {
   if (!po) return null;
 
   const received = Number(qVal("SELECT COALESCE(SUM(quantity_kg), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
-  const actualCost = Number(qVal("SELECT COALESCE(SUM(total_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
+  const actualCost = Number(qVal("SELECT COALESCE(SUM(total_cost + shipping_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
+  const actualShipping = Number(qVal("SELECT COALESCE(SUM(shipping_cost), 0) AS v FROM purchase_entries WHERE purchase_order_id = ?", poId) ?? 0);
   const openCapital = qGet<{ amount_missing: number }>(
     `SELECT amount_requested - amount_funded AS amount_missing
        FROM capital_requests
@@ -204,10 +216,11 @@ export function recalcPurchaseOrder(poId: number) {
 
   qRun(
     `UPDATE purchase_orders
-        SET received_green_kg = ?, actual_cost = ?, status = ?, updated_at = ?
+        SET received_green_kg = ?, actual_cost = ?, actual_shipping_cost = ?, status = ?, updated_at = ?
       WHERE id = ?`,
     round2(received),
     round2(actualCost),
+    round2(actualShipping),
     status,
     nowIso(),
     poId,
@@ -293,6 +306,30 @@ export function createCapitalRequest(input: {
   sourceType?: string | null;
   sourceId?: number | null;
 }) {
+  const requested = round2(input.amountRequested);
+  if (input.sourceType === "purchase_order" && input.sourceId) {
+    const existing = qGet<any>(
+      `SELECT * FROM capital_requests
+        WHERE source_type = 'purchase_order' AND source_id = ? AND status IN ('open','partially_funded')
+        ORDER BY id DESC LIMIT 1`,
+      input.sourceId,
+    );
+    if (existing) {
+      const newRequested = Math.max(requested, round2(Number(existing.amount_requested) - Number(existing.amount_funded)));
+      qRun(
+        `UPDATE capital_requests
+            SET amount_requested = ?, notes = ?, updated_at = ?
+          WHERE id = ?`,
+        round2(Number(existing.amount_funded) + newRequested),
+        input.notes,
+        nowIso(),
+        existing.id,
+      );
+      recalcCapitalRequest(existing.id);
+      return qGet("SELECT * FROM capital_requests WHERE id = ?", existing.id);
+    }
+  }
+
   const res = qRun(
     `INSERT INTO capital_requests
       (request_no, source_type, source_id, status, amount_requested, amount_funded, notes, created_at, updated_at)
@@ -300,7 +337,7 @@ export function createCapitalRequest(input: {
     newDocNo("CAP"),
     input.sourceType ?? null,
     input.sourceId ?? null,
-    round2(input.amountRequested),
+    requested,
     input.notes,
     nowIso(),
     nowIso(),
@@ -316,21 +353,24 @@ export function createPurchaseOrder(input: {
   description: string;
   requestedGreenKg: number;
   estimatedCost?: number;
+  estimatedShippingCost?: number;
   supplier?: string | null;
   notes?: string | null;
 }) {
   const finance = computeFinanceSummary();
   const estimatedCost = round2(input.estimatedCost ?? 0);
+  const estimatedShippingCost = round2(input.estimatedShippingCost ?? 0);
+  const estimatedLandedCost = round2(estimatedCost + estimatedShippingCost);
   let status = "pending_purchase";
 
-  if (estimatedCost > finance.availableCash) {
+  if (estimatedLandedCost > finance.availableCash) {
     status = "pending_capital";
   }
 
   const res = qRun(
     `INSERT INTO purchase_orders
-      (po_no, source_type, source_id, status, description, requested_green_kg, ordered_green_kg, received_green_kg, estimated_cost, actual_cost, supplier, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?)`,
+      (po_no, source_type, source_id, status, description, requested_green_kg, ordered_green_kg, received_green_kg, estimated_cost, estimated_shipping_cost, actual_cost, actual_shipping_cost, supplier, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 0, ?, ?, ?, ?)`,
     newDocNo("PO"),
     input.sourceType,
     input.sourceId ?? null,
@@ -339,6 +379,7 @@ export function createPurchaseOrder(input: {
     round2(input.requestedGreenKg),
     round2(input.requestedGreenKg),
     estimatedCost,
+    estimatedShippingCost,
     input.supplier ?? null,
     input.notes ?? null,
     nowIso(),
@@ -346,9 +387,9 @@ export function createPurchaseOrder(input: {
   );
   const poId = Number(res.lastInsertRowid);
 
-  if (estimatedCost > finance.availableCash) {
+  if (estimatedLandedCost > finance.availableCash) {
     createCapitalRequest({
-      amountRequested: round2(estimatedCost - finance.availableCash),
+      amountRequested: round2(estimatedLandedCost - finance.availableCash),
       notes: `Capital requerido para ${input.description}`,
       sourceType: "purchase_order",
       sourceId: poId,
@@ -359,7 +400,124 @@ export function createPurchaseOrder(input: {
   return qGet<any>("SELECT * FROM purchase_orders WHERE id = ?", poId);
 }
 
-export function initDB() {
+
+function tableExists(name: string) {
+  return !!db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+}
+
+function tableColumns(name: string) {
+  if (!tableExists(name)) return [] as string[];
+  const rows = db.query(`PRAGMA table_info("${name}")`).all() as Array<{ name: string }>;
+  return rows.map(r => r.name);
+}
+
+function columnExists(table: string, column: string) {
+  return tableColumns(table).includes(column);
+}
+
+function renameTableIfNeeded(from: string, to: string) {
+  if (tableExists(from) && !tableExists(to)) {
+    db.exec(`ALTER TABLE "${from}" RENAME TO "${to}"`);
+  }
+}
+
+function legacyPresentationWeight(presentation: string | null | undefined) {
+  if (!presentation) return 1;
+  const p = String(presentation).toLowerCase();
+  if (p === "250g") return 0.25;
+  if (p === "500g") return 0.5;
+  if (p === "1kg") return 1;
+  return 1;
+}
+
+function mapLegacyInventoryType(type: string | null | undefined) {
+  switch (type) {
+    case "cafe_verde":
+      return "green_coffee";
+    case "cafe_tostado":
+      return "roasted_coffee";
+    case "cafe_empaquetado":
+      return "packaged_coffee";
+    case "insumo":
+    default:
+      return "supply";
+  }
+}
+
+function mapLegacyMovementType(type: string | null | undefined) {
+  switch (type) {
+    case "entrada":
+      return "in";
+    case "salida":
+      return "out";
+    default:
+      return "adjust";
+  }
+}
+
+function mapLegacySalesStatus(status: string | null | undefined) {
+  switch (status) {
+    case "esperando_compra":
+      return "pending_purchase";
+    case "en_produccion":
+      return "in_production";
+    case "listo":
+      return "ready";
+    case "enviado_parcial":
+      return "partial_shipped";
+    case "entregado":
+    case "pagado":
+      return "completed";
+    case "cancelado":
+      return "cancelled";
+    case "pendiente":
+    default:
+      return "open";
+  }
+}
+
+function mapLegacyPurchaseStatus(status: string | null | undefined) {
+  switch (status) {
+    case "completada":
+      return "received";
+    case "parcial":
+      return "partial";
+    case "cancelada":
+      return "cancelled";
+    case "pendiente":
+    default:
+      return "pending_purchase";
+  }
+}
+
+function migrateLegacyTablesIfNeeded() {
+  const legacyDetected =
+    tableExists("orders") ||
+    tableExists("order_items") ||
+    tableExists("order_payments") ||
+    tableExists("order_shipments") ||
+    (tableExists("partners") && !columnExists("partners", "share_pct") && columnExists("partners", "profit_share")) ||
+    tableExists("legacy_partners") ||
+    tableExists("legacy_products") ||
+    tableExists("legacy_purchase_orders") ||
+    tableExists("legacy_roasting_batches");
+
+  if (!legacyDetected) return;
+
+  renameTableIfNeeded("partners", "legacy_partners");
+  renameTableIfNeeded("clients", "legacy_clients");
+  renameTableIfNeeded("products", "legacy_products");
+  renameTableIfNeeded("purchase_orders", "legacy_purchase_orders");
+  renameTableIfNeeded("capital_contributions", "legacy_capital_contributions");
+  renameTableIfNeeded("roasting_batches", "legacy_roasting_batches");
+  renameTableIfNeeded("expenses", "legacy_expenses");
+  renameTableIfNeeded("inventory_movements", "legacy_inventory_movements");
+  if (tableExists("machine_log") && !tableExists("legacy_machine_log")) {
+    renameTableIfNeeded("machine_log", "legacy_machine_log");
+  }
+}
+
+function createSchema() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
@@ -522,7 +680,9 @@ export function initDB() {
       ordered_green_kg REAL NOT NULL DEFAULT 0,
       received_green_kg REAL NOT NULL DEFAULT 0,
       estimated_cost REAL NOT NULL DEFAULT 0,
+      estimated_shipping_cost REAL NOT NULL DEFAULT 0,
       actual_cost REAL NOT NULL DEFAULT 0,
+      actual_shipping_cost REAL NOT NULL DEFAULT 0,
       supplier TEXT,
       notes TEXT,
       created_at TEXT NOT NULL,
@@ -534,7 +694,9 @@ export function initDB() {
       purchase_order_id INTEGER NOT NULL,
       inventory_item_id INTEGER NOT NULL,
       quantity_kg REAL NOT NULL,
+      unit_cost REAL NOT NULL DEFAULT 0,
       total_cost REAL NOT NULL,
+      shipping_cost REAL NOT NULL DEFAULT 0,
       supplier TEXT,
       lot_label TEXT,
       origin_id INTEGER,
@@ -657,8 +819,7 @@ export function initDB() {
     );
 
     INSERT OR IGNORE INTO partners (name, share_pct) VALUES
-      ('Itzamara', 25),
-      ('Gastón', 25),
+      ('Itza + Gastón', 50),
       ('Axel', 50);
 
     INSERT OR IGNORE INTO roast_profiles (name) VALUES
@@ -700,8 +861,366 @@ export function initDB() {
       ('machine_kw', '0'),
       ('kwh_price', '0'),
       ('default_green_cost_per_kg', '0');
-  `);
+`);
+}
 
+function backfillFromLegacy() {
+  if (tableExists("legacy_partners")) {
+    const rows = qAll<any>("SELECT * FROM legacy_partners");
+    const merged = new Map<string, number>();
+    for (const row of rows) {
+      const name = normalizePartnerName(row.name);
+      const share = Number(row.profit_share ?? row.share_pct ?? 0);
+      merged.set(name, round2((merged.get(name) || 0) + share));
+    }
+    if (!merged.size) {
+      merged.set("Itza + Gastón", 50);
+      merged.set("Axel", 50);
+    }
+    qRun("DELETE FROM partners");
+    for (const [name, share] of merged.entries()) {
+      qRun("INSERT INTO partners(name, share_pct) VALUES (?, ?)", name, share);
+    }
+  }
+
+  if (tableExists("legacy_clients")) {
+    qRun(
+      `INSERT OR IGNORE INTO clients(id, name, phone, email, address, city, notes, active, created_at)
+       SELECT id, name, phone, email, address, city, notes, 1, COALESCE(created_at, CURRENT_TIMESTAMP)
+       FROM legacy_clients`,
+    );
+  }
+
+  if (tableExists("legacy_products")) {
+    const rows = qAll<any>("SELECT * FROM legacy_products");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR REPLACE INTO products
+          (id, name, origin_id, variety_id, roast_profile_id, presentation, unit_weight_kg, price, active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.name,
+        row.origin_id ?? null,
+        row.variety_id ?? null,
+        row.roast_profile_id ?? null,
+        row.presentation ?? null,
+        legacyPresentationWeight(row.presentation),
+        Number(row.price ?? 0),
+        Number(row.active ?? 1),
+      );
+    }
+  }
+
+  if (tableExists("inventory")) {
+    const rows = qAll<any>("SELECT * FROM inventory");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR REPLACE INTO inventory_items
+          (id, item_type, item_name, quantity, unit, min_stock, origin_id, variety_id, lot_label, presentation, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+        row.id,
+        mapLegacyInventoryType(row.item_type),
+        row.item_name,
+        Number(row.quantity ?? 0),
+        row.unit ?? "kg",
+        Number(row.min_stock ?? 0),
+        row.origin_id ?? null,
+        row.variety_id ?? null,
+        row.lot_label ?? null,
+        null,
+        row.notes ?? null,
+        nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("legacy_inventory_movements")) {
+    const rows = qAll<any>("SELECT * FROM legacy_inventory_movements");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR IGNORE INTO inventory_movements
+          (id, item_id, direction, quantity, reason, ref_type, ref_id, registered_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.inventory_id,
+        mapLegacyMovementType(row.movement_type),
+        Number(row.quantity ?? 0),
+        row.reason ?? null,
+        row.reference_type ?? null,
+        row.reference_id ?? null,
+        row.registered_by ?? "Sistema",
+        row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("orders")) {
+    const orders = qAll<any>("SELECT * FROM orders");
+    for (const row of orders) {
+      let totalKg = Number(row.total_kg ?? 0);
+      if (!totalKg && Number(row.is_retail ?? 0) === 1) {
+        totalKg = Number(
+          qVal(
+            `SELECT COALESCE(SUM(
+              CASE
+                WHEN oi.unit = 'kg' THEN oi.quantity
+                WHEN p.presentation = '250g' THEN oi.quantity * 0.25
+                WHEN p.presentation = '500g' THEN oi.quantity * 0.5
+                WHEN p.presentation = '1kg' THEN oi.quantity * 1
+                ELSE 0
+              END
+            ), 0) AS v
+            FROM order_items oi
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE oi.order_id = ?`,
+            row.id,
+          ) ?? 0,
+        );
+      }
+      qRun(
+        `INSERT OR REPLACE INTO sales_orders
+          (id, order_no, order_type, client_id, status, delivery_date, total_weight_kg, price_per_kg, total_amount, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        `SO-LEG-${row.id}`,
+        Number(row.is_retail ?? 0) === 1 ? "retail" : "wholesale",
+        row.client_id ?? null,
+        mapLegacySalesStatus(row.status),
+        row.delivery_date ?? null,
+        round2(totalKg),
+        Number(row.price_per_kg ?? 0),
+        Number(row.total_amount ?? 0),
+        row.notes ?? null,
+        row.created_at ?? row.order_date ?? nowIso(),
+        row.created_at ?? row.order_date ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("order_items")) {
+    const rows = qAll<any>("SELECT * FROM order_items");
+    for (const row of rows) {
+      const product = row.product_id ? qGet<any>("SELECT * FROM products WHERE id = ?", row.product_id) : null;
+      const presentation = product?.presentation ?? null;
+      qRun(
+        `INSERT OR REPLACE INTO sales_order_items
+          (id, order_id, product_id, description, presentation, quantity, unit, unit_weight_kg, unit_price, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.order_id,
+        row.product_id ?? null,
+        row.product_name ?? product?.name ?? "Item",
+        presentation,
+        Number(row.quantity ?? 0),
+        row.unit ?? "unit",
+        legacyPresentationWeight(presentation),
+        Number(row.unit_price ?? 0),
+        Number(row.subtotal ?? 0),
+      );
+    }
+  }
+
+  if (tableExists("order_payments")) {
+    const rows = qAll<any>("SELECT * FROM order_payments");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR IGNORE INTO sales_payments(id, order_id, amount, method, notes, registered_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.order_id,
+        Number(row.amount ?? 0),
+        row.payment_method ?? null,
+        row.notes ?? null,
+        row.registered_by ?? null,
+        row.payment_date ?? row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("order_shipments")) {
+    const rows = qAll<any>("SELECT * FROM order_shipments");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR IGNORE INTO sales_shipments
+          (id, order_id, weight_kg, destination_address, carrier, tracking_number, shipping_cost, registered_by, notes, expense_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.order_id,
+        Number(row.kg_shipped ?? 0),
+        row.destination_address ?? null,
+        row.carrier ?? null,
+        row.tracking_number ?? null,
+        Number(row.shipping_cost ?? 0),
+        row.registered_by ?? null,
+        row.notes ?? null,
+        row.expense_id ?? null,
+        row.shipment_date ?? row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("legacy_purchase_orders")) {
+    const rows = qAll<any>("SELECT * FROM legacy_purchase_orders");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR REPLACE INTO purchase_orders
+          (id, po_no, source_type, source_id, status, description, requested_green_kg, ordered_green_kg, received_green_kg, estimated_cost, estimated_shipping_cost, actual_cost, actual_shipping_cost, supplier, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        `PO-LEG-${row.id}`,
+        row.order_id ? "sales_order" : "manual",
+        row.order_id ?? null,
+        mapLegacyPurchaseStatus(row.status),
+        row.description,
+        Number(row.kg_needed ?? 0),
+        Number(row.kg_needed ?? 0),
+        Number(row.kg_purchased ?? 0),
+        Number(row.estimated_cost ?? 0),
+        Number(row.estimated_shipping_cost ?? 0),
+        Number(row.actual_cost ?? 0),
+        Number(row.actual_shipping_cost ?? 0),
+        row.supplier ?? null,
+        null,
+        row.created_at ?? nowIso(),
+        row.completed_at ?? row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("purchase_order_entries")) {
+    const rows = qAll<any>("SELECT * FROM purchase_order_entries");
+    for (const row of rows) {
+      const qty = Number(row.quantity ?? 0);
+      const total = Number(row.cost ?? 0);
+      qRun(
+        `INSERT OR IGNORE INTO purchase_entries
+          (id, purchase_order_id, inventory_item_id, quantity_kg, unit_cost, total_cost, shipping_cost, supplier, lot_label, origin_id, variety_id, registered_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.purchase_order_id,
+        row.inventory_id,
+        qty,
+        qty > 0 ? round2(total / qty) : 0,
+        total,
+        row.supplier ?? null,
+        row.lot_label ?? null,
+        row.origin_id ?? null,
+        row.variety_id ?? null,
+        row.registered_by ?? null,
+        row.entry_date ?? row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("legacy_capital_contributions")) {
+    const rows = qAll<any>("SELECT * FROM legacy_capital_contributions");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR REPLACE INTO capital_contributions
+          (id, capital_request_id, partner_name, amount, description, contribution_date, created_at)
+         VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+        row.id,
+        normalizePartnerName(row.partner_name),
+        Number(row.amount ?? 0),
+        row.description,
+        row.contribution_date ?? todayIso(),
+        row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("profit_withdrawals")) {
+    const rows = qAll<any>("SELECT * FROM profit_withdrawals");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR IGNORE INTO withdrawals
+          (id, kind, partner_name, amount, month, contribution_id, dividend_order_id, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+        row.id,
+        row.withdrawal_type === "aporte_retorno" ? "capital_return" : "dividend",
+        normalizePartnerName(row.partner_name),
+        Number(row.amount ?? 0),
+        row.month ?? null,
+        row.notes ?? null,
+        row.withdrawal_date ?? row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("legacy_roasting_batches")) {
+    const rows = qAll<any>("SELECT * FROM legacy_roasting_batches");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR REPLACE INTO roasting_batches
+          (id, session_id, batch_no, green_inventory_item_id, roast_profile_id, sales_order_id, green_kg, roasted_kg, loss_pct, machine_minutes, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.session_id,
+        row.batch_number ?? `BATCH-${row.id}`,
+        row.green_inventory_id,
+        row.roast_profile_id ?? null,
+        row.order_id ?? null,
+        Number(row.green_kg ?? 0),
+        row.roasted_kg ?? null,
+        row.loss_pct ?? null,
+        Number(row.machine_minutes ?? 0),
+        row.notes ?? null,
+        row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("legacy_machine_log")) {
+    const rows = qAll<any>("SELECT * FROM legacy_machine_log");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR IGNORE INTO machine_logs(id, log_date, log_type, description, cost, registered_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.log_date ?? todayIso(),
+        row.log_type ?? "incident",
+        row.description,
+        Number(row.cost ?? 0),
+        row.registered_by ?? null,
+        row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  if (tableExists("legacy_expenses")) {
+    const rows = qAll<any>("SELECT * FROM legacy_expenses");
+    for (const row of rows) {
+      qRun(
+        `INSERT OR IGNORE INTO expenses
+          (id, expense_date, category_id, amount, description, paid_by, supplier, notes, auto_generated, ref_type, ref_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.expense_date ?? todayIso(),
+        row.category_id,
+        Number(row.amount ?? 0),
+        row.description ?? null,
+        row.paid_by,
+        row.supplier ?? null,
+        row.notes ?? null,
+        Number(row.auto_generated ?? 0),
+        row.reference_type ?? null,
+        row.reference_id ?? null,
+        row.created_at ?? nowIso(),
+      );
+    }
+  }
+
+  const legacyOrderIds = qAll<{ id: number }>("SELECT id FROM sales_orders");
+  for (const row of legacyOrderIds) recalcSalesOrder(row.id);
+  const legacyPoIds = qAll<{ id: number }>("SELECT id FROM purchase_orders");
+  for (const row of legacyPoIds) recalcPurchaseOrder(row.id);
+}
+
+export function initDB() {
+  migrateLegacyTablesIfNeeded();
+  createSchema();
+  backfillFromLegacy();
+  qRun(`INSERT OR REPLACE INTO settings(key, value) VALUES ('migration_v3_done', '1')`);
   ensureInventoryItem({
     item_type: "roasted_coffee",
     item_name: "Café tostado disponible",

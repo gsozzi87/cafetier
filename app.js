@@ -388,7 +388,7 @@ async function renderPurchases() {
 
     <div class="card">
       <table class="table" id="poTable">
-        <thead><tr><th>OC</th><th>Descripción</th><th>Estado</th><th>Kg</th><th>Costo est.</th><th>Falta capital</th><th></th></tr></thead>
+        <thead><tr><th>OC</th><th>Descripción</th><th>Estado</th><th>Kg</th><th>Mercancía est.</th><th>Envío est.</th><th>Falta capital</th><th></th></tr></thead>
         <tbody>
           ${rows.map(po => `
             <tr>
@@ -397,6 +397,7 @@ async function renderPurchases() {
               <td>${statusBadge(po.status)}</td>
               <td>${kg(po.requested_green_kg)}</td>
               <td class="money">${money(po.estimated_cost)}</td>
+              <td class="money">${money(po.estimated_shipping_cost || 0)}</td>
               <td class="money">${money(po.capital_missing)}</td>
               <td><button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></td>
             </tr>`).join("")}
@@ -418,20 +419,21 @@ async function renderPurchaseDetail(id) {
         ${statusBadge(po.status)}
       </div>
       <div class="row wrap">
-        ${po.status !== "received" && po.status !== "cancelled" ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Registrar recepción</button>` : ""}
+        ${po.status !== "received" && po.status !== "cancelled" ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
       </div>
     </div>
 
     <div class="grid cards">
       <div class="card metric"><div class="label">Kg solicitados</div><div class="value">${kg(po.requested_green_kg)}</div><small>Recibidos ${kg(po.received_green_kg)}</small></div>
-      <div class="card metric"><div class="label">Costo estimado</div><div class="value money">${money(po.estimated_cost)}</div><small>Real ${money(po.actual_cost)}</small></div>
+      <div class="card metric"><div class="label">Mercancía estimada</div><div class="value money">${money(po.estimated_cost)}</div><small>Real mercancía ${money((po.actual_cost || 0) - (po.actual_shipping_cost || 0))}</small></div>
       <div class="card metric"><div class="label">Proveedor</div><div class="value" style="font-size:22px">${esc(po.supplier || "Sin proveedor")}</div><small>${esc(po.source_type)}</small></div>
+      <div class="card metric"><div class="label">Envío compra</div><div class="value money">${money(po.actual_shipping_cost || po.estimated_shipping_cost || 0)}</div><small>Est. ${money(po.estimated_shipping_cost || 0)} · Real ${money(po.actual_shipping_cost || 0)}</small></div>
       <div class="card metric"><div class="label">Progreso</div><div class="value">${pct(po.requested_green_kg ? (po.received_green_kg / po.requested_green_kg) * 100 : 0)}</div><small>${esc(po.status)}</small></div>
     </div>
 
     ${capitalRequests.some(r => r.status !== "funded" && r.status !== "cancelled") ? `
       <div class="notice error" style="margin-top:12px">
-        Esta orden tiene capital pendiente. Registrá aportes en el módulo de capital antes de recibir más café.
+        Esta orden tiene capital pendiente. Al ejecutar la compra se valida caja total (mercancía + envío). Si no alcanza, debés fondear la orden de capital antes de recibir café.
       </div>` : ""}
 
     <div class="split" style="margin-top:12px">
@@ -439,13 +441,16 @@ async function renderPurchaseDetail(id) {
         <h3>Entradas recibidas</h3>
         ${entries.length ? `
         <table class="table">
-          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo</th><th>Proveedor</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo/kg</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Proveedor</th></tr></thead>
           <tbody>${entries.map(e => `
             <tr>
               <td>${esc((e.created_at || "").slice(0, 10))}</td>
               <td>${esc(e.lot_label || e.item_name)}</td>
               <td>${kg(e.quantity_kg)}</td>
+              <td class="money">${money(e.unit_cost || 0)}</td>
               <td class="money">${money(e.total_cost)}</td>
+              <td class="money">${money(e.shipping_cost || 0)}</td>
+              <td class="money">${money((e.total_cost || 0) + (e.shipping_cost || 0))}</td>
               <td>${esc(e.supplier || "")}</td>
             </tr>`).join("")}
           </tbody>
@@ -884,7 +889,7 @@ function addPayment(orderId) {
     </div>
     <div class="field"><label>Notas</label><input class="input" id="payNotes" /></div>
   `, [{
-    label: "Guardar",
+    label: "Ejecutar venta",
     kind: "primary",
     onClick: async modal => {
       await api(`/sales-orders/${orderId}/payments`, {
@@ -906,7 +911,7 @@ function deletePayment(paymentId, orderId) {
 }
 
 function addShipment(orderId) {
-  openModal("Registrar envío", `
+  openModal("Ejecutar venta / registrar envío", `
     <div class="form-grid">
       <div class="field"><label>Kg enviados</label><input class="input" id="shipKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
@@ -950,8 +955,11 @@ function newManualPurchase() {
       <div class="field"><label>Descripción</label><input class="input" id="poDesc" /></div>
       <div class="field"><label>Proveedor</label><input class="input" id="poSupplier" /></div>
       <div class="field"><label>Kg requeridos</label><input class="input" id="poKg" type="number" step="0.01" /></div>
-      <div class="field"><label>Costo estimado</label><input class="input" id="poCost" type="number" step="0.01" /></div>
+      <div class="field"><label>Costo estimado por kg</label><input class="input" id="poCostKg" type="number" step="0.01" /></div>
+      <div class="field"><label>Mercancía estimada total</label><input class="input" id="poCost" type="number" step="0.01" /></div>
+      <div class="field"><label>Envío estimado compra</label><input class="input" id="poShip" type="number" step="0.01" value="0" /></div>
     </div>
+    <div class="notice warn">Si al crear o ejecutar la compra no alcanza la caja disponible, el sistema debe disparar una orden de ingreso de capital.</div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="poNotes"></textarea></div>
   `, [{
     label: "Crear OC",
@@ -963,7 +971,9 @@ function newManualPurchase() {
           description: val("poDesc"),
           supplier: val("poSupplier") || null,
           requested_green_kg: Number(val("poKg")),
+          estimated_cost_per_kg: Number(val("poCostKg")),
           estimated_cost: Number(val("poCost")),
+          estimated_shipping_cost: Number(val("poShip")),
           notes: val("poNotes") || null,
         },
       });
@@ -979,10 +989,13 @@ function openPurchase(id) { setView("purchaseDetail", { id }); }
 function receivePurchase(poId) {
   const o = state.master.origins || [];
   const v = state.master.varieties || [];
-  openModal("Registrar recepción de compra", `
+  openModal("Ejecutar compra / registrar recepción", `
+    <div class="notice warn">Al ejecutar la compra se valida caja total = mercancía + envío. Si no alcanza, se genera automáticamente la orden de ingreso de capital.</div>
     <div class="form-grid">
       <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" /></div>
-      <div class="field"><label>Costo total</label><input class="input" id="rcvCost" type="number" step="0.01" /></div>
+      <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" /></div>
+      <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" /></div>
+      <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Proveedor</label><input class="input" id="rcvSupplier" /></div>
       <div class="field"><label>Lote</label><input class="input" id="rcvLot" /></div>
       <div class="field"><label>Origen</label><select class="select" id="rcvOrigin"><option value="">-</option>${o.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
@@ -990,14 +1003,16 @@ function receivePurchase(poId) {
     </div>
     <div class="field"><label>Registrado por</label><select class="select" id="rcvBy">${partnerOptions()}</select></div>
   `, [{
-    label: "Guardar recepción",
+    label: "Ejecutar compra",
     kind: "primary",
     onClick: async modal => {
       await api(`/purchase-orders/${poId}/receive`, {
         method: "POST",
         body: {
           quantity_kg: Number(val("rcvKg")),
+          unit_cost: Number(val("rcvUnitCost")),
           total_cost: Number(val("rcvCost")),
+          shipping_cost: Number(val("rcvShipCost")),
           supplier: val("rcvSupplier") || null,
           lot_label: val("rcvLot") || null,
           origin_id: val("rcvOrigin") || null,
@@ -1006,7 +1021,7 @@ function receivePurchase(poId) {
         },
       });
       modal.remove();
-      toast("Recepción registrada.", "ok");
+      toast("Compra ejecutada y recepción registrada.", "ok");
       openPurchase(poId);
     }
   }]);
