@@ -1,8 +1,8 @@
 {
-  "name": "CAFETIER",
+  "name": "CAFETIER ERP",
   "short_name": "CAFETIER",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FAFAF7",
-  "theme_color": "#8B6914"
+  "background_color": "#f6f4ef",
+  "theme_color": "#8b6914"
 }

@@ -1,6 +1,6 @@
 {
   "name": "cafetier",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "scripts": {
     "start": "bun run server.ts",
     "dev": "bun --watch run server.ts"
