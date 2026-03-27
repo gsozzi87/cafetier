@@ -471,6 +471,10 @@ function upgradeSchemaIfNeeded() {
   addColumnIfMissing("withdrawals", "kind", "TEXT NOT NULL DEFAULT 'dividend'");
   addColumnIfMissing("withdrawals", "contribution_id", "INTEGER");
   addColumnIfMissing("withdrawals", "dividend_order_id", "INTEGER");
+  addColumnIfMissing("expenses", "funding_source", "TEXT NOT NULL DEFAULT 'cash'");
+  addColumnIfMissing("expenses", "capital_contribution_id", "INTEGER");
+  addColumnIfMissing("machine_logs", "funding_source", "TEXT NOT NULL DEFAULT 'cash'");
+  addColumnIfMissing("machine_logs", "expense_id", "INTEGER");
 
   if (tableExists("sales_orders") && columnExists("sales_orders", "order_no")) {
     qRun(`UPDATE sales_orders SET order_no = COALESCE(order_no, 'SO-' || id) WHERE order_no IS NULL OR order_no = ''`);
@@ -479,6 +483,9 @@ function upgradeSchemaIfNeeded() {
     qRun(`UPDATE purchase_orders SET po_no = COALESCE(po_no, 'PO-' || id) WHERE po_no IS NULL OR po_no = ''`);
     qRun(`UPDATE purchase_orders SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`);
   }
+
+  qRun(`INSERT OR IGNORE INTO settings(key, value) VALUES ('roast_operators', 'Axel|Itzamara|Gastón')`);
+  qRun(`INSERT OR IGNORE INTO settings(key, value) VALUES ('individual_people', 'Itzamara|Gastón|Axel')`);
 }
 
 function legacyPresentationWeight(presentation: string | null | undefined) {
@@ -859,6 +866,8 @@ function createSchema() {
       description TEXT NOT NULL,
       cost REAL NOT NULL DEFAULT 0,
       registered_by TEXT,
+      funding_source TEXT NOT NULL DEFAULT 'cash',
+      expense_id INTEGER,
       created_at TEXT NOT NULL
     );
 
@@ -874,6 +883,8 @@ function createSchema() {
       auto_generated INTEGER NOT NULL DEFAULT 0,
       ref_type TEXT,
       ref_id INTEGER,
+      funding_source TEXT NOT NULL DEFAULT 'cash',
+      capital_contribution_id INTEGER,
       created_at TEXT NOT NULL,
       FOREIGN KEY (category_id) REFERENCES expense_categories(id)
     );
@@ -920,8 +931,27 @@ function createSchema() {
       ('default_loss_pct', '15'),
       ('machine_kw', '0'),
       ('kwh_price', '0'),
-      ('default_green_cost_per_kg', '0');
+      ('default_green_cost_per_kg', '0'),
+      ('roast_operators', 'Axel|Itzamara|Gastón'),
+      ('individual_people', 'Itzamara|Gastón|Axel');
 `);
+}
+
+
+function enforcePartnerStructure() {
+  if (tableExists('capital_contributions')) {
+    qRun(`UPDATE capital_contributions SET partner_name = 'Itza + Gastón' WHERE lower(trim(partner_name)) IN ('itzamara','itza','gaston','gastón','itza + gastón','itza + gaston','itza y gastón','itza y gaston')`);
+    qRun(`UPDATE capital_contributions SET partner_name = 'Axel' WHERE lower(trim(partner_name)) = 'axel'`);
+  }
+  if (tableExists('withdrawals')) {
+    qRun(`UPDATE withdrawals SET partner_name = 'Itza + Gastón' WHERE lower(trim(partner_name)) IN ('itzamara','itza','gaston','gastón','itza + gastón','itza + gaston','itza y gastón','itza y gaston')`);
+    qRun(`UPDATE withdrawals SET partner_name = 'Axel' WHERE lower(trim(partner_name)) = 'axel'`);
+  }
+  if (tableExists('partners')) {
+    qRun(`DELETE FROM partners`);
+    qRun(`INSERT OR REPLACE INTO partners(name, share_pct) VALUES ('Itza + Gastón', 50)`);
+    qRun(`INSERT OR REPLACE INTO partners(name, share_pct) VALUES ('Axel', 50)`);
+  }
 }
 
 function backfillFromLegacy() {
@@ -1281,6 +1311,7 @@ export function initDB() {
   createSchema();
   upgradeSchemaIfNeeded();
   backfillFromLegacy();
+  enforcePartnerStructure();
   qRun(`INSERT OR REPLACE INTO settings(key, value) VALUES ('migration_v3_done', '1')`);
   ensureInventoryItem({
     item_type: "roasted_coffee",

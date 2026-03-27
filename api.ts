@@ -998,23 +998,47 @@ api.post("/expenses", async c => {
   const b = await bodyOf<any>(c);
   required(b.category_id, "Categoría obligatoria.");
   required(num(b.amount, 0) > 0, "Monto inválido.");
-  const finance = computeFinanceSummary();
-  required(finance.availableCash >= num(b.amount), "No hay capital disponible para este gasto.");
-  const res = qRun(
-    `INSERT INTO expenses(expense_date, category_id, amount, description, paid_by, supplier, notes, auto_generated, ref_type, ref_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-    b.expense_date || todayIso(),
-    b.category_id,
-    round2(num(b.amount)),
-    b.description || null,
-    b.paid_by || "Sistema",
-    b.supplier || null,
-    b.notes || null,
-    b.ref_type || null,
-    b.ref_id || null,
-    nowIso(),
-  );
-  return c.json(ok(qGet("SELECT * FROM expenses WHERE id = ?", Number(res.lastInsertRowid))));
+  const fundingSource = b.funding_source || "cash";
+  const amount = round2(num(b.amount));
+  const create = tx(() => {
+    let contributionId: number | null = null;
+    if (fundingSource === "cash") {
+      const finance = computeFinanceSummary();
+      required(finance.availableCash >= amount, "No hay dinero disponible en caja para este gasto.");
+    } else {
+      const partnerName = normalizePartnerName(fundingSource);
+      required(["Itza + Gastón", "Axel"].includes(partnerName), "Fuente de financiamiento inválida.");
+      const cres = qRun(
+        `INSERT INTO capital_contributions(partner_name, amount, description, contribution_date, capital_request_id, notes, created_at)
+         VALUES (?, ?, ?, ?, NULL, ?, ?)`,
+        partnerName,
+        amount,
+        b.description || "Aporte para gasto",
+        b.expense_date || todayIso(),
+        `Aporte automático para cubrir gasto: ${b.description || "sin descripción"}`,
+        nowIso(),
+      );
+      contributionId = Number(cres.lastInsertRowid);
+    }
+    const res = qRun(
+      `INSERT INTO expenses(expense_date, category_id, amount, description, paid_by, supplier, notes, auto_generated, ref_type, ref_id, funding_source, capital_contribution_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+      b.expense_date || todayIso(),
+      b.category_id,
+      amount,
+      b.description || null,
+      fundingSource === "cash" ? "Caja" : normalizePartnerName(fundingSource),
+      b.supplier || null,
+      b.notes || null,
+      b.ref_type || null,
+      b.ref_id || null,
+      fundingSource,
+      contributionId,
+      nowIso(),
+    );
+    return qGet("SELECT * FROM expenses WHERE id = ?", Number(res.lastInsertRowid));
+  });
+  return c.json(ok(create()));
 });
 api.delete("/expenses/:id", c => {
   qRun("DELETE FROM expenses WHERE id = ?", Number(c.req.param("id")));
@@ -1235,22 +1259,70 @@ api.post("/machine-logs", async c => {
   required(b.log_date, "Fecha obligatoria.");
   required(b.log_type, "Tipo obligatorio.");
   required(b.description, "Descripción obligatoria.");
-  const finance = computeFinanceSummary();
-  if (num(b.cost) > 0) required(finance.availableCash >= num(b.cost), "No hay capital disponible para este registro.");
-  const res = qRun(
-    `INSERT INTO machine_logs(log_date, log_type, description, cost, registered_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    b.log_date,
-    b.log_type,
-    b.description,
-    round2(num(b.cost)),
-    b.registered_by || null,
-    nowIso(),
-  );
-  return c.json(ok(qGet("SELECT * FROM machine_logs WHERE id = ?", Number(res.lastInsertRowid))));
+  const cost = round2(num(b.cost));
+  const fundingSource = b.funding_source || "cash";
+  const create = tx(() => {
+    let contributionId: number | null = null;
+    if (cost > 0) {
+      if (fundingSource === "cash") {
+        const finance = computeFinanceSummary();
+        required(finance.availableCash >= cost, "No hay dinero disponible en caja para este registro.");
+      } else {
+        const partnerName = normalizePartnerName(fundingSource);
+        required(["Itza + Gastón", "Axel"].includes(partnerName), "Fuente de financiamiento inválida.");
+        const cres = qRun(
+          `INSERT INTO capital_contributions(partner_name, amount, description, contribution_date, capital_request_id, notes, created_at)
+           VALUES (?, ?, ?, ?, NULL, ?, ?)`,
+          partnerName,
+          cost,
+          `Aporte para ${b.log_type || 'máquina'}`,
+          b.log_date || todayIso(),
+          `Aporte automático para bitácora de máquina: ${b.description}`,
+          nowIso(),
+        );
+        contributionId = Number(cres.lastInsertRowid);
+      }
+    }
+    const logRes = qRun(
+      `INSERT INTO machine_logs(log_date, log_type, description, cost, registered_by, funding_source, expense_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+      b.log_date,
+      b.log_type,
+      b.description,
+      cost,
+      b.registered_by || null,
+      fundingSource,
+      nowIso(),
+    );
+    const logId = Number(logRes.lastInsertRowid);
+    if (cost > 0) {
+      const cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name = 'Mantenimiento' LIMIT 1");
+      const expRes = qRun(
+        `INSERT INTO expenses(expense_date, category_id, amount, description, paid_by, supplier, notes, auto_generated, ref_type, ref_id, funding_source, capital_contribution_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'machine_log', ?, ?, ?, ?)`,
+        b.log_date || todayIso(),
+        cat?.id || 1,
+        cost,
+        `Máquina · ${b.log_type} · ${b.description}`,
+        fundingSource === "cash" ? "Caja" : normalizePartnerName(fundingSource),
+        null,
+        b.notes || null,
+        logId,
+        fundingSource,
+        contributionId,
+        nowIso(),
+      );
+      qRun("UPDATE machine_logs SET expense_id = ? WHERE id = ?", Number(expRes.lastInsertRowid), logId);
+    }
+    return qGet("SELECT * FROM machine_logs WHERE id = ?", logId);
+  });
+  return c.json(ok(create()));
 });
 api.delete("/machine-logs/:id", c => {
-  qRun("DELETE FROM machine_logs WHERE id = ?", Number(c.req.param("id")));
+  const id = Number(c.req.param("id"));
+  const row = qGet<any>("SELECT * FROM machine_logs WHERE id = ?", id);
+  if (row?.expense_id) qRun("DELETE FROM expenses WHERE id = ?", row.expense_id);
+  qRun("DELETE FROM machine_logs WHERE id = ?", id);
   return c.json(ok(true));
 });
 
