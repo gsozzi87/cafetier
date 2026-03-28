@@ -1,5 +1,7 @@
 
 import { Hono } from "hono";
+import fs from "fs";
+import path from "path";
 import {
   computeFinanceSummary,
   createCapitalRequest,
@@ -47,6 +49,52 @@ function num(v: any, fallback = 0) {
 function required(cond: any, message: string) {
   if (!cond) throw new Error(message);
 }
+
+const UPLOAD_DIR = process.env.UPLOAD_PATH || path.join(path.dirname(process.env.DB_PATH || '/data/cafetier.db'), 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+async function analyzeArtisanWithClaude(fileName: string, payload: string, batch: any) {
+  const apiKey = getSettingsObject().claude_api_key;
+  if (!apiKey) return { ai_review: null, warning: 'Configura la API key de Claude en Configuración.' };
+  const prompt = `Eres un maestro tostador de café y analista de curvas de Artisan.
+Analiza el archivo adjunto y responde en español con un reporte breve y útil para producción.
+
+Datos del batch:
+- Batch: ${batch.batch_no}
+- Verde: ${batch.green_kg} kg
+- Tostado: ${batch.roasted_kg ?? 'N/D'} kg
+- Merma: ${batch.loss_pct ?? 'N/D'}%
+- Minutos: ${batch.machine_minutes ?? 'N/D'}
+- Perfil: ${batch.roast_profile_name || 'Sin perfil'}
+
+Quiero exactamente estas secciones:
+1. Resumen general
+2. Qué salió bien
+3. Qué faltó
+4. Problemas detectados
+5. Sabor esperado / taza probable
+6. Recomendación accionable para el próximo batch
+
+Archivo (${fileName}):
+${payload.slice(0, 120000)}`;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1400,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const data = await res.json().catch(() => ({} as any));
+  if (!res.ok) throw new Error(data?.error?.message || 'Claude no pudo analizar la curva.');
+  return { ai_review: data?.content?.[0]?.text || null };
+}
+
 
 api.onError((err, c) => {
   console.error(err);
@@ -1063,7 +1111,7 @@ api.get("/roasting-sessions/:id", c => {
   const id = Number(c.req.param("id"));
   const session = qGet("SELECT * FROM roasting_sessions WHERE id = ?", id);
   if (!session) return c.json(fail("Sesión no encontrada"), 404);
-  const batches = qAll(
+  const batches = qAll<any>(
     `SELECT rb.*, i.item_name AS green_item_name, rp.name AS roast_profile_name, so.order_no
        FROM roasting_batches rb
        JOIN inventory_items i ON i.id = rb.green_inventory_item_id
@@ -1072,7 +1120,10 @@ api.get("/roasting-sessions/:id", c => {
       WHERE rb.session_id = ?
       ORDER BY rb.id DESC`,
     id,
-  );
+  ).map((b: any) => ({
+    ...b,
+    photos: qAll<any>('SELECT * FROM batch_photos WHERE batch_id = ? ORDER BY id DESC', b.id),
+  }));
   return c.json(ok({ session, batches }));
 });
 
@@ -1250,6 +1301,60 @@ api.delete("/roasting-sessions/:id", c => {
   if (batches.length > 0) return c.json(fail("Elimina primero los batches de la sesión."), 400);
   qRun("DELETE FROM roasting_sessions WHERE id = ?", id);
   return c.json(ok(true));
+});
+
+api.post("/roasting-batches/:id/artisan", async c => {
+  const id = Number(c.req.param("id"));
+  const batch = qGet<any>(
+    `SELECT rb.*, rp.name AS roast_profile_name
+       FROM roasting_batches rb
+       LEFT JOIN roast_profiles rp ON rp.id = rb.roast_profile_id
+      WHERE rb.id = ?`,
+    id,
+  );
+  if (!batch) return c.json(fail("Batch no encontrado"), 404);
+  const fd = await c.req.formData();
+  const file = fd.get('file');
+  required(file && typeof file !== 'string', 'Adjunta un archivo de Artisan.');
+  const artisanFile = file as File;
+  const payload = await artisanFile.text();
+  const analysis = await analyzeArtisanWithClaude(artisanFile.name, payload, batch);
+  qRun('UPDATE roasting_batches SET artisan_file_name = ?, artisan_payload = ?, ai_review = ? WHERE id = ?', artisanFile.name, payload, analysis.ai_review || null, id);
+  return c.json(ok({ artisan_file_name: artisanFile.name, ai_review: analysis.ai_review, warning: analysis.warning || null }));
+});
+
+api.post("/roasting-batches/:id/photos", async c => {
+  const id = Number(c.req.param("id"));
+  const batch = qGet<any>('SELECT * FROM roasting_batches WHERE id = ?', id);
+  if (!batch) return c.json(fail('Batch no encontrado'), 404);
+  const fd = await c.req.formData();
+  const file = fd.get('file');
+  required(file && typeof file !== 'string', 'Adjunta una foto.');
+  const img = file as File;
+  const ext = path.extname(img.name || '').replace(/[^a-zA-Z0-9.]/g, '') || '.bin';
+  const stored = `${Date.now()}-${crypto.randomUUID()}${ext}`;
+  const abs = path.join(UPLOAD_DIR, stored);
+  const buf = Buffer.from(await img.arrayBuffer());
+  fs.writeFileSync(abs, buf);
+  const res = qRun('INSERT INTO batch_photos(batch_id, file_name, stored_name, mime_type, notes, created_at) VALUES (?, ?, ?, ?, NULL, ?)', id, img.name || stored, stored, img.type || 'application/octet-stream', nowIso());
+  return c.json(ok(qGet('SELECT * FROM batch_photos WHERE id = ?', Number(res.lastInsertRowid))));
+});
+
+api.delete("/batch-photos/:id", c => {
+  const id = Number(c.req.param('id'));
+  const row = qGet<any>('SELECT * FROM batch_photos WHERE id = ?', id);
+  if (!row) return c.json(fail('Foto no encontrada'), 404);
+  try { fs.unlinkSync(path.join(UPLOAD_DIR, row.stored_name)); } catch {}
+  qRun('DELETE FROM batch_photos WHERE id = ?', id);
+  return c.json(ok(true));
+});
+
+api.get('/uploads/:name', c => {
+  const name = c.req.param('name');
+  const abs = path.join(UPLOAD_DIR, name);
+  if (!fs.existsSync(abs)) return c.json(fail('Archivo no encontrado'), 404);
+  const type = qVal('SELECT mime_type AS v FROM batch_photos WHERE stored_name = ?', name) || 'application/octet-stream';
+  return new Response(Bun.file(abs), { headers: { 'Content-Type': String(type) } });
 });
 
 // Machine logs

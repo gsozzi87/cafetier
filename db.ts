@@ -472,6 +472,9 @@ function upgradeSchemaIfNeeded() {
   addColumnIfMissing("withdrawals", "kind", "TEXT NOT NULL DEFAULT 'dividend'");
   addColumnIfMissing("withdrawals", "contribution_id", "INTEGER");
   addColumnIfMissing("withdrawals", "dividend_order_id", "INTEGER");
+  addColumnIfMissing("roasting_batches", "artisan_file_name", "TEXT");
+  addColumnIfMissing("roasting_batches", "artisan_payload", "TEXT");
+  addColumnIfMissing("roasting_batches", "ai_review", "TEXT");
   addColumnIfMissing("expenses", "funding_source", "TEXT NOT NULL DEFAULT 'cash'");
   addColumnIfMissing("expenses", "capital_contribution_id", "INTEGER");
   addColumnIfMissing("machine_logs", "funding_source", "TEXT NOT NULL DEFAULT 'cash'");
@@ -487,6 +490,8 @@ function upgradeSchemaIfNeeded() {
 
   qRun(`INSERT OR IGNORE INTO settings(key, value) VALUES ('roast_operators', 'Axel|Itzamara|Gastón')`);
   qRun(`INSERT OR IGNORE INTO settings(key, value) VALUES ('individual_people', 'Itzamara|Gastón|Axel')`);
+  qRun(`INSERT OR IGNORE INTO settings(key, value) VALUES ('business_tagline', 'Culto por el café')`);
+  qRun(`INSERT OR IGNORE INTO settings(key, value) VALUES ('claude_api_key', '')`);
 }
 
 function legacyPresentationWeight(presentation: string | null | undefined) {
@@ -854,11 +859,26 @@ function createSchema() {
       loss_pct REAL,
       machine_minutes REAL NOT NULL DEFAULT 0,
       notes TEXT,
+      artisan_file_name TEXT,
+      artisan_payload TEXT,
+      ai_review TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES roasting_sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (green_inventory_item_id) REFERENCES inventory_items(id),
       FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id),
       FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id)
+    );
+
+
+    CREATE TABLE IF NOT EXISTS batch_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id INTEGER NOT NULL,
+      file_name TEXT NOT NULL,
+      stored_name TEXT NOT NULL,
+      mime_type TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (batch_id) REFERENCES roasting_batches(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS machine_logs (
@@ -934,6 +954,8 @@ function createSchema() {
       ('machine_kw', '0'),
       ('kwh_price', '0'),
       ('default_green_cost_per_kg', '0'),
+      ('business_tagline', 'Culto por el café'),
+      ('claude_api_key', ''),
       ('roast_operators', 'Axel|Itzamara|Gastón'),
       ('individual_people', 'Itzamara|Gastón|Axel');
 `);

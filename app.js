@@ -25,6 +25,7 @@ const numFmt = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 });
 function money(n) { return moneyFmt.format(Number(n || 0)); }
 function kg(n) { return `${numFmt.format(Number(n || 0))} kg`; }
 function pct(n) { return `${numFmt.format(Number(n || 0))}%`; }
+function round2(n) { return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100; }
 function esc(v) { return String(v ?? "").replace(/[&<>"]/g, m => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[m])); }
 function val(id) { return document.getElementById(id)?.value; }
 function setStatus(text) { document.getElementById("statusPill").textContent = text; }
@@ -616,10 +617,16 @@ async function renderRoastingDetail(id) {
             <div class="row between"><strong>${esc(b.batch_no)}</strong><div class="line-actions">
               <span class="pill">${esc(b.roast_profile_name || "Sin perfil")}</span>
               <button class="btn ghost sm" onclick="App.editBatch(${b.id},${session.id})">Editar</button>
+              <label class="btn ghost sm file-btn">Curva Artisan<input type="file" accept=".alog,.csv,.json,.txt" onchange="App.uploadArtisan(${b.id}, ${session.id}, this)" hidden></label>
+              <label class="btn ghost sm file-btn">Fotos<input type="file" accept="image/*" multiple onchange="App.uploadBatchPhoto(${b.id}, ${session.id}, this)" hidden></label>
               <button class="btn red sm" onclick="App.deleteBatch(${b.id},${session.id})">Eliminar</button>
             </div></div>
             <div class="small muted">${esc(b.green_item_name)} · ${kg(b.green_kg)} → ${kg(b.roasted_kg || 0)} · ${pct(b.loss_pct || 0)} · ${numFmt.format(b.machine_minutes || 0)} min</div>
             <div class="small muted">${b.order_no ? "Pedido " + esc(b.order_no) : "Sin pedido ligado"} ${b.notes ? "· " + esc(b.notes) : ""}</div>
+            ${b.ai_review ? `<div class="code" style="margin-top:10px"><strong>Reseña IA:</strong>
+${esc(b.ai_review)}</div>` : ``}
+            ${b.artisan_file_name ? `<div class="small muted" style="margin-top:8px">Curva cargada: ${esc(b.artisan_file_name)}</div>` : ``}
+            ${(b.photos || []).length ? `<div class="photo-grid">${b.photos.map(p => `<div class="photo-card"><img src="/api/uploads/${encodeURIComponent(p.stored_name)}" alt="${esc(p.file_name)}" /><div class="photo-actions"><span class="tiny muted">${esc(p.file_name)}</span><button class="btn red sm" onclick="App.deleteBatchPhoto(${p.id}, ${b.id}, ${session.id})">Quitar</button></div></div>`).join("")}</div>` : ``}
           </div>`).join("") : `<div class="empty">Sin batches.</div>`}
       </div>
 
@@ -730,10 +737,12 @@ async function renderConfig() {
           <h3>Parámetros</h3>
           <div class="form-grid">
             <div class="field"><label>Nombre del negocio</label><input class="input" id="cfgBusiness" value="${esc(settings.business_name || "CAFETIER")}" /></div>
+            <div class="field"><label>Slogan</label><input class="input" id="cfgTagline" value="${esc(settings.business_tagline || "Culto por el café")}" /></div>
             <div class="field"><label>Merma estándar %</label><input class="input" id="cfgLoss" type="number" step="0.01" value="${esc(settings.default_loss_pct || "15")}" /></div>
             <div class="field"><label>kW máquina</label><input class="input" id="cfgKw" type="number" step="0.01" value="${esc(settings.machine_kw || "0")}" /></div>
             <div class="field"><label>$ por kWh</label><input class="input" id="cfgKwh" type="number" step="0.01" value="${esc(settings.kwh_price || "0")}" /></div>
             <div class="field"><label>Costo verde/kg por defecto</label><input class="input" id="cfgGreen" type="number" step="0.01" value="${esc(settings.default_green_cost_per_kg || "0")}" /></div>
+            <div class="field"><label>Claude API key</label><input class="input" id="cfgClaude" value="${esc(settings.claude_api_key || "")}" placeholder="sk-ant-..." /></div>
           </div>
           <div class="footer-actions">
             <button class="btn primary" onclick="App.saveSettings()">Guardar configuración</button>
@@ -1278,6 +1287,52 @@ function deleteBatch(batchId, sessionId) {
     .catch(err => toast(err.message, "error"));
 }
 
+
+async function uploadArtisan(batchId, sessionId, input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch(`/api/roasting-batches/${batchId}/artisan`, { method: 'POST', body: fd });
+    const payload = await res.json().catch(() => ({ success:false, error:'Respuesta inválida' }));
+    if (!res.ok || payload.success === false) throw new Error(payload.error || 'No pude procesar la curva');
+    toast(payload.data?.ai_review ? 'Curva analizada con Claude.' : 'Curva cargada.', 'ok');
+    openRoasting(sessionId);
+  } catch (err) {
+    toast(err.message || String(err), 'error');
+  } finally {
+    input.value = '';
+  }
+}
+
+async function uploadBatchPhoto(batchId, sessionId, input) {
+  const files = Array.from(input?.files || []);
+  if (!files.length) return;
+  try {
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/roasting-batches/${batchId}/photos`, { method: 'POST', body: fd });
+      const payload = await res.json().catch(() => ({ success:false, error:'Respuesta inválida' }));
+      if (!res.ok || payload.success === false) throw new Error(payload.error || 'No pude subir la foto');
+    }
+    toast('Fotos cargadas.', 'ok');
+    openRoasting(sessionId);
+  } catch (err) {
+    toast(err.message || String(err), 'error');
+  } finally {
+    input.value = '';
+  }
+}
+
+function deleteBatchPhoto(photoId, batchId, sessionId) {
+  if (!confirm('¿Quitar esta foto?')) return;
+  api(`/batch-photos/${photoId}`, { method:'DELETE' })
+    .then(() => { toast('Foto eliminada.', 'ok'); openRoasting(sessionId); })
+    .catch(err => toast(err.message, 'error'));
+}
+
 function newInventoryItem() {
   openModal("Nuevo ítem de inventario", `
     <div class="form-grid">
@@ -1445,10 +1500,12 @@ async function saveSettings() {
     method: "PUT",
     body: {
       business_name: val("cfgBusiness"),
+      business_tagline: val("cfgTagline"),
       default_loss_pct: val("cfgLoss"),
       machine_kw: val("cfgKw"),
       kwh_price: val("cfgKwh"),
       default_green_cost_per_kg: val("cfgGreen"),
+      claude_api_key: val("cfgClaude"),
     },
   });
   await refreshMaster(true);
@@ -1603,6 +1660,9 @@ const App = {
   newBatch,
   editBatch,
   deleteBatch,
+  uploadArtisan,
+  uploadBatchPhoto,
+  deleteBatchPhoto,
   newInventoryItem,
   newInventoryMovement,
   deleteInventoryItem,
