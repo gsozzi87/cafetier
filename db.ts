@@ -468,6 +468,7 @@ function upgradeSchemaIfNeeded() {
   addColumnIfMissing("purchase_entries", "registered_by", "TEXT");
 
   addColumnIfMissing("capital_contributions", "capital_request_id", "INTEGER");
+  addColumnIfMissing("capital_contributions", "notes", "TEXT");
   addColumnIfMissing("withdrawals", "kind", "TEXT NOT NULL DEFAULT 'dividend'");
   addColumnIfMissing("withdrawals", "contribution_id", "INTEGER");
   addColumnIfMissing("withdrawals", "dividend_order_id", "INTEGER");
@@ -796,6 +797,7 @@ function createSchema() {
       amount REAL NOT NULL,
       description TEXT NOT NULL,
       contribution_date TEXT NOT NULL,
+      notes TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (capital_request_id) REFERENCES capital_requests(id)
     );
