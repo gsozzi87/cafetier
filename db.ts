@@ -33,7 +33,7 @@ export function normPartner(name: string | null | undefined) {
   const raw = String(name || "").trim();
   if (!raw) return raw;
   const k = raw.toLowerCase();
-  if (["itzamara","itza","gaston","gastón","itza + gaston","itza + gastón","itza y gaston","itza y gastón","itza/gaston","itza/gastón"].includes(k)) return "Itza + Gastón";
+  if (["itzamara","itza","gaston","gastón","itza + gaston","itza + gastón","itza y gaston","itza y gastón","itza/gaston","itza/gastón"].includes(k)) return "Itza";
   if (k === "axel") return "Axel";
   return raw;
 }
@@ -161,12 +161,12 @@ export function autoExpense(catName: string, amount: number, desc: string, paidB
 export function initDB() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS partners (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, share_pct REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS partners (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, share_pct REAL NOT NULL CHECK(name IN ('Itza','Axel')));
     CREATE TABLE IF NOT EXISTS roast_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS origins (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS varieties (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS expense_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, is_direct_cost INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
-    CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, email TEXT, address TEXT, city TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, email TEXT, address TEXT, city TEXT, postal_code TEXT, cafe_name TEXT, contact_name TEXT, contact_phone TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, origin_id INTEGER, variety_id INTEGER, roast_profile_id INTEGER, presentation TEXT, unit_weight_kg REAL DEFAULT 1, price REAL DEFAULT 0, active INTEGER DEFAULT 1, FOREIGN KEY (origin_id) REFERENCES origins(id), FOREIGN KEY (variety_id) REFERENCES varieties(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id));
 
     CREATE TABLE IF NOT EXISTS inventory_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT NOT NULL CHECK(item_type IN ('cafe_verde','cafe_tostado','cafe_empaquetado','insumo')), item_name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'kg', min_stock REAL DEFAULT 0, origin_id INTEGER, variety_id INTEGER, lot_label TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -190,7 +190,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS machine_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT NOT NULL, log_type TEXT NOT NULL CHECK(log_type IN ('mantenimiento','mejora','pieza','incidencia')), description TEXT NOT NULL, cost REAL DEFAULT 0, registered_by TEXT, expense_id INTEGER, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, expense_date TEXT NOT NULL, category_id INTEGER NOT NULL, amount REAL NOT NULL, description TEXT, paid_by TEXT NOT NULL, supplier TEXT, notes TEXT, auto_generated INTEGER DEFAULT 0, ref_type TEXT, ref_id INTEGER, created_at TEXT NOT NULL, FOREIGN KEY (category_id) REFERENCES expense_categories(id));
 
-    INSERT OR IGNORE INTO partners (name, share_pct) VALUES ('Itza + Gastón', 50), ('Axel', 50);
+    INSERT OR IGNORE INTO partners (name, share_pct) VALUES ('Itza', 50), ('Axel', 50);
     INSERT OR IGNORE INTO roast_profiles (name) VALUES ('Filtro'),('Espresso'),('Omniroast'),('Claro'),('Medio'),('Oscuro');
     INSERT OR IGNORE INTO origins (name) VALUES ('Chiapas'),('Veracruz'),('Oaxaca'),('Puebla'),('Guerrero'),('Nayarit'),('Colombia'),('Brasil'),('Guatemala'),('Etiopía'),('Blend');
     INSERT OR IGNORE INTO varieties (name) VALUES ('Typica'),('Bourbon'),('Caturra'),('Catuaí'),('Geisha'),('SL28'),('Pacamara'),('Maragogipe'),('Mundo Novo'),('Catimor'),('Blend');
@@ -200,7 +200,14 @@ export function initDB() {
   safeRun("ALTER TABLE sales_payments ADD COLUMN collected_by TEXT");
   safeRun("ALTER TABLE expenses ADD COLUMN from_profits INTEGER DEFAULT 1");
   safeRun("ALTER TABLE expenses ADD COLUMN accounted_partner TEXT");
+  safeRun("ALTER TABLE expenses ADD COLUMN from_cashbox INTEGER DEFAULT 0");
+  safeRun("ALTER TABLE clients ADD COLUMN postal_code TEXT");
+  safeRun("ALTER TABLE clients ADD COLUMN cafe_name TEXT");
+  safeRun("ALTER TABLE clients ADD COLUMN contact_name TEXT");
+  safeRun("ALTER TABLE clients ADD COLUMN contact_phone TEXT");
 
+  safeRun("UPDATE capital_contributions SET partner_name='Itza' WHERE lower(partner_name) IN ('gastón','gaston','itza + gastón','itza + gaston')");
+  safeRun("UPDATE withdrawals SET partner_name='Itza' WHERE lower(partner_name) IN ('gastón','gaston','itza + gastón','itza + gaston')");
   safeRun("UPDATE partners SET name='Itza' WHERE name='Itza + Gastón'");
   safeRun("DELETE FROM partners WHERE name='Gastón'");
   safeRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");

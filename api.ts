@@ -84,8 +84,8 @@ for (const table of ["roast_profiles", "origins", "varieties", "expense_categori
 
 // ===== CLIENTS =====
 api.get("/clients", c => c.json(ok(qAll("SELECT * FROM clients WHERE active=1 ORDER BY name"))));
-api.post("/clients", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); const r = qRun("INSERT INTO clients(name,phone,email,address,city,notes,active,created_at) VALUES (?,?,?,?,?,?,1,?)", b.name, b.phone||null, b.email||null, b.address||null, b.city||null, b.notes||null, now()); return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", Number(r.lastInsertRowid)))); });
-api.put("/clients/:id", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); qRun("UPDATE clients SET name=?,phone=?,email=?,address=?,city=?,notes=? WHERE id=?", b.name, b.phone||null, b.email||null, b.address||null, b.city||null, b.notes||null, c.req.param("id")); return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", c.req.param("id")))); });
+api.post("/clients", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); const r = qRun("INSERT INTO clients(name,phone,email,address,city,postal_code,cafe_name,contact_name,contact_phone,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)", b.name, b.phone||null, b.email||null, b.address||null, b.city||null, b.postal_code||null, b.cafe_name||null, b.contact_name||null, b.contact_phone||null, b.notes||null, now()); return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", Number(r.lastInsertRowid)))); });
+api.put("/clients/:id", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); qRun("UPDATE clients SET name=?,phone=?,email=?,address=?,city=?,postal_code=?,cafe_name=?,contact_name=?,contact_phone=?,notes=? WHERE id=?", b.name, b.phone||null, b.email||null, b.address||null, b.city||null, b.postal_code||null, b.cafe_name||null, b.contact_name||null, b.contact_phone||null, b.notes||null, c.req.param("id")); return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", c.req.param("id")))); });
 api.delete("/clients/:id", c => { qRun("UPDATE clients SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== PRODUCTS =====
@@ -303,10 +303,11 @@ api.delete("/withdrawals/:id", c => { qRun("DELETE FROM withdrawals WHERE id=?",
 api.get("/expenses", c => { const m = c.req.query("month"); const sql = m ? "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE substr(e.expense_date,1,7)=? ORDER BY e.id DESC" : "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id ORDER BY e.id DESC"; return c.json(ok(m ? qAll(sql, m) : qAll(sql))); });
 api.post("/expenses", async c => {
   const b = await body(c); req(b.category_id, "Categoría obligatoria"); req(num(b.amount)>0, "Monto inválido");
-  const f = finance(); req(f.cash >= num(b.amount), `Sin fondos. Disponible: $${f.cash.toFixed(2)}`);
+  const fromCashbox = b.from_cashbox === true || b.from_cashbox === 1;
+  if (fromCashbox) { const f = finance(); req(f.cash >= num(b.amount), `Sin fondos en caja chica. Disponible: $${f.cash.toFixed(2)}`); }
   const paidBy = who(b.paid_by); req(["Itza","Axel"].includes(paidBy), "Quién paga debe ser Itza o Axel");
   const fromProfits = b.from_profits === 0 || b.from_profits === false ? 0 : 1;
-  const r = qRun("INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_profits,accounted_partner,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?)", b.expense_date||today(), b.category_id, r2(num(b.amount)), b.description||null, paidBy, b.supplier||null, b.notes||null, fromProfits, paidBy, now());
+  const r = qRun("INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_profits,from_cashbox,accounted_partner,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?,?)", b.expense_date||today(), b.category_id, r2(num(b.amount)), b.description||null, paidBy, b.supplier||null, b.notes||null, fromProfits, fromCashbox?1:0, paidBy, now());
   return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", Number(r.lastInsertRowid))));
 });
 api.put("/expenses/:id", async c => { const b = await body(c); qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, b.paid_by, b.supplier, b.notes, c.req.param("id")); return c.json(ok(true)); });
