@@ -7,7 +7,7 @@ RUN bun install --production
 
 COPY server.ts api.ts db.ts ./
 RUN mkdir -p public /data /data/uploads
-COPY index.html manifest.json ./public/
+COPY index.html manifest.json app.js styles.css ./public/
 COPY logo.png ./public/
 
 ENV DB_PATH=/data/cafetier.db

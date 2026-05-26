@@ -96,6 +96,8 @@ nav{padding:8px}
 <div class="ni" data-v="purchases" onclick="go('purchases')">Compras</div>
 <div class="ni" data-v="roasting" onclick="go('roasting')">Tostado</div>
 <div class="ni" data-v="inventory" onclick="go('inventory')">Inventario</div>
+<div class="ni" data-v="clients" onclick="go('clients')">Clientes</div>
+<div class="ni" data-v="shipments" onclick="go('shipments')">Envíos</div>
 <div class="ns">Finanzas</div>
 <div class="ni" data-v="capital" onclick="go('capital')">Capital & Utilidades</div>
 <div class="ni" data-v="expenses" onclick="go('expenses')">Gastos</div>
@@ -117,7 +119,7 @@ nav{padding:8px}
 // Este archivo es muy largo para esta respuesta.
 // El frontend completo se proveerá como app.js separado.
 // Por ahora, placeholder básico:
-const VIEWS={dashboard:'Resumen General',sales:'Ventas',salesDetail:'Detalle Venta',purchases:'Compras',purchaseDetail:'Detalle Compra',capital:'Capital & Utilidades',roasting:'Tostado',roastingDetail:'Sesión de Tostado',inventory:'Inventario',expenses:'Gastos',libro:'Libro de Caja',machine:'Bitácora Máquina',config:'Configuración'};
+const VIEWS={dashboard:'Resumen General',sales:'Ventas',salesDetail:'Detalle Venta',purchases:'Compras',purchaseDetail:'Detalle Compra',capital:'Capital & Utilidades',roasting:'Tostado',roastingDetail:'Sesión de Tostado',inventory:'Inventario',clients:'Clientes',shipments:'Envíos',expenses:'Gastos',libro:'Libro de Caja',machine:'Bitácora Máquina',config:'Configuración'};
 const $=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:2}).format(Number(n||0));
 const K=n=>`${Number(n||0).toFixed(1)} kg`;
 const P=n=>`${Number(n||0).toFixed(1)}%`;
@@ -135,9 +137,9 @@ function go(v,p={}){view=v;params=p;document.querySelectorAll('.ni').forEach(n=>
 
 async function getMaster(){if(!master)master=await api('/master-data');return master;}
 function ps(id,sel){const people=(master?.settings?.people||'Itzamara|Gastón|Axel').split('|');return`<select id="${id}">${people.map(p=>`<option ${p===sel?'selected':''}>${p}</option>`).join('')}</select>`;}
-function partnerSel(id,sel){return`<select id="${id}"><option value="Itza + Gastón" ${'Itza + Gastón'===sel?'selected':''}>Itza + Gastón</option><option value="Axel" ${'Axel'===sel?'selected':''}>Axel</option></select>`;}
+function partnerSel(id,sel){return`<select id="${id}"><option value="Itza" ${'Itza'===sel?'selected':''}>Itza</option><option value="Axel" ${'Axel'===sel?'selected':''}>Axel</option></select>`;}
 
-async function render(){const el=document.getElementById('C');el.innerHTML='<div class="empty">Cargando...</div>';try{if(!master)await getMaster();const R={dashboard:rDash,sales:rSales,salesDetail:rSaleD,purchases:rPurch,purchaseDetail:rPurchD,capital:rCap,roasting:rRoast,roastingDetail:rRoastD,inventory:rInv,expenses:rExp,libro:rLibro,machine:rMach,config:rCfg};if(R[view])await R[view](el);}catch(e){el.innerHTML=`<div class="card"><h3>Error</h3><p style="color:var(--muted)">${e.message}</p><button class="btn btn-p" onclick="render()">Reintentar</button></div>`;}}
+async function render(){const el=document.getElementById('C');el.innerHTML='<div class="empty">Cargando...</div>';try{if(!master)await getMaster();const R={dashboard:rDash,sales:rSales,salesDetail:rSaleD,purchases:rPurch,purchaseDetail:rPurchD,capital:rCap,roasting:rRoast,roastingDetail:rRoastD,inventory:rInv,clients:rClients,shipments:rShipments,expenses:rExp,libro:rLibro,machine:rMach,config:rCfg};if(R[view])await R[view](el);}catch(e){el.innerHTML=`<div class="card"><h3>Error</h3><p style="color:var(--muted)">${e.message}</p><button class="btn btn-p" onclick="render()">Reintentar</button></div>`;}}
 
 // ========== RESUMEN GENERAL ==========
 async function rDash(el){
@@ -222,7 +224,7 @@ function newWholesale(){
   }}]);
 }
 
-function newClQ(){modal('Nuevo Cliente',`<div class="fg"><label>Nombre *</label><input type="text" id="ncN"></div><div class="fg"><label>Teléfono</label><input type="tel" id="ncP"></div><div class="fg"><label>Ciudad</label><input type="text" id="ncC"></div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/clients',{method:'POST',body:{name:document.getElementById('ncN').value,phone:document.getElementById('ncP').value,city:document.getElementById('ncC').value}});bg.remove();master=null;toast('Cliente creado','ok');}}]);}
+function newClQ(){modal('Nuevo Cliente',`<div class="fg"><label>Nombre cliente *</label><input type="text" id="ncN"></div><div class="fg"><label>Nombre cafetería</label><input type="text" id="ncCafe"></div><div class="fr"><div class="fg"><label>Nombre encargado</label><input type="text" id="ncCn"></div><div class="fg"><label>Tel. encargado</label><input type="tel" id="ncCp"></div></div><div class="fr"><div class="fg"><label>Teléfono</label><input type="tel" id="ncP"></div><div class="fg"><label>Email</label><input type="email" id="ncE"></div></div><div class="fg"><label>Dirección</label><input type="text" id="ncA"></div><div class="fr"><div class="fg"><label>Ciudad</label><input type="text" id="ncC"></div><div class="fg"><label>Código postal</label><input type="text" id="ncZ"></div></div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/clients',{method:'POST',body:{name:document.getElementById('ncN').value,cafe_name:document.getElementById('ncCafe').value,contact_name:document.getElementById('ncCn').value,contact_phone:document.getElementById('ncCp').value,phone:document.getElementById('ncP').value,email:document.getElementById('ncE').value,address:document.getElementById('ncA').value,city:document.getElementById('ncC').value,postal_code:document.getElementById('ncZ').value}});bg.remove();master=null;toast('Cliente creado','ok');go('clients');}}]);}
 
 async function rSaleD(el){
   const d=await api(`/sales-orders/${params.id}`);const{order:o,items,payments,shipments,purchaseOrders:pos,batches}=d;
@@ -307,7 +309,7 @@ async function rCap(el){
 }
 function addCapM(){modal('Aporte de Capital',`<div class="fg"><label>Socio *</label>${partnerSel('capN')}</div><div class="fg"><label>Monto *</label><input type="number" id="capA" step="0.01"></div><div class="fg"><label>Descripción * (para qué)</label><input type="text" id="capD" placeholder="Ej: Compra de café verde"></div><div class="fg"><label>Fecha</label><input type="date" id="capF" value="${new Date().toISOString().slice(0,10)}"></div>`,[{label:'Registrar',cls:'btn-p',fn:async bg=>{await api('/capital-contributions',{method:'POST',body:{partner_name:document.getElementById('capN').value,amount:parseFloat(document.getElementById('capA').value),description:document.getElementById('capD').value,contribution_date:document.getElementById('capF').value}});bg.remove();toast('Aporte registrado','ok');go('capital');}}]);}
 function retCapM(){modal('Retorno de Capital',`<div class="fg"><label>Socio *</label>${partnerSel('retN')}</div><div class="fg"><label>Monto *</label><input type="number" id="retA" step="0.01"></div>`,[{label:'Registrar',cls:'btn-g',fn:async bg=>{await api('/withdrawals/capital-return',{method:'POST',body:{partner_name:document.getElementById('retN').value,amount:parseFloat(document.getElementById('retA').value)}});bg.remove();toast('Retorno registrado','ok');go('capital');}}]);}
-function payDivM(){modal('Repartir Dividendos',`<div class="fg"><label>Monto total a repartir</label><input type="number" id="divA" step="0.01"></div><p style="font-size:11px;color:var(--muted)">Se reparte 50% Itza+Gastón / 50% Axel</p>`,[{label:'Repartir',cls:'btn-p',fn:async bg=>{await api('/withdrawals/dividend',{method:'POST',body:{amount:parseFloat(document.getElementById('divA').value)}});bg.remove();toast('Dividendos repartidos','ok');go('capital');}}]);}
+function payDivM(){modal('Repartir Dividendos',`<div class="fg"><label>Monto total a repartir</label><input type="number" id="divA" step="0.01"></div><p style="font-size:11px;color:var(--muted)">Se reparte 50% Itza / 50% Axel</p>`,[{label:'Repartir',cls:'btn-p',fn:async bg=>{await api('/withdrawals/dividend',{method:'POST',body:{amount:parseFloat(document.getElementById('divA').value)}});bg.remove();toast('Dividendos repartidos','ok');go('capital');}}]);}
 async function delCap(id){if(!confirm('¿Eliminar aporte?'))return;await api(`/capital-contributions/${id}`,{method:'DELETE'});go('capital');}
 async function delWth(id){if(!confirm('¿Eliminar retiro?'))return;await api(`/withdrawals/${id}`,{method:'DELETE'});go('capital');}
 
@@ -394,7 +396,7 @@ async function rExp(el){
   el.innerHTML=`<button class="btn btn-p btn-sm" onclick="addExpM()" style="margin-bottom:8px">+ Gasto</button>
     <div class="card"><table class="tbl"><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Pagó</th><th>Monto</th><th></th></tr></thead><tbody>${exps.map(e=>`<tr><td>${e.expense_date}</td><td>${e.category_name}</td><td>${e.description||''} ${e.auto_generated?'(auto)':''}</td><td>${e.paid_by}</td><td style="font-weight:700">${$(e.amount)}</td><td><button class="del" onclick="delExp(${e.id})">×</button></td></tr>`).join('')}</tbody></table>${exps.length?'':'<div class="empty">Sin gastos este mes</div>'}</div>`;
 }
-function addExpM(){const cats=master.expenseCategories||[];modal('Registrar Gasto',`<div class="fg"><label>Fecha</label><input type="date" id="exD" value="${new Date().toISOString().slice(0,10)}"></div><div class="fg"><label>Categoría</label><select id="exC">${cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div><div class="fg"><label>Monto</label><input type="number" id="exA" step="0.01"></div><div class="fg"><label>Descripción</label><input type="text" id="exDe"></div><div class="fg"><label>Pagado por</label>${ps('exP')}</div><div class="fg"><label>Proveedor</label><input type="text" id="exS"></div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/expenses',{method:'POST',body:{expense_date:document.getElementById('exD').value,category_id:document.getElementById('exC').value,amount:parseFloat(document.getElementById('exA').value),description:document.getElementById('exDe').value,paid_by:document.getElementById('exP').value,supplier:document.getElementById('exS').value}});bg.remove();go('expenses');}}]);}
+function addExpM(){const cats=master.expenseCategories||[];modal('Registrar Gasto',`<div class="fg"><label>Fecha</label><input type="date" id="exD" value="${new Date().toISOString().slice(0,10)}"></div><div class="fg"><label>Categoría</label><select id="exC">${cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div><div class="fg"><label>Monto</label><input type="number" id="exA" step="0.01"></div><div class="fg"><label>Descripción</label><input type="text" id="exDe"></div><div class="fg"><label>Pagado por</label>${ps('exP')}</div><div class="fg"><label>Proveedor</label><input type="text" id="exS"></div><div class="fg"><label>¿Sale de utilidades?</label><select id="exU"><option value="1">Sí</option><option value="0">No (capital)</option></select></div><div class="fg"><label>¿Sale de caja chica?</label><select id="exBx"><option value="0">No</option><option value="1">Sí</option></select></div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/expenses',{method:'POST',body:{expense_date:document.getElementById('exD').value,category_id:document.getElementById('exC').value,amount:parseFloat(document.getElementById('exA').value),description:document.getElementById('exDe').value,paid_by:document.getElementById('exP').value,supplier:document.getElementById('exS').value,from_profits:parseInt(document.getElementById('exU').value,10),from_cashbox:parseInt(document.getElementById('exBx').value,10)}});bg.remove();go('expenses');}}]);}
 async function delExp(id){if(!confirm('¿Eliminar?'))return;await api(`/expenses/${id}`,{method:'DELETE'});go('expenses');}
 
 // ========== BITÁCORA MÁQUINA ==========
@@ -406,6 +408,20 @@ async function rMach(el){
 function addMLogM(){modal('Registro de Máquina',`<div class="fg"><label>Fecha</label><input type="date" id="mlD" value="${new Date().toISOString().slice(0,10)}"></div><div class="fg"><label>Tipo</label><select id="mlT"><option value="mantenimiento">Mantenimiento</option><option value="mejora">Mejora</option><option value="pieza">Pieza</option><option value="incidencia">Incidencia</option></select></div><div class="fg"><label>Descripción</label><textarea id="mlDe"></textarea></div><div class="fg"><label>Costo</label><input type="number" id="mlC" step="0.01" value="0"></div><div class="fg"><label>Registrado por</label>${ps('mlBy')}</div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/machine-logs',{method:'POST',body:{log_date:document.getElementById('mlD').value,log_type:document.getElementById('mlT').value,description:document.getElementById('mlDe').value,cost:parseFloat(document.getElementById('mlC').value)||0,registered_by:document.getElementById('mlBy').value}});bg.remove();go('machine');}}]);}
 async function delML(id){if(!confirm('¿Eliminar?'))return;await api(`/machine-logs/${id}`,{method:'DELETE'});go('machine');}
 
+
+
+async function rClients(el){
+  await getMaster();
+  const rows=master.clients||[];
+  el.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>Clientes</h3><button class="btn btn-p btn-sm" onclick="newClQ()">+ Nuevo cliente</button></div>
+  <table class="tbl"><thead><tr><th>Cliente</th><th>Cafetería</th><th>Encargado</th><th>Contacto</th><th>Dirección</th><th></th></tr></thead><tbody>${rows.map(c=>`<tr><td><strong>${c.name}</strong></td><td>${c.cafe_name||''}</td><td>${c.contact_name||''}</td><td>${c.contact_phone||c.phone||''}</td><td>${[c.address,c.city,c.postal_code].filter(Boolean).join(' · ')}</td><td><button class="del" onclick="delCl(${c.id})">×</button></td></tr>`).join('')}</tbody></table>${rows.length?'':'<div class="empty">Sin clientes</div>'}</div>`;
+}
+
+async function rShipments(el){
+  const rows=await api('/shipments');
+  el.innerHTML=`<div class="card"><h3>Envíos registrados</h3><table class="tbl"><thead><tr><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Kg</th><th>Paquetería</th><th>Guía</th><th>Costo</th></tr></thead><tbody>${rows.map(s=>`<tr onclick="go('salesDetail',{id:${s.order_id}})"><td>${(s.created_at||'').slice(0,10)}</td><td><strong>${s.order_no||''}</strong></td><td>${s.client_name||'Mostrador'}</td><td>${K(s.weight_kg)}</td><td>${s.carrier||''}</td><td>${s.tracking_number||''}</td><td>${$(s.shipping_cost||0)}</td></tr>`).join('')}</tbody></table>${rows.length?'':'<div class="empty">Sin envíos</div>'}</div>`;
+}
+
 // ========== CONFIGURACIÓN ==========
 async function rCfg(el){
   await getMaster();const s=master.settings||{};
@@ -413,14 +429,14 @@ async function rCfg(el){
   el.innerHTML=`
     <div class="card"><h3>Electricidad</h3><div class="fr"><div class="fg"><label>kW Máquina</label><input type="number" id="cfgK" step="0.01" value="${s.machine_kw||0}"></div><div class="fg"><label>$/kWh</label><input type="number" id="cfgP" step="0.01" value="${s.kwh_price||0}"></div></div><button class="btn btn-p btn-sm" onclick="saveCfg('machine_kw','cfgK');saveCfg('kwh_price','cfgP')">Guardar</button></div>
     <div class="card"><h3>API Key Claude</h3><div class="fg"><label>Key</label><input type="password" id="cfgA" value="${s.claude_api_key||''}" placeholder="sk-ant-..."></div><button class="btn btn-p btn-sm" onclick="saveCfg('claude_api_key','cfgA')">Guardar</button></div>
-    <div class="card"><h3>Clientes</h3><button class="btn btn-sm btn-p" onclick="newClQ()" style="margin-bottom:6px">+ Nuevo Cliente</button>${(master.clients||[]).map(c=>`<div class="li"><span>${c.name} ${c.phone?'· '+c.phone:''} ${c.city?'· '+c.city:''}</span><button class="del" onclick="delCl(${c.id})">×</button></div>`).join('')}</div>
+    
     <div class="card"><h3>Productos</h3><button class="btn btn-sm btn-p" onclick="addProdM()" style="margin-bottom:6px">+ Producto</button>${(master.products||[]).map(p=>`<div class="li"><div><strong>${p.name}</strong><div style="font-size:10px;color:var(--muted)">${p.origin_name||''} ${p.variety_name?'· '+p.variety_name:''} · ${p.roast_name||''} · ${p.presentation||''}</div></div><div style="display:flex;align-items:center;gap:4px"><span style="font-weight:700">${$(p.price)}</span><button class="del" onclick="delProd(${p.id})">×</button></div></div>`).join('')}</div>
     ${lists.map(l=>`<div class="card"><h3>${l.t}</h3>${(l.items||[]).map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid var(--line)"><span style="font-size:11px">${i.name}</span><button class="del" onclick="delCfgItem('${l.k}',${i.id})">×</button></div>`).join('')}<div style="display:flex;gap:4px;margin-top:6px"><input type="text" id="ni_${l.k}" placeholder="Nuevo..." style="flex:1;padding:5px 8px;background:var(--bg);border:1px solid var(--line);border-radius:4px;font-size:11px"><button class="btn btn-sm btn-s" onclick="addCfgItem('${l.k}')">+</button></div></div>`).join('')}`;
 }
 async function saveCfg(key,elId){await api('/settings',{method:'PUT',body:{[key]:document.getElementById(elId).value}});master=null;toast('Guardado','ok');}
 async function addCfgItem(t){const v=document.getElementById(`ni_${t}`).value.trim();if(!v)return;try{await api(`/${t}`,{method:'POST',body:{name:v}});master=null;go('config');}catch(e){toast(e.message,'error');}}
 async function delCfgItem(t,id){if(!confirm('¿Eliminar?'))return;await api(`/${t}/${id}`,{method:'DELETE'});master=null;go('config');}
-async function delCl(id){if(!confirm('¿Eliminar cliente?'))return;await api(`/clients/${id}`,{method:'DELETE'});master=null;go('config');}
+async function delCl(id){if(!confirm('¿Eliminar cliente?'))return;await api(`/clients/${id}`,{method:'DELETE'});master=null;go('clients');}
 function addProdM(){modal('Nuevo Producto',`<div class="fg"><label>Nombre *</label><input type="text" id="prN"></div><div class="fr"><div class="fg"><label>Presentación</label><select id="prPr"><option value="250g">250g</option><option value="500g">500g</option><option value="1kg">1kg</option><option value="granel">Granel</option></select></div><div class="fg"><label>Precio</label><input type="number" id="prPx" step="0.01"></div></div><div class="fg"><label>Peso por unidad (kg)</label><input type="number" id="prW" step="0.01" value="0.25"></div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/products',{method:'POST',body:{name:document.getElementById('prN').value,presentation:document.getElementById('prPr').value,price:parseFloat(document.getElementById('prPx').value),unit_weight_kg:parseFloat(document.getElementById('prW').value)}});bg.remove();master=null;go('config');}}]);}
 async function delProd(id){if(!confirm('¿Eliminar?'))return;await api(`/products/${id}`,{method:'DELETE'});master=null;go('config');}
 
