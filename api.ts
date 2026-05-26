@@ -212,6 +212,8 @@ api.delete("/sales-shipments/:id", c => {
   return c.json(ok(true));
 });
 
+
+api.get("/shipments", c => c.json(ok(qAll("SELECT ss.*, so.order_no, so.client_id, c.name AS client_name FROM sales_shipments ss JOIN sales_orders so ON so.id=ss.order_id LEFT JOIN clients c ON c.id=so.client_id ORDER BY ss.id DESC"))));
 // ===== PURCHASE ORDERS =====
 api.get("/purchase-orders", c => c.json(ok(qAll("SELECT * FROM purchase_orders ORDER BY id DESC"))));
 api.get("/purchase-orders/:id", c => {

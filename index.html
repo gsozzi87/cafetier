@@ -96,6 +96,8 @@ nav{padding:8px}
 <div class="ni" data-v="purchases" onclick="go('purchases')">Compras</div>
 <div class="ni" data-v="roasting" onclick="go('roasting')">Tostado</div>
 <div class="ni" data-v="inventory" onclick="go('inventory')">Inventario</div>
+<div class="ni" data-v="clients" onclick="go('clients')">Clientes</div>
+<div class="ni" data-v="shipments" onclick="go('shipments')">Envíos</div>
 <div class="ns">Finanzas</div>
 <div class="ni" data-v="capital" onclick="go('capital')">Capital & Utilidades</div>
 <div class="ni" data-v="expenses" onclick="go('expenses')">Gastos</div>
@@ -117,7 +119,7 @@ nav{padding:8px}
 // Este archivo es muy largo para esta respuesta.
 // El frontend completo se proveerá como app.js separado.
 // Por ahora, placeholder básico:
-const VIEWS={dashboard:'Resumen General',sales:'Ventas',salesDetail:'Detalle Venta',purchases:'Compras',purchaseDetail:'Detalle Compra',capital:'Capital & Utilidades',roasting:'Tostado',roastingDetail:'Sesión de Tostado',inventory:'Inventario',expenses:'Gastos',libro:'Libro de Caja',machine:'Bitácora Máquina',config:'Configuración'};
+const VIEWS={dashboard:'Resumen General',sales:'Ventas',salesDetail:'Detalle Venta',purchases:'Compras',purchaseDetail:'Detalle Compra',capital:'Capital & Utilidades',roasting:'Tostado',roastingDetail:'Sesión de Tostado',inventory:'Inventario',clients:'Clientes',shipments:'Envíos',expenses:'Gastos',libro:'Libro de Caja',machine:'Bitácora Máquina',config:'Configuración'};
 const $=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:2}).format(Number(n||0));
 const K=n=>`${Number(n||0).toFixed(1)} kg`;
 const P=n=>`${Number(n||0).toFixed(1)}%`;
@@ -137,7 +139,7 @@ async function getMaster(){if(!master)master=await api('/master-data');return ma
 function ps(id,sel){const people=(master?.settings?.people||'Itzamara|Gastón|Axel').split('|');return`<select id="${id}">${people.map(p=>`<option ${p===sel?'selected':''}>${p}</option>`).join('')}</select>`;}
 function partnerSel(id,sel){return`<select id="${id}"><option value="Itza + Gastón" ${'Itza + Gastón'===sel?'selected':''}>Itza + Gastón</option><option value="Axel" ${'Axel'===sel?'selected':''}>Axel</option></select>`;}
 
-async function render(){const el=document.getElementById('C');el.innerHTML='<div class="empty">Cargando...</div>';try{if(!master)await getMaster();const R={dashboard:rDash,sales:rSales,salesDetail:rSaleD,purchases:rPurch,purchaseDetail:rPurchD,capital:rCap,roasting:rRoast,roastingDetail:rRoastD,inventory:rInv,expenses:rExp,libro:rLibro,machine:rMach,config:rCfg};if(R[view])await R[view](el);}catch(e){el.innerHTML=`<div class="card"><h3>Error</h3><p style="color:var(--muted)">${e.message}</p><button class="btn btn-p" onclick="render()">Reintentar</button></div>`;}}
+async function render(){const el=document.getElementById('C');el.innerHTML='<div class="empty">Cargando...</div>';try{if(!master)await getMaster();const R={dashboard:rDash,sales:rSales,salesDetail:rSaleD,purchases:rPurch,purchaseDetail:rPurchD,capital:rCap,roasting:rRoast,roastingDetail:rRoastD,inventory:rInv,clients:rClients,shipments:rShipments,expenses:rExp,libro:rLibro,machine:rMach,config:rCfg};if(R[view])await R[view](el);}catch(e){el.innerHTML=`<div class="card"><h3>Error</h3><p style="color:var(--muted)">${e.message}</p><button class="btn btn-p" onclick="render()">Reintentar</button></div>`;}}
 
 // ========== RESUMEN GENERAL ==========
 async function rDash(el){
@@ -406,6 +408,20 @@ async function rMach(el){
 function addMLogM(){modal('Registro de Máquina',`<div class="fg"><label>Fecha</label><input type="date" id="mlD" value="${new Date().toISOString().slice(0,10)}"></div><div class="fg"><label>Tipo</label><select id="mlT"><option value="mantenimiento">Mantenimiento</option><option value="mejora">Mejora</option><option value="pieza">Pieza</option><option value="incidencia">Incidencia</option></select></div><div class="fg"><label>Descripción</label><textarea id="mlDe"></textarea></div><div class="fg"><label>Costo</label><input type="number" id="mlC" step="0.01" value="0"></div><div class="fg"><label>Registrado por</label>${ps('mlBy')}</div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/machine-logs',{method:'POST',body:{log_date:document.getElementById('mlD').value,log_type:document.getElementById('mlT').value,description:document.getElementById('mlDe').value,cost:parseFloat(document.getElementById('mlC').value)||0,registered_by:document.getElementById('mlBy').value}});bg.remove();go('machine');}}]);}
 async function delML(id){if(!confirm('¿Eliminar?'))return;await api(`/machine-logs/${id}`,{method:'DELETE'});go('machine');}
 
+
+
+async function rClients(el){
+  await getMaster();
+  const rows=master.clients||[];
+  el.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>Clientes</h3><button class="btn btn-p btn-sm" onclick="newClQ()">+ Nuevo cliente</button></div>
+  <table class="tbl"><thead><tr><th>Nombre</th><th>Teléfono</th><th>Ciudad</th><th></th></tr></thead><tbody>${rows.map(c=>`<tr><td><strong>${c.name}</strong></td><td>${c.phone||''}</td><td>${c.city||''}</td><td><button class="del" onclick="delCl(${c.id})">×</button></td></tr>`).join('')}</tbody></table>${rows.length?'':'<div class="empty">Sin clientes</div>'}</div>`;
+}
+
+async function rShipments(el){
+  const rows=await api('/shipments');
+  el.innerHTML=`<div class="card"><h3>Envíos registrados</h3><table class="tbl"><thead><tr><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Kg</th><th>Paquetería</th><th>Guía</th><th>Costo</th></tr></thead><tbody>${rows.map(s=>`<tr onclick="go('salesDetail',{id:${s.order_id}})"><td>${(s.created_at||'').slice(0,10)}</td><td><strong>${s.order_no||''}</strong></td><td>${s.client_name||'Mostrador'}</td><td>${K(s.weight_kg)}</td><td>${s.carrier||''}</td><td>${s.tracking_number||''}</td><td>${$(s.shipping_cost||0)}</td></tr>`).join('')}</tbody></table>${rows.length?'':'<div class="empty">Sin envíos</div>'}</div>`;
+}
+
 // ========== CONFIGURACIÓN ==========
 async function rCfg(el){
   await getMaster();const s=master.settings||{};
@@ -420,7 +436,7 @@ async function rCfg(el){
 async function saveCfg(key,elId){await api('/settings',{method:'PUT',body:{[key]:document.getElementById(elId).value}});master=null;toast('Guardado','ok');}
 async function addCfgItem(t){const v=document.getElementById(`ni_${t}`).value.trim();if(!v)return;try{await api(`/${t}`,{method:'POST',body:{name:v}});master=null;go('config');}catch(e){toast(e.message,'error');}}
 async function delCfgItem(t,id){if(!confirm('¿Eliminar?'))return;await api(`/${t}/${id}`,{method:'DELETE'});master=null;go('config');}
-async function delCl(id){if(!confirm('¿Eliminar cliente?'))return;await api(`/clients/${id}`,{method:'DELETE'});master=null;go('config');}
+async function delCl(id){if(!confirm('¿Eliminar cliente?'))return;await api(`/clients/${id}`,{method:'DELETE'});master=null;go('clients');}
 function addProdM(){modal('Nuevo Producto',`<div class="fg"><label>Nombre *</label><input type="text" id="prN"></div><div class="fr"><div class="fg"><label>Presentación</label><select id="prPr"><option value="250g">250g</option><option value="500g">500g</option><option value="1kg">1kg</option><option value="granel">Granel</option></select></div><div class="fg"><label>Precio</label><input type="number" id="prPx" step="0.01"></div></div><div class="fg"><label>Peso por unidad (kg)</label><input type="number" id="prW" step="0.01" value="0.25"></div>`,[{label:'Guardar',cls:'btn-p',fn:async bg=>{await api('/products',{method:'POST',body:{name:document.getElementById('prN').value,presentation:document.getElementById('prPr').value,price:parseFloat(document.getElementById('prPx').value),unit_weight_kg:parseFloat(document.getElementById('prW').value)}});bg.remove();master=null;go('config');}}]);}
 async function delProd(id){if(!confirm('¿Eliminar?'))return;await api(`/products/${id}`,{method:'DELETE'});master=null;go('config');}
 
