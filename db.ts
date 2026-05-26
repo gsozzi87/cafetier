@@ -50,8 +50,29 @@ export function getNum(key: string, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+
+let _invTypeMode: "es" | "en" | null = null;
+function detectInvTypeMode(): "es" | "en" {
+  if (_invTypeMode) return _invTypeMode;
+  const row = qGet<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_items'");
+  const sql = (row?.sql || "").toLowerCase();
+  _invTypeMode = sql.includes("green_coffee") ? "en" : "es";
+  return _invTypeMode;
+}
+
+export function mapInvType(itemType: string): string {
+  const mode = detectInvTypeMode();
+  if (mode === "en") {
+    if (itemType === "cafe_verde") return "green_coffee";
+    if (itemType === "cafe_tostado") return "roasted_coffee";
+    if (itemType === "cafe_empaquetado") return "packaged_coffee";
+    if (itemType === "insumo") return "supply";
+  }
+  return itemType;
+}
+
 export function invTotal(type: string): number {
-  return Number(qVal("SELECT COALESCE(SUM(quantity),0) AS v FROM inventory_items WHERE item_type=?", type) ?? 0);
+  return Number(qVal("SELECT COALESCE(SUM(quantity),0) AS v FROM inventory_items WHERE item_type=?", mapInvType(type)) ?? 0);
 }
 
 export function finance() {
@@ -68,9 +89,10 @@ export function finance() {
 }
 
 export function ensureInvItem(data: { item_type: string; item_name: string; unit?: string; origin_id?: number | null; variety_id?: number | null; lot_label?: string | null }) {
-  const existing = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type=? AND item_name=? AND COALESCE(lot_label,'')=COALESCE(?,'') LIMIT 1", data.item_type, data.item_name, data.lot_label ?? null);
+  const itemType = mapInvType(data.item_type);
+  const existing = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type=? AND item_name=? AND COALESCE(lot_label,'')=COALESCE(?,'') LIMIT 1", itemType, data.item_name, data.lot_label ?? null);
   if (existing) return existing.id;
-  const res = qRun("INSERT INTO inventory_items (item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,0,?,0,?,?,?)", data.item_type, data.item_name, data.unit ?? "kg", data.origin_id ?? null, data.variety_id ?? null, data.lot_label ?? null);
+  const res = qRun("INSERT INTO inventory_items (item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,0,?,0,?,?,?)", itemType, data.item_name, data.unit ?? "kg", data.origin_id ?? null, data.variety_id ?? null, data.lot_label ?? null);
   return Number(res.lastInsertRowid);
 }
 
