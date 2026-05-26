@@ -21,6 +21,7 @@ export function r2(n: number) { return Math.round((n + Number.EPSILON) * 100) / 
 export function qAll<T = any>(sql: string, ...p: any[]): T[] { return db.query(sql).all(...p) as T[]; }
 export function qGet<T = any>(sql: string, ...p: any[]): T | null { return (db.query(sql).get(...p) as T | undefined) ?? null; }
 export function qRun(sql: string, ...p: any[]) { return db.query(sql).run(...p); }
+export function safeRun(sql: string, ...p: any[]) { try { return qRun(sql, ...p); } catch { return null; } }
 export function qVal<T = any>(sql: string, ...p: any[]): T | null {
   const row = qGet<Record<string, T>>(sql, ...p);
   if (!row) return null;
@@ -76,9 +77,11 @@ export function invTotal(type: string): number {
 }
 
 export function finance() {
-  const contributed = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions") ?? 0);
+  const contributedBase = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions") ?? 0);
+  const expensesAsCapital = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE COALESCE(from_profits,1)=0") ?? 0);
+  const contributed = r2(contributedBase + expensesAsCapital);
   const revenue = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments") ?? 0);
-  const expenses = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses") ?? 0);
+  const expenses = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE COALESCE(from_profits,1)=1") ?? 0);
   const capReturned = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='capital_return'") ?? 0);
   const dividends = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='dividend'") ?? 0);
   const unrecovered = Math.max(0, r2(contributed - capReturned));
@@ -194,5 +197,15 @@ export function initDB() {
     INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',1),('Electricidad',1),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Otros',0);
     INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','15'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itzamara|Gastón'),('people','Itzamara|Gastón|Axel');
   `);
+  safeRun("ALTER TABLE sales_payments ADD COLUMN collected_by TEXT");
+  safeRun("ALTER TABLE expenses ADD COLUMN from_profits INTEGER DEFAULT 1");
+  safeRun("ALTER TABLE expenses ADD COLUMN accounted_partner TEXT");
+
+  safeRun("UPDATE partners SET name='Itza' WHERE name='Itza + Gastón'");
+  safeRun("DELETE FROM partners WHERE name='Gastón'");
+  safeRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");
+  safeRun("INSERT OR IGNORE INTO partners (name, share_pct) VALUES ('Itza',50),('Axel',50)");
+  safeRun("UPDATE settings SET value='Itza|Axel' WHERE key IN ('operators','people')");
+
   ensureInvItem({ item_type: "cafe_tostado", item_name: "Café tostado disponible", unit: "kg" });
 }

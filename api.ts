@@ -9,6 +9,7 @@ const fail = (m: string) => ({ success: false, error: m });
 async function body<T = any>(c: any): Promise<T> { try { return await c.req.json() as T; } catch { return {} as T; } }
 function num(v: any, f = 0) { const n = Number(v); return Number.isFinite(n) ? n : f; }
 function req(cond: any, msg: string) { if (!cond) throw new Error(msg); }
+function who(v: any) { const n = normPartner(v); return n === "Itza + Gastón" ? "Itza" : n; }
 
 const UPLOAD_DIR = process.env.UPLOAD_PATH || "/data/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -57,7 +58,7 @@ api.get("/dashboard", c => {
 // ===== LIBRO DE CAJA =====
 api.get("/libro-caja", c => {
   const month = c.req.query("month") || thisMonth();
-  const ingresos = qAll("SELECT cc.id, cc.contribution_date AS fecha, 'Aporte de capital' AS tipo, cc.partner_name AS quien, cc.description AS detalle, cc.amount AS monto FROM capital_contributions cc WHERE substr(cc.contribution_date,1,7)=? UNION ALL SELECT sp.id+100000, substr(sp.created_at,1,10) AS fecha, 'Cobro de venta' AS tipo, COALESCE(sp.registered_by,'Sistema') AS quien, 'Pago pedido #'||sp.order_id AS detalle, sp.amount AS monto FROM sales_payments sp WHERE substr(sp.created_at,1,7)=? ORDER BY fecha", month, month);
+  const ingresos = qAll("SELECT cc.id, cc.contribution_date AS fecha, 'Aporte de capital' AS tipo, cc.partner_name AS quien, cc.description AS detalle, cc.amount AS monto FROM capital_contributions cc WHERE substr(cc.contribution_date,1,7)=? UNION ALL SELECT sp.id+100000, substr(sp.created_at,1,10) AS fecha, 'Cobro de venta' AS tipo, COALESCE(sp.collected_by,sp.registered_by,'Itza') AS quien, 'Pago pedido #'||sp.order_id AS detalle, sp.amount AS monto FROM sales_payments sp WHERE substr(sp.created_at,1,7)=? ORDER BY fecha", month, month);
   const egresos = qAll("SELECT e.id, e.expense_date AS fecha, ec.name AS tipo, e.paid_by AS quien, COALESCE(e.description,'') AS detalle, e.amount AS monto FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE substr(e.expense_date,1,7)=? UNION ALL SELECT w.id+200000, substr(w.created_at,1,10) AS fecha, CASE w.kind WHEN 'capital_return' THEN 'Retorno de capital' ELSE 'Dividendo' END AS tipo, w.partner_name AS quien, COALESCE(w.notes,'') AS detalle, w.amount AS monto FROM withdrawals w WHERE substr(w.created_at,1,7)=? ORDER BY fecha", month, month);
   const f = finance();
   return c.json(ok({ month, ingresos, egresos, saldo: f.cash, total_ingresos: ingresos.reduce((s: number, r: any) => s + r.monto, 0), total_egresos: egresos.reduce((s: number, r: any) => s + r.monto, 0) }));
@@ -150,9 +151,9 @@ api.post("/sales-orders", async c => {
 
     // Retail: pay + deduct inventory
     if (type === "mostrador" && totalAmount > 0) {
-      qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,created_at) VALUES (?,?,?,?,?,?)", orderId, totalAmount, b.payment_method||"efectivo", "Venta mostrador", b.registered_by||"Sistema", now());
+      qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,collected_by,created_at) VALUES (?,?,?,?,?,?,?)", orderId, totalAmount, b.payment_method||"efectivo", "Venta mostrador", who(b.registered_by)||"Itza", who(b.collected_by||b.registered_by)||"Itza", now());
       const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
-      if (ri && totalKg > 0) invMove(ri.id, "out", totalKg, `Venta ${orderNo}`, b.registered_by||"Sistema");
+      if (ri && totalKg > 0) invMove(ri.id, "out", totalKg, `Venta ${orderNo}`, who(b.registered_by)||"Itza");
     }
 
     // Wholesale: check green stock
@@ -177,7 +178,7 @@ api.patch("/sales-orders/:id/status", async c => { const b = await body(c); qRun
 api.delete("/sales-orders/:id", c => { qRun("DELETE FROM sales_orders WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // Payments
-api.post("/sales-orders/:id/payments", async c => { const b = await body(c); req(num(b.amount)>0, "Monto inválido"); qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,created_at) VALUES (?,?,?,?,?,?)", c.req.param("id"), r2(num(b.amount)), b.method||"transferencia", b.notes||null, b.registered_by||"Sistema", now()); recalcSO(Number(c.req.param("id"))); return c.json(ok(true)); });
+api.post("/sales-orders/:id/payments", async c => { const b = await body(c); req(num(b.amount)>0, "Monto inválido"); qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,collected_by,created_at) VALUES (?,?,?,?,?,?,?)", c.req.param("id"), r2(num(b.amount)), b.method||"transferencia", b.notes||null, who(b.registered_by)||"Itza", who(b.collected_by||b.registered_by)||"Itza", now()); recalcSO(Number(c.req.param("id"))); return c.json(ok(true)); });
 api.delete("/sales-payments/:id", c => { const p = qGet<any>("SELECT * FROM sales_payments WHERE id=?", c.req.param("id")); if (p) { qRun("DELETE FROM sales_payments WHERE id=?", p.id); recalcSO(p.order_id); } return c.json(ok(true)); });
 
 // Shipments (auto expense)
@@ -187,13 +188,13 @@ api.post("/sales-orders/:id/shipments", async c => {
   const send = tx(() => {
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
     req(ri?.id, "No existe inventario de café tostado");
-    invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envío pedido #${orderId}`, b.registered_by||"Sistema");
+    invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envío pedido #${orderId}`, who(b.registered_by)||"Itza");
     let expId: number | null = null;
     if (num(b.shipping_cost) > 0) {
       const f = finance(); req(f.cash >= num(b.shipping_cost), "Sin fondos para el envío");
-      expId = autoExpense("Envíos", num(b.shipping_cost), `Envío pedido #${orderId}`, b.registered_by||"Sistema", "shipment", orderId);
+      expId = autoExpense("Envíos", num(b.shipping_cost), `Envío pedido #${orderId}`, who(b.registered_by)||"Itza", "shipment", orderId);
     }
-    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address||null, b.carrier||null, b.tracking_number||null, r2(num(b.shipping_cost)), b.registered_by||"Sistema", b.notes||null, expId, now());
+    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address||null, b.carrier||null, b.tracking_number||null, r2(num(b.shipping_cost)), who(b.registered_by)||"Itza", b.notes||null, expId, now());
   });
   send(); return c.json(ok(recalcSO(orderId)));
 });
@@ -236,10 +237,10 @@ api.post("/purchase-orders/:id/receive", async c => {
     const lotLabel = b.lot_label || `${today()}-${po.po_no}`;
     const itemName = b.item_name || [b.origin_name, b.variety_name, `Lote ${lotLabel}`].filter(Boolean).join(" · ") || `Café verde ${lotLabel}`;
     const itemId = ensureInvItem({ item_type: "cafe_verde", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
-    invMove(itemId, "in", qty, `Recepción ${po.po_no}`, b.registered_by||"Sistema");
-    qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", now());
-    autoExpense("Café verde", cost, `Compra verde ${po.po_no}`, b.registered_by||"Sistema", "purchase_order", poId);
-    if (ship > 0) autoExpense("Envíos", ship, `Envío compra ${po.po_no}`, b.registered_by||"Sistema", "purchase_shipping", poId);
+    invMove(itemId, "in", qty, `Recepción ${po.po_no}`, who(b.registered_by)||"Itza");
+    qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, who(b.registered_by)||"Itza", now());
+    autoExpense("Café verde", cost, `Compra verde ${po.po_no}`, who(b.registered_by)||"Itza", "purchase_order", poId);
+    if (ship > 0) autoExpense("Envíos", ship, `Envío compra ${po.po_no}`, who(b.registered_by)||"Itza", "purchase_shipping", poId);
     recalcPO(poId);
     if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
   });
@@ -301,7 +302,9 @@ api.get("/expenses", c => { const m = c.req.query("month"); const sql = m ? "SEL
 api.post("/expenses", async c => {
   const b = await body(c); req(b.category_id, "Categoría obligatoria"); req(num(b.amount)>0, "Monto inválido");
   const f = finance(); req(f.cash >= num(b.amount), `Sin fondos. Disponible: $${f.cash.toFixed(2)}`);
-  const r = qRun("INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,created_at) VALUES (?,?,?,?,?,?,?,0,?)", b.expense_date||today(), b.category_id, r2(num(b.amount)), b.description||null, b.paid_by||"Caja", b.supplier||null, b.notes||null, now());
+  const paidBy = who(b.paid_by); req(["Itza","Axel"].includes(paidBy), "Quién paga debe ser Itza o Axel");
+  const fromProfits = b.from_profits === 0 || b.from_profits === false ? 0 : 1;
+  const r = qRun("INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_profits,accounted_partner,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?)", b.expense_date||today(), b.category_id, r2(num(b.amount)), b.description||null, paidBy, b.supplier||null, b.notes||null, fromProfits, paidBy, now());
   return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", Number(r.lastInsertRowid))));
 });
 api.put("/expenses/:id", async c => { const b = await body(c); qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, b.paid_by, b.supplier, b.notes, c.req.param("id")); return c.json(ok(true)); });
@@ -330,10 +333,10 @@ api.post("/roasting-sessions/:id/batches", async c => {
     const rkg = b.roasted_kg === null || b.roasted_kg === undefined || b.roasted_kg === "" ? null : r2(num(b.roasted_kg));
     const lp = rkg && num(b.green_kg) > 0 ? r2(((num(b.green_kg) - rkg) / num(b.green_kg)) * 100) : null;
     const bno = docNo("RB");
-    invMove(Number(b.green_inventory_item_id), "out", r2(num(b.green_kg)), `Tostado ${bno}`, b.registered_by||"Sistema");
+    invMove(Number(b.green_inventory_item_id), "out", r2(num(b.green_kg)), `Tostado ${bno}`, who(b.registered_by)||"Itza");
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
     req(ri?.id, "No existe inventario de café tostado");
-    if (rkg && rkg > 0) invMove(ri!.id, "in", rkg, `Batch ${bno}`, b.registered_by||"Sistema");
+    if (rkg && rkg > 0) invMove(ri!.id, "in", rkg, `Batch ${bno}`, who(b.registered_by)||"Itza");
     const r = qRun("INSERT INTO roasting_batches(session_id,batch_no,green_inventory_item_id,roast_profile_id,sales_order_id,green_kg,roasted_kg,loss_pct,machine_minutes,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", sessionId, bno, b.green_inventory_item_id, b.roast_profile_id||null, b.sales_order_id||null, r2(num(b.green_kg)), rkg, lp, r2(num(b.machine_minutes)), b.notes||null, now());
     if (b.sales_order_id) recalcSO(Number(b.sales_order_id));
     return qGet("SELECT * FROM roasting_batches WHERE id=?", Number(r.lastInsertRowid));
