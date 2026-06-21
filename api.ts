@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { autoExpense, createPO, docNo, ensureInvItem, finance, getNum, getSettings, invMove, invTotal, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, thisMonth, today, tx } from "./db";
+import { autoExpense, createPO, docNo, ensureInvItem, finance, getNum, getSettings, invMove, invTotal, normInvType, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, thisMonth, today, tx } from "./db";
 
 const api = new Hono();
 const ok = (d: any = null) => ({ success: true, data: d });
@@ -48,7 +48,7 @@ api.get("/master-data", c => {
 api.get("/dashboard", c => {
   const month = c.req.query("month") || thisMonth();
   const f = finance();
-  const inv = { verde: invTotal("cafe_verde"), tostado: invTotal("cafe_tostado"), empaquetado: invTotal("cafe_empaquetado") };
+  const inv = { verde: invTotal("green_coffee"), tostado: invTotal("roasted_coffee"), empaquetado: invTotal("packaged_coffee") };
   const revMonth = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments WHERE substr(created_at,1,7)=?", month) ?? 0);
   const expMonth = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE substr(expense_date,1,7)=?", month) ?? 0);
   const roastedMonth = Number(qVal("SELECT COALESCE(SUM(rb.roasted_kg),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=?", month) ?? 0);
@@ -148,9 +148,9 @@ api.delete("/products/:id", c => { qRun("UPDATE products SET active=0 WHERE id=?
 
 // ===== INVENTORY =====
 api.get("/inventory", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id ORDER BY i.item_type, i.item_name"))));
-api.get("/inventory/green", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id WHERE i.item_type='cafe_verde' AND i.quantity>0 ORDER BY i.item_name"))));
-api.get("/inventory/summary", c => c.json(ok({ verde: invTotal("cafe_verde"), tostado: invTotal("cafe_tostado"), empaquetado: invTotal("cafe_empaquetado"), finance: finance() })));
-api.post("/inventory", async c => { const b = await body(c); req(b.item_type, "Tipo obligatorio"); req(b.item_name, "Nombre obligatorio"); const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,?,?,?,?,?,?)", b.item_type, b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null); return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", Number(r.lastInsertRowid)))); });
+api.get("/inventory/green", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id WHERE i.item_type='green_coffee' AND i.quantity>0 ORDER BY i.item_name"))));
+api.get("/inventory/summary", c => c.json(ok({ verde: invTotal("green_coffee"), tostado: invTotal("roasted_coffee"), empaquetado: invTotal("packaged_coffee"), finance: finance() })));
+api.post("/inventory", async c => { const b = await body(c); req(b.item_type, "Tipo obligatorio"); req(b.item_name, "Nombre obligatorio"); const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,?,?,?,?,?,?)", normInvType(b.item_type), b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null); return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", Number(r.lastInsertRowid)))); });
 api.put("/inventory/:id", async c => { const b = await body(c); qRun("UPDATE inventory_items SET item_name=?,quantity=?,unit=?,min_stock=?,origin_id=?,variety_id=?,lot_label=? WHERE id=?", b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null, c.req.param("id")); return c.json(ok(true)); });
 api.post("/inventory/:id/movements", async c => { const b = await body(c); req(["in","out","adjust"].includes(b.direction), "Dirección inválida"); const m = tx(() => { invMove(Number(c.req.param("id")), b.direction, num(b.quantity), b.reason || "Manual", b.registered_by); }); m(); return c.json(ok(true)); });
 api.get("/inventory/:id/movements", c => c.json(ok(qAll("SELECT * FROM inventory_movements WHERE item_id=? ORDER BY id DESC", c.req.param("id")))));
@@ -204,7 +204,7 @@ api.post("/sales-orders", async c => {
     // Retail: pay + deduct inventory
     if (type === "mostrador" && totalAmount > 0) {
       qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,created_at) VALUES (?,?,?,?,?,?)", orderId, totalAmount, b.payment_method||"efectivo", "Venta mostrador", b.registered_by||"Sistema", now());
-      const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
+      const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
       if (ri && totalKg > 0) invMove(ri.id, "out", totalKg, `Venta ${orderNo}`, b.registered_by||"Sistema");
     }
 
@@ -212,7 +212,7 @@ api.post("/sales-orders", async c => {
     if (type === "mayoreo" && totalKg > 0) {
       const loss = getNum("default_loss_pct", 15);
       const needGreen = r2(totalKg / (1 - loss / 100));
-      const greenAvail = invTotal("cafe_verde");
+      const greenAvail = invTotal("green_coffee");
       const deficit = r2(Math.max(0, needGreen - greenAvail));
       if (deficit > 0) {
         createPO({ sourceType: "sales_order", sourceId: orderId, description: `Café verde para ${orderNo}`, requestedKg: deficit, estimatedCost: r2(deficit * getNum("default_green_cost_per_kg", 0)) });
@@ -238,7 +238,7 @@ api.post("/sales-orders/:id/shipments", async c => {
   const orderId = Number(c.req.param("id")); const b = await body(c);
   req(num(b.weight_kg)>0, "Peso inválido");
   const send = tx(() => {
-    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
+    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
     req(ri?.id, "No existe inventario de café tostado");
     invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envío pedido #${orderId}`, b.registered_by||"Sistema");
     let expId: number | null = null;
@@ -254,7 +254,7 @@ api.delete("/sales-shipments/:id", c => {
   const row = qGet<any>("SELECT * FROM sales_shipments WHERE id=?", c.req.param("id"));
   if (row) {
     const rev = tx(() => {
-      const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
+      const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
       if (ri?.id) invMove(ri.id, "in", row.weight_kg, `Reverso envío ${row.id}`, "Sistema");
       if (row.expense_id) qRun("DELETE FROM expenses WHERE id=?", row.expense_id);
       qRun("DELETE FROM sales_shipments WHERE id=?", row.id);
@@ -288,7 +288,7 @@ api.post("/purchase-orders/:id/receive", async c => {
   const receive = tx(() => {
     const lotLabel = b.lot_label || `${today()}-${po.po_no}`;
     const itemName = b.item_name || [b.origin_name, b.variety_name, `Lote ${lotLabel}`].filter(Boolean).join(" · ") || `Café verde ${lotLabel}`;
-    const itemId = ensureInvItem({ item_type: "cafe_verde", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
+    const itemId = ensureInvItem({ item_type: "green_coffee", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
     invMove(itemId, "in", qty, `Recepción ${po.po_no}`, b.registered_by||"Sistema");
     qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", now());
     autoExpense("Café verde", cost, `Compra verde ${po.po_no}`, b.registered_by||"Sistema", "purchase_order", poId);
@@ -407,12 +407,12 @@ api.post("/roasting-sessions/:id/batches", async c => {
   req(b.green_inventory_item_id, "Seleccioná el café verde"); req(num(b.green_kg)>0, "Kg verde inválidos");
   const create = tx(() => {
     const gi = qGet<any>("SELECT * FROM inventory_items WHERE id=?", b.green_inventory_item_id);
-    req(gi, "Inventario no encontrado"); req(gi.item_type === "cafe_verde", "Debe ser café verde");
+    req(gi, "Inventario no encontrado"); req(gi.item_type === "green_coffee", "Debe ser café verde");
     const rkg = b.roasted_kg === null || b.roasted_kg === undefined || b.roasted_kg === "" ? null : r2(num(b.roasted_kg));
     const lp = rkg && num(b.green_kg) > 0 ? r2(((num(b.green_kg) - rkg) / num(b.green_kg)) * 100) : null;
     const bno = docNo("RB");
     invMove(Number(b.green_inventory_item_id), "out", r2(num(b.green_kg)), `Tostado ${bno}`, b.registered_by||"Sistema");
-    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
+    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
     req(ri?.id, "No existe inventario de café tostado");
     if (rkg && rkg > 0) invMove(ri!.id, "in", rkg, `Batch ${bno}`, b.registered_by||"Sistema");
     const r = qRun("INSERT INTO roasting_batches(session_id,batch_no,green_inventory_item_id,roast_profile_id,sales_order_id,green_kg,roasted_kg,loss_pct,machine_minutes,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", sessionId, bno, b.green_inventory_item_id, b.roast_profile_id||null, b.sales_order_id||null, r2(num(b.green_kg)), rkg, lp, r2(num(b.machine_minutes)), b.notes||null, now());
@@ -427,7 +427,7 @@ api.patch("/roasting-batches/:id", async c => {
   const cur = qGet<any>("SELECT * FROM roasting_batches WHERE id=?", id);
   if (!cur) return c.json(fail("No encontrado"), 404);
   const upd = tx(() => {
-    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1");
+    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
     if (!ri?.id) throw new Error("No existe inventario tostado");
     const newR = b.roasted_kg === null || b.roasted_kg === undefined || b.roasted_kg === "" ? null : r2(num(b.roasted_kg));
     const curR = cur.roasted_kg ? Number(cur.roasted_kg) : 0;
@@ -448,7 +448,7 @@ api.delete("/roasting-batches/:id", c => {
   if (!batch) return c.json(fail("No encontrado"), 404);
   const rm = tx(() => {
     invMove(batch.green_inventory_item_id, "in", batch.green_kg, `Reverso ${batch.batch_no}`, "Sistema");
-    if (batch.roasted_kg) { const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='cafe_tostado' ORDER BY id LIMIT 1"); if (ri?.id) invMove(ri.id, "out", batch.roasted_kg, `Reverso ${batch.batch_no}`, "Sistema"); }
+    if (batch.roasted_kg) { const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1"); if (ri?.id) invMove(ri.id, "out", batch.roasted_kg, `Reverso ${batch.batch_no}`, "Sistema"); }
     qRun("DELETE FROM roasting_batches WHERE id=?", id);
     if (batch.sales_order_id) recalcSO(batch.sales_order_id);
   });

@@ -54,8 +54,18 @@ export function getNum(key: string, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const invTypeMap: Record<string, string> = {
+  cafe_verde: "green_coffee",
+  cafe_tostado: "roasted_coffee",
+  cafe_empaquetado: "packaged_coffee",
+  insumo: "supply",
+};
+export function normInvType(type: string) {
+  return invTypeMap[type] || type;
+}
+
 export function invTotal(type: string): number {
-  return Number(qVal("SELECT COALESCE(SUM(quantity),0) AS v FROM inventory_items WHERE item_type=?", type) ?? 0);
+  return Number(qVal("SELECT COALESCE(SUM(quantity),0) AS v FROM inventory_items WHERE item_type=?", normInvType(type)) ?? 0);
 }
 
 export function finance() {
@@ -72,10 +82,45 @@ export function finance() {
 }
 
 export function ensureInvItem(data: { item_type: string; item_name: string; unit?: string; origin_id?: number | null; variety_id?: number | null; lot_label?: string | null }) {
-  const existing = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type=? AND item_name=? AND COALESCE(lot_label,'')=COALESCE(?,'') LIMIT 1", data.item_type, data.item_name, data.lot_label ?? null);
+  const itemType = normInvType(data.item_type);
+  const existing = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type=? AND item_name=? AND COALESCE(lot_label,'')=COALESCE(?,'') LIMIT 1", itemType, data.item_name, data.lot_label ?? null);
   if (existing) return existing.id;
-  const res = qRun("INSERT INTO inventory_items (item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,0,?,0,?,?,?)", data.item_type, data.item_name, data.unit ?? "kg", data.origin_id ?? null, data.variety_id ?? null, data.lot_label ?? null);
+  const res = qRun("INSERT INTO inventory_items (item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,0,?,0,?,?,?)", itemType, data.item_name, data.unit ?? "kg", data.origin_id ?? null, data.variety_id ?? null, data.lot_label ?? null);
   return Number(res.lastInsertRowid);
+}
+
+function migrateInventoryTypes() {
+  const def = qGet<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_items'");
+  if (!def?.sql.includes("'cafe_verde'")) return;
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    CREATE TABLE inventory_items_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_type TEXT NOT NULL CHECK(item_type IN ('green_coffee','roasted_coffee','packaged_coffee','supply')),
+      item_name TEXT NOT NULL,
+      quantity REAL DEFAULT 0,
+      unit TEXT DEFAULT 'kg',
+      min_stock REAL DEFAULT 0,
+      origin_id INTEGER,
+      variety_id INTEGER,
+      lot_label TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO inventory_items_new (id,item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label,created_at)
+    SELECT id,
+      CASE item_type
+        WHEN 'cafe_verde' THEN 'green_coffee'
+        WHEN 'cafe_tostado' THEN 'roasted_coffee'
+        WHEN 'cafe_empaquetado' THEN 'packaged_coffee'
+        WHEN 'insumo' THEN 'supply'
+        ELSE item_type
+      END,
+      item_name, quantity, unit, min_stock, origin_id, variety_id, lot_label, created_at
+    FROM inventory_items;
+    DROP TABLE inventory_items;
+    ALTER TABLE inventory_items_new RENAME TO inventory_items;
+    PRAGMA foreign_keys = ON;
+  `);
 }
 
 export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: number, reason: string, by?: string | null) {
@@ -148,7 +193,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cafe_name TEXT, contact_name TEXT, phone TEXT, contact_phone TEXT, email TEXT, address TEXT, city TEXT, postal_code TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, origin_id INTEGER, variety_id INTEGER, roast_profile_id INTEGER, presentation TEXT, unit_weight_kg REAL DEFAULT 1, price REAL DEFAULT 0, active INTEGER DEFAULT 1, FOREIGN KEY (origin_id) REFERENCES origins(id), FOREIGN KEY (variety_id) REFERENCES varieties(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id));
 
-    CREATE TABLE IF NOT EXISTS inventory_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT NOT NULL CHECK(item_type IN ('cafe_verde','cafe_tostado','cafe_empaquetado','insumo')), item_name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'kg', min_stock REAL DEFAULT 0, origin_id INTEGER, variety_id INTEGER, lot_label TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS inventory_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT NOT NULL CHECK(item_type IN ('green_coffee','roasted_coffee','packaged_coffee','supply')), item_name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'kg', min_stock REAL DEFAULT 0, origin_id INTEGER, variety_id INTEGER, lot_label TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS inventory_movements (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, direction TEXT NOT NULL CHECK(direction IN ('in','out','adjust')), quantity REAL NOT NULL, reason TEXT, registered_by TEXT, created_at TEXT NOT NULL, FOREIGN KEY (item_id) REFERENCES inventory_items(id) ON DELETE CASCADE);
 
     CREATE TABLE IF NOT EXISTS sales_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT NOT NULL UNIQUE, order_type TEXT NOT NULL CHECK(order_type IN ('mostrador','mayoreo')), client_id INTEGER, status TEXT DEFAULT 'abierto' CHECK(status IN ('abierto','esperando_compra','en_produccion','listo','envio_parcial','completado','cancelado')), delivery_date TEXT, total_weight_kg REAL DEFAULT 0, price_per_kg REAL DEFAULT 0, total_amount REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (client_id) REFERENCES clients(id));
@@ -187,5 +232,6 @@ export function initDB() {
   qRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");
   qRun("DELETE FROM partners WHERE name NOT IN ('Itza','Axel')");
   qRun("INSERT OR REPLACE INTO settings (key,value) VALUES ('people','Itza|Axel'),('individual_people','Itza|Axel'),('operators','Axel|Itza'),('roast_operators','Axel|Itza')");
-  ensureInvItem({ item_type: "cafe_tostado", item_name: "Café tostado disponible", unit: "kg" });
+  migrateInventoryTypes();
+  ensureInvItem({ item_type: "roasted_coffee", item_name: "Café tostado disponible", unit: "kg" });
 }
