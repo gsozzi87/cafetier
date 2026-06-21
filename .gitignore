@@ -3,3 +3,4 @@ data/
 *.db
 .env
 .server.pid
+.server.*.log

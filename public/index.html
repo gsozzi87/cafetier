@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CAFETIER | Caf&eacute; mexicano tostado en grano</title>
-  <meta name="description" content="Caf&eacute; mexicano tostado en grano con calidad constante para hogares y negocios.">
+  <meta name="description" content="Caf&eacute; mexicano tostado en grano, con calidad constante para hogares y negocios.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/site.css">
 </head>
-<body>
+<body class="home-page">
   <header class="site-header">
     <a class="brand-lockup" href="/" aria-label="CAFETIER inicio">
       <img src="/assets/cafetier-mark.svg" alt="" class="brand-mark">
@@ -22,13 +22,12 @@
     <nav class="main-nav" aria-label="Principal">
       <a class="active" href="#inicio">Inicio</a>
       <a href="/nuestro-cafe/">Nuestro caf&eacute;</a>
-      <a href="#presentaciones">Productos</a>
       <a href="#negocios">Para negocios</a>
       <a href="#proceso">Proceso</a>
       <span class="nav-dropdown">
         <button type="button">Marca</button>
         <span class="dropdown-menu">
-          <a href="#origen">Origen</a>
+          <a href="/nuestro-cafe/#origen">Origen</a>
           <a class="internal-link" href="/admin/">Acceso interno</a>
         </span>
       </span>
@@ -41,17 +40,18 @@
   </header>
 
   <main id="inicio">
-    <section class="hero">
-      <img class="hero-image" src="/assets/hero-coffee.png" alt="Bolsa verde de caf&eacute; tostado CAFETIER sobre mesa de madera con granos de caf&eacute;">
+    <section class="hero home-hero">
+      <img class="hero-image" src="/assets/hero-coffee.png" alt="Bolsa verde de caf&eacute; CAFETIER sobre mesa de madera con granos tostados">
       <div class="hero-shade"></div>
       <div class="hero-copy">
         <h1>Caf&eacute; mexicano tostado en grano,</h1>
         <p class="hero-kicker">con calidad constante para hogares y negocios.</p>
-        <p class="hero-body">Desde 2012 seleccionamos los mejores granos de M&eacute;xico y aplicamos un tueste controlado al mil&iacute;metro para ofrecer una taza con identidad, car&aacute;cter y constancia.</p>
+        <div class="hero-rule" aria-hidden="true"><span></span></div>
+        <p class="hero-body">Somos una casa tostadora de alto perfil. Cada lote es tostado con precisi&oacute;n por nuestro maestro tostador para ofrecer un caf&eacute; consistente, fresco y lleno de car&aacute;cter.</p>
         <div class="hero-actions">
-          <a class="btn primary" href="#presentaciones">
+          <a class="btn primary" href="/nuestro-cafe/">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 8h11.2l.9 12H5.5L6.4 8Zm2.1 0a3.5 3.5 0 0 1 7 0"/></svg>
-            Ver productos
+            Conoce nuestro caf&eacute;
           </a>
           <a class="btn light" href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20hacer%20un%20pedido">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.1 4.9A9.8 9.8 0 0 0 3.8 16.7L2.5 21.5l4.9-1.3A9.8 9.8 0 0 0 21.8 12a9.7 9.7 0 0 0-2.7-7.1Z"/></svg>
@@ -59,103 +59,153 @@
           </a>
         </div>
       </div>
+      <div class="home-seal" aria-label="Caf&eacute; mexicano de calidad premium">
+        <span>Caf&eacute; mexicano</span>
+        <strong>MX</strong>
+        <span>Calidad premium</span>
+      </div>
     </section>
 
-    <section class="feature-strip" id="nuestro-cafe" aria-label="Diferenciales CAFETIER">
+    <section class="feature-strip home-features" aria-label="Diferenciales CAFETIER">
       <article>
         <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 42V7M24 19c-8-1-13-6-14-14 8 1 13 6 14 14Zm0 9c8-1 13-6 14-14-8 1-13 6-14 14Zm0 0c-8-1-13-6-14-14 8 1 13 6 14 14Z"/></svg>
-        <div><h3>Granos selectos</h3><p>Trabajamos con productores de caf&eacute; mexicano.</p></div>
+        <div><h3>Tostado fresco</h3><p>Tostamos en lotes peque&ntilde;os cada semana para garantizar frescura en cada entrega.</p></div>
       </article>
       <article>
         <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5c4 7-4 10-4 17 0 4 3 7 7 7s7-3 7-7c0-5-4-9-4-14 7 5 12 12 12 20 0 10-8 18-18 18S6 38 6 28C6 18 16 12 24 5Z"/></svg>
-        <div><h3>Tueste controlado</h3><p>Proceso preciso que resalta el perfil de cada grano.</p></div>
+        <div><h3>Perfiles de tueste</h3><p>Dise&ntilde;ados para resaltar lo mejor de cada grano.</p></div>
       </article>
       <article>
         <svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 4 5 7 9 1-2 9 5 7-8 4-2 9-7-5-7 5-2-9-8-4 5-7-2-9 9-1 5-7Zm-8 21 5 5 11-12"/></svg>
-        <div><h3>Calidad constante</h3><p>Estandarizaci&oacute;n en cada lote para garantizar la mejor experiencia.</p></div>
+        <div><h3>Calidad constante</h3><p>Estandarizaci&oacute;n en cada lote para un sabor uniforme siempre.</p></div>
       </article>
       <article>
         <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 18h22v9a11 11 0 0 1-22 0v-9Zm22 3h4a4 4 0 0 1 0 8h-4M12 40h26M17 6v6m7-8v8m7-6v6"/></svg>
-        <div><h3>Culto por el caf&eacute;</h3><p>Entregamos pasi&oacute;n, tradici&oacute;n y compromiso.</p></div>
+        <div><h3>De origen a tu taza</h3><p>Trabajamos con productores mexicanos comprometidos con la calidad.</p></div>
       </article>
     </section>
 
-    <section class="presentations" id="presentaciones">
-      <div class="presentations-copy">
-        <p class="eyebrow">Nuestras presentaciones</p>
-        <h2>Elige el tama&ntilde;o ideal para ti o tu negocio</h2>
-        <div class="product-grid">
-          <article class="product-card">
-            <span class="bag small"></span>
-            <h3>250 g</h3>
-            <p>Ideal para los amantes del buen caf&eacute;.</p>
+    <section class="home-commerce" id="negocios">
+      <div class="kilo-panel">
+        <p class="section-label">Venta por kilo</p>
+        <p class="section-note">El precio var&iacute;a seg&uacute;n el volumen que necesites.</p>
+        <div class="kilo-cards">
+          <article>
+            <span class="round-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 8h11.2l.9 12H5.5L6.4 8Zm2.1 0a3.5 3.5 0 0 1 7 0"/></svg>
+            </span>
+            <div><h2>Menudeo <small>(Menos de 9 kg)</small></h2><p>Ideal para consumo en casa y peque&ntilde;os amantes del buen caf&eacute;.</p></div>
           </article>
-          <article class="product-card">
-            <span class="bag medium"></span>
-            <h3>1 kg</h3>
-            <p>Ideal para consumo en el hogar.</p>
+          <article>
+            <span class="round-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 8 8-4 8 4-8 4-8-4Zm0 0v8l8 4 8-4V8M12 12v8"/></svg>
+            </span>
+            <div><h2>Medio mayoreo <small>10 - 24 kg</small></h2><p>Ideal para oficinas, equipos y peque&ntilde;os negocios.</p></div>
           </article>
-          <article class="product-card">
-            <span class="bag large"></span>
-            <h3>5 kg</h3>
-            <p>Ideal para emprendedores emergentes.</p>
+          <article>
+            <span class="round-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h6v6H5V8Zm8 0h6v6h-6V8ZM5 16h6v4H5v-4Zm8 0h6v4h-6v-4ZM8 4h8v4H8V4Z"/></svg>
+            </span>
+            <div><h2>Mayoreo <small>(M&aacute;s de 25 kg)</small></h2><p>Para empresas, cafeter&iacute;as y negocios que buscan calidad y rendimiento.</p></div>
           </article>
-          <article class="product-card">
-            <span class="bag xlarge"></span>
-            <h3>10 kg</h3>
-            <p>Ideal para empresas consolidadas.</p>
-          </article>
-          <article class="product-card">
-            <span class="bag jumbo"></span>
-            <h3>25 kg</h3>
-            <p>Ideal para hoteles y restaurantes.</p>
+          <article class="kilo-note">
+            <span class="round-icon small">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg>
+            </span>
+            <p>Empaque dise&ntilde;ado para preservar la frescura, aroma y calidad del caf&eacute; en cada entrega.</p>
           </article>
         </div>
-        <a class="text-link" href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20ver%20todas%20las%20presentaciones">Ver todas las presentaciones <span aria-hidden="true">-&gt;</span></a>
       </div>
-      <article class="origin-card" id="origen">
-        <img src="/assets/origin-coffee.png" alt="Cosecha de cerezas de caf&eacute; en una finca mexicana">
-        <div class="origin-overlay"></div>
-        <div class="origin-copy">
-          <h2>Caf&eacute; mexicano de origen</h2>
-          <p>Granos cultivados en las mejores regiones cafetaleras de M&eacute;xico, como Coatepec, Veracruz.</p>
-          <a class="btn light small-btn" href="#proceso">Conoce m&aacute;s</a>
+
+      <div class="reasons-panel" id="proceso">
+        <p class="section-label">&iquest;Por qu&eacute; elegir Cafetier?</p>
+        <div class="reason-list">
+          <article>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5c4 2 7 7 7 11a4 4 0 0 1-8 0c0-2 1-4 1-6m8-4c2 3 4 6 4 9a4 4 0 0 1-6.8 2.8"/></svg></span>
+            <div><h2>Caf&eacute; 100% mexicano</h2><p>Seleccionamos granos de las mejores regiones cafetaleras de M&eacute;xico.</p></div>
+          </article>
+          <article>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-4a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 0 5-5"/></svg></span>
+            <div><h2>Casa tostadora de alto perfil</h2><p>Tostamos con precisi&oacute;n y control total para lograr perfiles excepcionales.</p></div>
+          </article>
+          <article>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9a7 7 0 0 1 14 0"/></svg></span>
+            <div><h2>Maestro tostador</h2><p>Cada tueste es guiado por experiencia y pasi&oacute;n por el caf&eacute;.</p></div>
+          </article>
+          <article>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Zm-4 9 3 3 5-6"/></svg></span>
+            <div><h2>Calidad constante</h2><p>Estandarizaci&oacute;n en cada lote para que siempre disfrutes el mismo gran caf&eacute;.</p></div>
+          </article>
+          <article>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12v5a6 6 0 0 1-12 0V8Zm12 2h2a3 3 0 0 1 0 6h-2M5 20h14M8 3v3m4-4v4m4-3v3"/></svg></span>
+            <div><h2>Del hogar a tu negocio</h2><p>Atendemos desde consumidores exigentes hasta empresas y cafeter&iacute;as.</p></div>
+          </article>
         </div>
-        <div class="seal" aria-label="Caf&eacute; mexicano de calidad premium">
-          <span>Caf&eacute; mexicano</span>
-          <strong>MX</strong>
-          <span>Calidad premium</span>
-        </div>
-      </article>
+      </div>
+
+      <figure class="roaster-photo">
+        <img src="/assets/home-roaster.png" alt="Maestro tostador trabajando con caf&eacute; reci&eacute;n tostado">
+      </figure>
     </section>
 
-    <section class="business-band" id="negocios">
-      <div>
-        <p class="eyebrow">Para negocios</p>
-        <h2>Grano constante para barras, oficinas y hospitalidad.</h2>
-      </div>
-      <p>Presentaciones de alto consumo, tueste estable y acompa&ntilde;amiento para que tu operaci&oacute;n tenga el mismo sabor todos los d&iacute;as.</p>
-      <a class="btn primary" href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20cafe%20para%20mi%20negocio">Cotizar</a>
-    </section>
-
-    <section class="process" id="proceso">
-      <p class="eyebrow">Proceso</p>
-      <h2>Selecci&oacute;n, tueste y empaque con trazabilidad.</h2>
-      <div class="process-grid">
-        <article><span>01</span><h3>Selecci&oacute;n</h3><p>Elegimos lotes con perfil definido y origen claro.</p></article>
-        <article><span>02</span><h3>Tueste</h3><p>Medimos cada curva para preservar dulzor, cuerpo y balance.</p></article>
-        <article><span>03</span><h3>Entrega</h3><p>Empacamos seg&uacute;n consumo para hogares y negocios.</p></article>
-      </div>
+    <section class="proof-strip" aria-label="Compromisos CAFETIER">
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V4M12 10C7 9 4 6 4 2c5 1 8 4 8 8Zm0 4c5-1 8-4 8-8-5 1-8 4-8 8Z"/></svg><p>Granos seleccionados de productores mexicanos.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a5 5 0 1 1-4 0Z"/></svg><p>Tueste medio balanceado que resalta el origen.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg><p>Entregas puntuales y seguras en todo M&eacute;xico.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v18H7V3Zm3 4h4m-4 4h4"/></svg><p>Empaque con v&aacute;lvula que conserva frescura y aroma.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M17 6.5A4 4 0 0 0 12 5c-3 0-5 1.5-5 3.5S9 12 12 12s5 1.5 5 3.5S15 19 12 19a5 5 0 0 1-5-2"/></svg><p>Precios justos y competitivos para cada volumen.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h5l3 4 4-8 3 4h3M4 18c4 3 12 3 16 0M4 6c4-3 12-3 16 0"/></svg><p>Comprometidos con la calidad y nuestros productores.</p></article>
     </section>
   </main>
 
-  <footer class="site-footer">
-    <span>Contiene cafe&iacute;na. Evitar en ni&ntilde;os.</span>
-    <span>CAFETIER &copy; 2026 Todos los derechos reservados.</span>
-    <span class="footer-links">
-      <a href="https://www.cafetier.com">www.cafetier.com</a>
-      <a href="/admin/" class="admin-dot" aria-label="Acceso administrador">·</a>
-    </span>
+  <footer class="rich-footer">
+    <div class="footer-main">
+      <section class="footer-brand">
+        <a class="brand-lockup" href="/" aria-label="CAFETIER inicio">
+          <img src="/assets/cafetier-mark.svg" alt="" class="brand-mark">
+          <span class="brand-text">
+            <strong>CAFETIER</strong>
+            <small>Culto por el caf&eacute;</small>
+          </span>
+        </a>
+        <div class="social-links" aria-label="Redes sociales">
+          <a href="#" aria-label="Facebook">f</a>
+          <a href="#" aria-label="Instagram">ig</a>
+          <a href="https://wa.me/522281698042" aria-label="WhatsApp">wa</a>
+        </div>
+      </section>
+      <section>
+        <h2>Enlaces</h2>
+        <a href="/">Inicio</a>
+        <a href="/nuestro-cafe/">Nuestro caf&eacute;</a>
+        <a href="#negocios">Para negocios</a>
+        <a href="#proceso">Proceso</a>
+        <a href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20hacer%20un%20pedido">Pedidos</a>
+      </section>
+      <section>
+        <h2>Ayuda</h2>
+        <a href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20tengo%20una%20duda%20sobre%20mi%20pedido">Pedidos</a>
+        <a href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20informacion%20sobre%20envios">Env&iacute;os y entregas</a>
+        <a href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20tengo%20una%20pregunta">Preguntas frecuentes</a>
+        <a href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20conocer%20terminos%20y%20condiciones">T&eacute;rminos y condiciones</a>
+      </section>
+      <section>
+        <h2>Contacto</h2>
+        <a href="https://wa.me/522281698042">228 169 8042</a>
+        <a href="mailto:hola@cafetier.com">hola@cafetier.com</a>
+        <span>Jaltenango, Chiapas, M&eacute;xico</span>
+      </section>
+      <div class="footer-seal" aria-hidden="true">
+        <span>Caf&eacute; mexicano</span>
+        <strong>MX</strong>
+        <span>Calidad premium</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Contiene cafe&iacute;na. Evitar en ni&ntilde;os.</span>
+      <span>&copy; 2025 CAFETIER. Todos los derechos reservados.</span>
+      <span>www.cafetier.com</span>
+    </div>
   </footer>
 </body>
 </html>
