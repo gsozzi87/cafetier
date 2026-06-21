@@ -26,13 +26,17 @@ export function qVal<T = any>(sql: string, ...p: any[]): T | null {
   if (!row) return null;
   return row[Object.keys(row)[0]] ?? null;
 }
+function ensureColumn(table: string, column: string, definition: string) {
+  const cols = qAll<{ name: string }>(`PRAGMA table_info(${table})`);
+  if (!cols.some(c => c.name === column)) qRun(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
 export function tx<T extends any[], R>(fn: (...args: T) => R) { return db.transaction(fn); }
 
 export function normPartner(name: string | null | undefined) {
   const raw = String(name || "").trim();
   if (!raw) return raw;
   const k = raw.toLowerCase();
-  if (["itzamara","itza","gaston","gastón","itza + gaston","itza + gastón","itza y gaston","itza y gastón","itza/gaston","itza/gastón"].includes(k)) return "Itza + Gastón";
+  if (["itzamara","itza","gaston","gastón","itza + gaston","itza + gastón","itza y gaston","itza y gastón","itza/gaston","itza/gastón"].includes(k)) return "Itza";
   if (k === "axel") return "Axel";
   return raw;
 }
@@ -126,10 +130,10 @@ export function createPO(input: { sourceType: string; sourceId?: number | null; 
   return qGet<any>("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number) {
+export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0) {
   const cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name=? LIMIT 1", catName);
   if (!cat) return null;
-  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,created_at) VALUES (?,?,?,?,?,1,?,?,?)", today(), cat.id, r2(amount), desc, paidBy, refType, refId, now());
+  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?)", today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, now());
   return Number(res.lastInsertRowid);
 }
 
@@ -141,7 +145,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS origins (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS varieties (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS expense_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, is_direct_cost INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
-    CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, email TEXT, address TEXT, city TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cafe_name TEXT, contact_name TEXT, phone TEXT, contact_phone TEXT, email TEXT, address TEXT, city TEXT, postal_code TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, origin_id INTEGER, variety_id INTEGER, roast_profile_id INTEGER, presentation TEXT, unit_weight_kg REAL DEFAULT 1, price REAL DEFAULT 0, active INTEGER DEFAULT 1, FOREIGN KEY (origin_id) REFERENCES origins(id), FOREIGN KEY (variety_id) REFERENCES varieties(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id));
 
     CREATE TABLE IF NOT EXISTS inventory_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT NOT NULL CHECK(item_type IN ('cafe_verde','cafe_tostado','cafe_empaquetado','insumo')), item_name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'kg', min_stock REAL DEFAULT 0, origin_id INTEGER, variety_id INTEGER, lot_label TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -163,14 +167,25 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS batch_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER NOT NULL, file_name TEXT NOT NULL, stored_name TEXT NOT NULL, mime_type TEXT, notes TEXT, created_at TEXT NOT NULL, FOREIGN KEY (batch_id) REFERENCES roasting_batches(id) ON DELETE CASCADE);
 
     CREATE TABLE IF NOT EXISTS machine_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT NOT NULL, log_type TEXT NOT NULL CHECK(log_type IN ('mantenimiento','mejora','pieza','incidencia')), description TEXT NOT NULL, cost REAL DEFAULT 0, registered_by TEXT, expense_id INTEGER, created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, expense_date TEXT NOT NULL, category_id INTEGER NOT NULL, amount REAL NOT NULL, description TEXT, paid_by TEXT NOT NULL, supplier TEXT, notes TEXT, auto_generated INTEGER DEFAULT 0, ref_type TEXT, ref_id INTEGER, created_at TEXT NOT NULL, FOREIGN KEY (category_id) REFERENCES expense_categories(id));
+    CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, expense_date TEXT NOT NULL, category_id INTEGER NOT NULL, amount REAL NOT NULL, description TEXT, paid_by TEXT NOT NULL, supplier TEXT, notes TEXT, auto_generated INTEGER DEFAULT 0, ref_type TEXT, ref_id INTEGER, from_cashbox INTEGER DEFAULT 1, from_utilities INTEGER DEFAULT 0, created_at TEXT NOT NULL, FOREIGN KEY (category_id) REFERENCES expense_categories(id));
 
-    INSERT OR IGNORE INTO partners (name, share_pct) VALUES ('Itza + Gastón', 50), ('Axel', 50);
+    INSERT OR IGNORE INTO partners (name, share_pct) VALUES ('Itza', 50), ('Axel', 50);
     INSERT OR IGNORE INTO roast_profiles (name) VALUES ('Filtro'),('Espresso'),('Omniroast'),('Claro'),('Medio'),('Oscuro');
     INSERT OR IGNORE INTO origins (name) VALUES ('Chiapas'),('Veracruz'),('Oaxaca'),('Puebla'),('Guerrero'),('Nayarit'),('Colombia'),('Brasil'),('Guatemala'),('Etiopía'),('Blend');
     INSERT OR IGNORE INTO varieties (name) VALUES ('Typica'),('Bourbon'),('Caturra'),('Catuaí'),('Geisha'),('SL28'),('Pacamara'),('Maragogipe'),('Mundo Novo'),('Catimor'),('Blend');
     INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',1),('Electricidad',1),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Otros',0);
-    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','15'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itzamara|Gastón'),('people','Itzamara|Gastón|Axel');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','15'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
   `);
+  ensureColumn("clients", "cafe_name", "TEXT");
+  ensureColumn("clients", "contact_name", "TEXT");
+  ensureColumn("clients", "contact_phone", "TEXT");
+  ensureColumn("clients", "postal_code", "TEXT");
+  ensureColumn("expenses", "from_cashbox", "INTEGER DEFAULT 1");
+  ensureColumn("expenses", "from_utilities", "INTEGER DEFAULT 0");
+  qRun("UPDATE capital_contributions SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
+  qRun("UPDATE withdrawals SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
+  qRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");
+  qRun("DELETE FROM partners WHERE name NOT IN ('Itza','Axel')");
+  qRun("INSERT OR REPLACE INTO settings (key,value) VALUES ('people','Itza|Axel'),('individual_people','Itza|Axel'),('operators','Axel|Itza'),('roast_operators','Axel|Itza')");
   ensureInvItem({ item_type: "cafe_tostado", item_name: "Café tostado disponible", unit: "kg" });
 }

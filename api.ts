@@ -9,6 +9,23 @@ const fail = (m: string) => ({ success: false, error: m });
 async function body<T = any>(c: any): Promise<T> { try { return await c.req.json() as T; } catch { return {} as T; } }
 function num(v: any, f = 0) { const n = Number(v); return Number.isFinite(n) ? n : f; }
 function req(cond: any, msg: string) { if (!cond) throw new Error(msg); }
+function boolFlag(v: any, fallback = 0) {
+  if (v === undefined || v === null || v === "") return fallback ? 1 : 0;
+  return ["1", "true", "yes", "si", "sí", "on"].includes(String(v).toLowerCase()) ? 1 : 0;
+}
+function expenseFunding(b: any) {
+  const source = String(b.funding_source || "").trim();
+  const legacyPartner = source && source !== "cash" ? normPartner(source) : "";
+  const fromCashbox = b.from_cashbox === undefined ? (legacyPartner ? 0 : 1) : boolFlag(b.from_cashbox, 1);
+  const fromUtilities = boolFlag(b.from_utilities, 0);
+  const paidBy = legacyPartner || b.paid_by || (fromCashbox ? "Caja chica" : "Itza");
+  const partner = ["Itza", "Axel"].includes(normPartner(paidBy)) ? normPartner(paidBy) : "";
+  return { fromCashbox, fromUtilities, paidBy: partner || paidBy, partner: fromCashbox ? "" : partner };
+}
+function registerDirectFunding(partner: string, amount: number, date: string, description: string) {
+  if (!partner) return;
+  qRun("INSERT INTO capital_contributions(partner_name,amount,description,contribution_date,created_at) VALUES (?,?,?,?,?)", partner, r2(amount), description, date, now());
+}
 
 const UPLOAD_DIR = process.env.UPLOAD_PATH || "/data/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -83,8 +100,44 @@ for (const table of ["roast_profiles", "origins", "varieties", "expense_categori
 
 // ===== CLIENTS =====
 api.get("/clients", c => c.json(ok(qAll("SELECT * FROM clients WHERE active=1 ORDER BY name"))));
-api.post("/clients", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); const r = qRun("INSERT INTO clients(name,phone,email,address,city,notes,active,created_at) VALUES (?,?,?,?,?,?,1,?)", b.name, b.phone||null, b.email||null, b.address||null, b.city||null, b.notes||null, now()); return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", Number(r.lastInsertRowid)))); });
-api.put("/clients/:id", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); qRun("UPDATE clients SET name=?,phone=?,email=?,address=?,city=?,notes=? WHERE id=?", b.name, b.phone||null, b.email||null, b.address||null, b.city||null, b.notes||null, c.req.param("id")); return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", c.req.param("id")))); });
+api.post("/clients", async c => {
+  const b = await body(c);
+  req(b.name, "Nombre obligatorio");
+  const r = qRun(
+    "INSERT INTO clients(name,cafe_name,contact_name,phone,contact_phone,email,address,city,postal_code,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
+    b.name,
+    b.cafe_name || null,
+    b.contact_name || null,
+    b.phone || null,
+    b.contact_phone || null,
+    b.email || null,
+    b.address || null,
+    b.city || null,
+    b.postal_code || null,
+    b.notes || null,
+    now()
+  );
+  return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", Number(r.lastInsertRowid))));
+});
+api.put("/clients/:id", async c => {
+  const b = await body(c);
+  req(b.name, "Nombre obligatorio");
+  qRun(
+    "UPDATE clients SET name=?,cafe_name=?,contact_name=?,phone=?,contact_phone=?,email=?,address=?,city=?,postal_code=?,notes=? WHERE id=?",
+    b.name,
+    b.cafe_name || null,
+    b.contact_name || null,
+    b.phone || null,
+    b.contact_phone || null,
+    b.email || null,
+    b.address || null,
+    b.city || null,
+    b.postal_code || null,
+    b.notes || null,
+    c.req.param("id")
+  );
+  return c.json(ok(qGet("SELECT * FROM clients WHERE id=?", c.req.param("id"))));
+});
 api.delete("/clients/:id", c => { qRun("UPDATE clients SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== PRODUCTS =====
@@ -300,11 +353,39 @@ api.delete("/withdrawals/:id", c => { qRun("DELETE FROM withdrawals WHERE id=?",
 api.get("/expenses", c => { const m = c.req.query("month"); const sql = m ? "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE substr(e.expense_date,1,7)=? ORDER BY e.id DESC" : "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id ORDER BY e.id DESC"; return c.json(ok(m ? qAll(sql, m) : qAll(sql))); });
 api.post("/expenses", async c => {
   const b = await body(c); req(b.category_id, "Categoría obligatoria"); req(num(b.amount)>0, "Monto inválido");
-  const f = finance(); req(f.cash >= num(b.amount), `Sin fondos. Disponible: $${f.cash.toFixed(2)}`);
-  const r = qRun("INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,created_at) VALUES (?,?,?,?,?,?,?,0,?)", b.expense_date||today(), b.category_id, r2(num(b.amount)), b.description||null, b.paid_by||"Caja", b.supplier||null, b.notes||null, now());
-  return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", Number(r.lastInsertRowid))));
+  const funding = expenseFunding(b);
+  const amount = r2(num(b.amount));
+  const date = b.expense_date || today();
+  if (funding.fromCashbox) {
+    const f = finance();
+    req(f.cash >= amount, `Sin fondos. Disponible: $${f.cash.toFixed(2)}`);
+  }
+  const create = tx(() => {
+    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${b.description || "sin descripción"}`);
+    const r = qRun(
+      "INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_cashbox,from_utilities,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?)",
+      date,
+      b.category_id,
+      amount,
+      b.description || null,
+      funding.paidBy,
+      b.supplier || null,
+      b.notes || null,
+      funding.fromCashbox,
+      funding.fromUtilities,
+      now()
+    );
+    return Number(r.lastInsertRowid);
+  });
+  const id = create();
+  return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", id)));
 });
-api.put("/expenses/:id", async c => { const b = await body(c); qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, b.paid_by, b.supplier, b.notes, c.req.param("id")); return c.json(ok(true)); });
+api.put("/expenses/:id", async c => {
+  const b = await body(c);
+  const funding = expenseFunding(b);
+  qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, funding.paidBy, b.supplier, b.notes, funding.fromCashbox, funding.fromUtilities, c.req.param("id"));
+  return c.json(ok(true));
+});
 api.delete("/expenses/:id", c => { qRun("DELETE FROM expenses WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== ROASTING =====
@@ -425,12 +506,14 @@ api.get("/machine-logs", c => c.json(ok(qAll("SELECT * FROM machine_logs ORDER B
 api.post("/machine-logs", async c => {
   const b = await body(c); req(b.log_date, "Fecha obligatoria"); req(b.log_type, "Tipo obligatorio"); req(b.description, "Descripción obligatoria");
   const cost = r2(num(b.cost));
+  const funding = expenseFunding(b);
   const create = tx(() => {
-    if (cost > 0) { const f = finance(); req(f.cash >= cost, "Sin fondos"); }
+    if (cost > 0 && funding.fromCashbox) { const f = finance(); req(f.cash >= cost, "Sin fondos"); }
+    if (cost > 0) registerDirectFunding(funding.partner, cost, b.log_date, `Máquina pagada por ${funding.partner}: ${b.description}`);
     const r = qRun("INSERT INTO machine_logs(log_date,log_type,description,cost,registered_by,expense_id,created_at) VALUES (?,?,?,?,?,NULL,?)", b.log_date, b.log_type, b.description, cost, b.registered_by||null, now());
     const logId = Number(r.lastInsertRowid);
     if (cost > 0) {
-      const expId = autoExpense("Mantenimiento", cost, `Máquina · ${b.log_type} · ${b.description}`, b.registered_by||"Caja", "machine_log", logId);
+      const expId = autoExpense("Mantenimiento", cost, `Máquina · ${b.log_type} · ${b.description}`, funding.paidBy || b.registered_by || "Caja chica", "machine_log", logId, funding.fromCashbox, funding.fromUtilities);
       qRun("UPDATE machine_logs SET expense_id=? WHERE id=?", expId, logId);
     }
     return qGet("SELECT * FROM machine_logs WHERE id=?", logId);

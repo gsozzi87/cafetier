@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="CAFETIER">
+  <defs>
+    <style>
+      .line{fill:none;stroke:#e7cd8f;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
+      .fill{fill:#e7cd8f}
+    </style>
+  </defs>
+  <circle class="line" cx="48" cy="48" r="39"/>
+  <path class="line" d="M48 15c9 11 12 22 9 34-2 10-8 17-9 28-1-11-7-18-9-28-3-12 0-23 9-34Z"/>
+  <path class="line" d="M22 40c15 0 27 8 34 24-16 1-28-6-34-24Z"/>
+  <path class="line" d="M74 40c-15 0-27 8-34 24 16 1 28-6 34-24Z"/>
+  <path class="line" d="M48 76V19"/>
+  <path class="line" d="M30 46c7 4 13 9 18 18"/>
+  <path class="line" d="M66 46c-7 4-13 9-18 18"/>
+  <circle class="fill" cx="48" cy="18" r="2.4"/>
+</svg>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>CAFETIER Admin</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/admin/logo.png" alt="">
+        <div class="brand-copy">
+          <h1>CAFETIER</h1>
+          <p>Culto por el caf&eacute;</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Administrador">
+        <div class="nav-section">Operaci&oacute;n</div>
+        <div class="nav-item active" data-view="dashboard">Dashboard</div>
+        <div class="nav-item" data-view="sales">Ventas</div>
+        <div class="nav-item" data-view="clients">Clientes</div>
+        <div class="nav-item" data-view="purchases">Compras</div>
+        <div class="nav-item" data-view="roasting">Tostado</div>
+        <div class="nav-item" data-view="inventory">Inventario</div>
+        <div class="nav-section">Finanzas</div>
+        <div class="nav-item" data-view="capital">Capital &amp; Utilidades</div>
+        <div class="nav-item" data-view="expenses">Gastos</div>
+        <div class="nav-section">Sistema</div>
+        <div class="nav-item" data-view="machine">M&aacute;quina</div>
+        <div class="nav-item" data-view="config">Configuraci&oacute;n</div>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="actions">
+          <a class="btn ghost sm" href="/">Web</a>
+          <button class="btn secondary sm" id="reloadBtn">Actualizar</button>
+          <span class="pill" id="statusPill">Iniciando</span>
+        </div>
+      </header>
+      <section class="content" id="content">
+        <div class="empty">Cargando...</div>
+      </section>
+    </main>
+  </div>
+  <div class="toast-wrap" id="toasts"></div>
+  <script src="/admin/app.js"></script>
+</body>
+</html>
