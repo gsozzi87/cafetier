@@ -40,123 +40,220 @@
   </header>
 
   <main id="inicio">
-    <section class="hero home-hero">
-      <img class="hero-image" src="/assets/hero-coffee.png" alt="Bolsa verde de caf&eacute; CAFETIER sobre mesa de madera con granos tostados">
-      <div class="hero-shade"></div>
-      <div class="hero-copy">
-        <h1>Caf&eacute; mexicano tostado en grano,</h1>
-        <p class="hero-kicker">con calidad constante para hogares y negocios.</p>
-        <div class="hero-rule" aria-hidden="true"><span></span></div>
-        <p class="hero-body">Somos una casa tostadora de alto perfil. Cada lote es tostado con precisi&oacute;n por nuestro maestro tostador para ofrecer un caf&eacute; consistente, fresco y lleno de car&aacute;cter.</p>
-        <div class="hero-actions">
-          <a class="btn primary" href="/nuestro-cafe/">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 8h11.2l.9 12H5.5L6.4 8Zm2.1 0a3.5 3.5 0 0 1 7 0"/></svg>
-            Conoce nuestro caf&eacute;
-          </a>
-          <a class="btn light" href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20hacer%20un%20pedido">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.1 4.9A9.8 9.8 0 0 0 3.8 16.7L2.5 21.5l4.9-1.3A9.8 9.8 0 0 0 21.8 12a9.7 9.7 0 0 0-2.7-7.1Z"/></svg>
-            Haz tu pedido
-          </a>
-        </div>
+    <section class="home-showcase" data-site-section="hero" aria-label="Historias CAFETIER" aria-roledescription="carousel">
+      <div class="home-slides">
+        <article class="home-slide is-active" data-slide="0" aria-hidden="false">
+          <img src="/assets/hero-coffee.png" alt="Bolsa CAFETIER entre granos de caf&eacute; tostado">
+          <div class="slide-shade"></div>
+          <div class="showcase-copy">
+            <p class="eyebrow">Caf&eacute; para el hogar</p>
+            <h1><span class="title-main">Caf&eacute; mexicano</span> <em>para volver a tu taza.</em></h1>
+            <p>Tostado fresco, perfil balanceado y la misma calidad lote tras lote.</p>
+            <div class="showcase-actions">
+              <a class="btn primary" href="#precios">Ver presentaciones</a>
+              <a class="text-link" href="#encuentra-tu-cafe">Encuentra tu caf&eacute; <span aria-hidden="true">&rarr;</span></a>
+            </div>
+          </div>
+        </article>
+        <article class="home-slide" data-slide="1" aria-hidden="true">
+          <img src="/assets/business-hero.png" alt="Barista sirviendo caf&eacute; CAFETIER en una barra">
+          <div class="slide-shade"></div>
+          <div class="showcase-copy">
+            <p class="eyebrow">Para negocios</p>
+            <h2><span class="title-main">Consistencia</span> <em>en cada servicio.</em></h2>
+            <p>Abasto confiable, tueste estable y acompa&ntilde;amiento para cafeter&iacute;as, oficinas y restaurantes.</p>
+            <div class="showcase-actions">
+              <a class="btn primary" href="/para-negocios/">Soluciones para negocios</a>
+              <a class="text-link" href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20cotizar%20caf%C3%A9%20para%20mi%20negocio">Cotizar <span aria-hidden="true">&rarr;</span></a>
+            </div>
+          </div>
+        </article>
+        <article class="home-slide" data-slide="2" aria-hidden="true">
+          <img src="/assets/process-hero.png" alt="Tostadora CAFETIER descargando caf&eacute; reci&eacute;n tostado">
+          <div class="slide-shade"></div>
+          <div class="showcase-copy">
+            <p class="eyebrow">Nuestro proceso</p>
+            <h2><span class="title-main">Precisi&oacute;n</span> <em>detr&aacute;s de cada lote.</em></h2>
+            <p>Medimos tiempo, temperatura y desarrollo para repetir el perfil que hace reconocible a CAFETIER.</p>
+            <div class="showcase-actions">
+              <a class="btn primary" href="/proceso/">Conoce el proceso</a>
+              <a class="text-link" href="/nuestro-cafe/">Origen y perfil <span aria-hidden="true">&rarr;</span></a>
+            </div>
+          </div>
+        </article>
       </div>
-      <div class="home-seal" aria-label="Caf&eacute; mexicano de calidad premium">
-        <span>Caf&eacute; mexicano</span>
-        <strong>MX</strong>
-        <span>Calidad premium</span>
+      <button class="showcase-arrow prev" type="button" aria-label="Historia anterior" data-showcase-prev>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+      </button>
+      <button class="showcase-arrow next" type="button" aria-label="Historia siguiente" data-showcase-next>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+      </button>
+      <div class="showcase-nav" role="tablist" aria-label="Elegir historia">
+        <button class="is-active" type="button" role="tab" aria-selected="true" aria-label="Hogar" data-showcase-dot="0"></button>
+        <button type="button" role="tab" aria-selected="false" aria-label="Negocios" data-showcase-dot="1"></button>
+        <button type="button" role="tab" aria-selected="false" aria-label="Proceso" data-showcase-dot="2"></button>
+      </div>
+      <p class="showcase-count" aria-hidden="true"><strong>01</strong><span>/ 03</span></p>
+    </section>
+
+    <section class="feature-strip home-features reveal" data-site-section="features" aria-label="Diferenciales CAFETIER">
+      <article><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 42V7M24 19c-8-1-13-6-14-14 8 1 13 6 14 14Zm0 9c8-1 13-6 14-14-8 1-13 6-14 14Z"/></svg><div><h3>Tostado fresco</h3><p>Lotes peque&ntilde;os para conservar frescura en cada entrega.</p></div></article>
+      <article><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5c4 7-4 10-4 17 0 4 3 7 7 7s7-3 7-7c0-5-4-9-4-14 7 5 12 12 12 20 0 10-8 18-18 18S6 38 6 28C6 18 16 12 24 5Z"/></svg><div><h3>Tueste de precisi&oacute;n</h3><p>Perfiles dise&ntilde;ados para resaltar el origen del grano.</p></div></article>
+      <article><svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 4 5 7 9 1-2 9 5 7-8 4-2 9-7-5-7 5-2-9-8-4 5-7-2-9 9-1 5-7Zm-8 21 5 5 11-12"/></svg><div><h3>Calidad constante</h3><p>Estandarizaci&oacute;n para un sabor reconocible lote tras lote.</p></div></article>
+      <article><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 18h22v9a11 11 0 0 1-22 0v-9Zm22 3h4a4 4 0 0 1 0 8h-4M12 40h26M17 6v6m7-8v8m7-6v6"/></svg><div><h3>De origen a tu taza</h3><p>Productores mexicanos, selecci&oacute;n cuidadosa y entrega puntual.</p></div></article>
+    </section>
+
+    <section class="home-pricing reveal" data-site-section="pricing" id="precios">
+      <header class="home-section-heading">
+        <div><p class="eyebrow">Compra por volumen</p><h2>Tres formas de llevar CAFETIER.</h2></div>
+        <p>Compara de un vistazo y elige el volumen que mejor acompa&ntilde;a tu consumo.</p>
+      </header>
+      <div class="pricing-grid">
+        <article class="price-tier">
+          <div class="tier-top"><span>01</span><p>Para casa</p></div>
+          <h3>Menudeo</h3>
+          <p class="tier-range">Menos de 9 kg</p>
+          <p class="tier-price"><strong>$400</strong><span>/ kg</span></p>
+          <ul><li>Compra flexible</li><li>Tostado fresco</li><li>Ideal para consumo diario</li></ul>
+          <a href="#encuentra-tu-cafe" data-select-tier="menudeo">Elegir menudeo <span aria-hidden="true">&rarr;</span></a>
+        </article>
+        <article class="price-tier featured">
+          <p class="popular-label">M&aacute;s popular</p>
+          <div class="tier-top"><span>02</span><p>Para equipos</p></div>
+          <h3>Medio mayoreo</h3>
+          <p class="tier-range">10 - 24 kg</p>
+          <p class="tier-price"><strong>$350</strong><span>/ kg</span></p>
+          <ul><li>Mejor precio por volumen</li><li>Abasto para oficina o equipo</li><li>Entrega coordinada</li></ul>
+          <a href="#encuentra-tu-cafe" data-select-tier="medio">Elegir medio mayoreo <span aria-hidden="true">&rarr;</span></a>
+        </article>
+        <article class="price-tier">
+          <div class="tier-top"><span>03</span><p>Para negocios</p></div>
+          <h3>Mayoreo</h3>
+          <p class="tier-range">M&aacute;s de 25 kg</p>
+          <p class="tier-price"><strong>$320</strong><span>/ kg</span></p>
+          <ul><li>Precio preferencial</li><li>Planeaci&oacute;n de inventario</li><li>Atenci&oacute;n para negocios</li></ul>
+          <a href="#encuentra-tu-cafe" data-select-tier="mayoreo">Elegir mayoreo <span aria-hidden="true">&rarr;</span></a>
+        </article>
+      </div>
+      <p class="pricing-note">Precios por kilogramo, IVA incluido. Sujetos a cambios sin previo aviso.</p>
+    </section>
+
+    <section class="home-origins reveal" data-site-section="origins" id="origenes">
+      <header class="home-section-heading light-heading">
+        <div><p class="eyebrow">Origen mexicano</p><h2>Dos regiones. Dos perfiles.</h2></div>
+        <p>Explora el car&aacute;cter de cada origen y encuentra las notas que m&aacute;s disfrutas.</p>
+      </header>
+      <div class="origin-carousel" aria-label="Or&iacute;genes CAFETIER" aria-roledescription="carousel">
+        <div class="origin-track">
+          <article class="origin-slide is-active" data-origin-slide="0" aria-hidden="false">
+            <figure><img src="/assets/chiapas-hero.png" alt="Cafetales de Chiapas con cerezas maduras"></figure>
+            <div class="origin-details">
+              <p class="origin-number">Origen 01</p>
+              <h3>Chiapas</h3>
+              <p class="origin-place">Jaltenango &middot; Sierra Madre</p>
+              <p>Cuerpo sedoso, dulzor prolongado y una taza limpia que funciona tanto sola como con leche.</p>
+              <div class="tasting-profile" aria-label="Perfil sensorial de Chiapas">
+                <div><span>Chocolate</span><i><b style="--taste:88%"></b></i></div>
+                <div><span>Caramelo</span><i><b style="--taste:82%"></b></i></div>
+                <div><span>C&iacute;trico</span><i><b style="--taste:46%"></b></i></div>
+              </div>
+              <a href="/nuestro-cafe/">Conocer Chiapas <span aria-hidden="true">&rarr;</span></a>
+            </div>
+          </article>
+          <article class="origin-slide" data-origin-slide="1" aria-hidden="true">
+            <figure><img src="/assets/origin-coffee.png" alt="Cerezas de caf&eacute; mexicano reci&eacute;n cosechadas"></figure>
+            <div class="origin-details">
+              <p class="origin-number">Origen 02</p>
+              <h3>Veracruz</h3>
+              <p class="origin-place">Altas Monta&ntilde;as &middot; Veracruz</p>
+              <p>Arom&aacute;tico y balanceado, con acidez amable, textura redonda y final de nuez.</p>
+              <div class="tasting-profile" aria-label="Perfil sensorial de Veracruz">
+                <div><span>Cacao</span><i><b style="--taste:78%"></b></i></div>
+                <div><span>Nuez</span><i><b style="--taste:72%"></b></i></div>
+                <div><span>C&iacute;trico</span><i><b style="--taste:64%"></b></i></div>
+              </div>
+              <a href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20conocer%20el%20caf%C3%A9%20de%20Veracruz">Preguntar por Veracruz <span aria-hidden="true">&rarr;</span></a>
+            </div>
+          </article>
+        </div>
+        <div class="origin-controls">
+          <button type="button" aria-label="Origen anterior" data-origin-prev><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
+          <div class="origin-dots"><button class="is-active" type="button" aria-label="Ver Chiapas" data-origin-dot="0"></button><button type="button" aria-label="Ver Veracruz" data-origin-dot="1"></button></div>
+          <button type="button" aria-label="Origen siguiente" data-origin-next><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+        </div>
       </div>
     </section>
 
-    <section class="feature-strip home-features" aria-label="Diferenciales CAFETIER">
-      <article>
-        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 42V7M24 19c-8-1-13-6-14-14 8 1 13 6 14 14Zm0 9c8-1 13-6 14-14-8 1-13 6-14 14Zm0 0c-8-1-13-6-14-14 8 1 13 6 14 14Z"/></svg>
-        <div><h3>Tostado fresco</h3><p>Tostamos en lotes peque&ntilde;os cada semana para garantizar frescura en cada entrega.</p></div>
-      </article>
-      <article>
-        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5c4 7-4 10-4 17 0 4 3 7 7 7s7-3 7-7c0-5-4-9-4-14 7 5 12 12 12 20 0 10-8 18-18 18S6 38 6 28C6 18 16 12 24 5Z"/></svg>
-        <div><h3>Perfiles de tueste</h3><p>Dise&ntilde;ados para resaltar lo mejor de cada grano.</p></div>
-      </article>
-      <article>
-        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 4 5 7 9 1-2 9 5 7-8 4-2 9-7-5-7 5-2-9-8-4 5-7-2-9 9-1 5-7Zm-8 21 5 5 11-12"/></svg>
-        <div><h3>Calidad constante</h3><p>Estandarizaci&oacute;n en cada lote para un sabor uniforme siempre.</p></div>
-      </article>
-      <article>
-        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 18h22v9a11 11 0 0 1-22 0v-9Zm22 3h4a4 4 0 0 1 0 8h-4M12 40h26M17 6v6m7-8v8m7-6v6"/></svg>
-        <div><h3>De origen a tu taza</h3><p>Trabajamos con productores mexicanos comprometidos con la calidad.</p></div>
-      </article>
+    <section class="coffee-finder reveal" data-site-section="finder" id="encuentra-tu-cafe">
+      <div class="finder-intro">
+        <p class="eyebrow">Encuentra tu caf&eacute;</p>
+        <h2>Tres preguntas. Una recomendaci&oacute;n hecha para ti.</h2>
+        <p>Elige c&oacute;mo consumes caf&eacute;, cu&aacute;nto necesitas y el perfil que prefieres. Al final te preparamos el mensaje para WhatsApp.</p>
+        <div class="finder-progress" aria-hidden="true"><span class="is-active"></span><span></span><span></span></div>
+      </div>
+      <form class="finder-form" id="coffee-finder-form">
+        <div class="finder-step is-active" data-finder-step="0">
+          <fieldset>
+            <legend><span>01</span>&iquest;D&oacute;nde lo vas a disfrutar?</legend>
+            <div class="choice-grid">
+              <label><input type="radio" name="use" value="hogar"><span><strong>Hogar</strong><small>Para tu ritual diario.</small></span></label>
+              <label><input type="radio" name="use" value="oficina"><span><strong>Oficina</strong><small>Para compartir en equipo.</small></span></label>
+              <label><input type="radio" name="use" value="negocio"><span><strong>Negocio</strong><small>Para servir a tus clientes.</small></span></label>
+            </div>
+          </fieldset>
+        </div>
+        <div class="finder-step" data-finder-step="1" hidden>
+          <fieldset>
+            <legend><span>02</span>&iquest;Cu&aacute;nto caf&eacute; necesitas?</legend>
+            <div class="choice-grid">
+              <label><input type="radio" name="volume" value="menudeo"><span><strong>Menos de 9 kg</strong><small>Menudeo.</small></span></label>
+              <label><input type="radio" name="volume" value="medio"><span><strong>10 - 24 kg</strong><small>Medio mayoreo.</small></span></label>
+              <label><input type="radio" name="volume" value="mayoreo"><span><strong>25 kg o m&aacute;s</strong><small>Mayoreo.</small></span></label>
+            </div>
+          </fieldset>
+        </div>
+        <div class="finder-step" data-finder-step="2" hidden>
+          <fieldset>
+            <legend><span>03</span>&iquest;Qu&eacute; perfil disfrutas m&aacute;s?</legend>
+            <div class="choice-grid">
+              <label><input type="radio" name="profile" value="balanceado"><span><strong>Balanceado</strong><small>Chocolate y caramelo.</small></span></label>
+              <label><input type="radio" name="profile" value="intenso"><span><strong>Intenso</strong><small>Cuerpo alto y final largo.</small></span></label>
+              <label><input type="radio" name="profile" value="brillante"><span><strong>Brillante</strong><small>C&iacute;trico y arom&aacute;tico.</small></span></label>
+            </div>
+          </fieldset>
+        </div>
+        <p class="finder-error" role="alert" aria-live="polite"></p>
+        <div class="finder-actions">
+          <button class="finder-back" type="button" data-finder-back hidden>Anterior</button>
+          <button class="finder-next" type="button" data-finder-next>Siguiente <span aria-hidden="true">&rarr;</span></button>
+        </div>
+        <div class="finder-result" data-finder-result hidden aria-live="polite">
+          <p>Tu recomendaci&oacute;n</p>
+          <h3 data-result-title></h3>
+          <strong data-result-price></strong>
+          <span data-result-copy></span>
+          <a href="#" data-result-whatsapp>Hablar por WhatsApp</a>
+          <button type="button" data-finder-reset>Volver a empezar</button>
+        </div>
+      </form>
     </section>
 
-    <section class="home-commerce" id="negocios">
-      <div class="kilo-panel">
-        <p class="section-label">Venta por kilo</p>
-        <p class="section-note">El precio var&iacute;a seg&uacute;n el volumen que necesites.</p>
-        <div class="kilo-cards">
-          <article>
-            <span class="round-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 8h11.2l.9 12H5.5L6.4 8Zm2.1 0a3.5 3.5 0 0 1 7 0"/></svg>
-            </span>
-            <div><h2>Menudeo <small>(Menos de 9 kg)</small></h2><p>Ideal para consumo en casa y peque&ntilde;os amantes del buen caf&eacute;.</p></div>
-          </article>
-          <article>
-            <span class="round-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 8 8-4 8 4-8 4-8-4Zm0 0v8l8 4 8-4V8M12 12v8"/></svg>
-            </span>
-            <div><h2>Medio mayoreo <small>10 - 24 kg</small></h2><p>Ideal para oficinas, equipos y peque&ntilde;os negocios.</p></div>
-          </article>
-          <article>
-            <span class="round-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h6v6H5V8Zm8 0h6v6h-6V8ZM5 16h6v4H5v-4Zm8 0h6v4h-6v-4ZM8 4h8v4H8V4Z"/></svg>
-            </span>
-            <div><h2>Mayoreo <small>(M&aacute;s de 25 kg)</small></h2><p>Para empresas, cafeter&iacute;as y negocios que buscan calidad y rendimiento.</p></div>
-          </article>
-          <article class="kilo-note">
-            <span class="round-icon small">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg>
-            </span>
-            <p>Empaque dise&ntilde;ado para preservar la frescura, aroma y calidad del caf&eacute; en cada entrega.</p>
-          </article>
-        </div>
-      </div>
-
-      <div class="reasons-panel" id="proceso">
-        <p class="section-label">&iquest;Por qu&eacute; elegir Cafetier?</p>
-        <div class="reason-list">
-          <article>
-            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5c4 2 7 7 7 11a4 4 0 0 1-8 0c0-2 1-4 1-6m8-4c2 3 4 6 4 9a4 4 0 0 1-6.8 2.8"/></svg></span>
-            <div><h2>Caf&eacute; 100% mexicano</h2><p>Seleccionamos granos de las mejores regiones cafetaleras de M&eacute;xico.</p></div>
-          </article>
-          <article>
-            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-4a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 0 5-5"/></svg></span>
-            <div><h2>Casa tostadora de alto perfil</h2><p>Tostamos con precisi&oacute;n y control total para lograr perfiles excepcionales.</p></div>
-          </article>
-          <article>
-            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9a7 7 0 0 1 14 0"/></svg></span>
-            <div><h2>Maestro tostador</h2><p>Cada tueste es guiado por experiencia y pasi&oacute;n por el caf&eacute;.</p></div>
-          </article>
-          <article>
-            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Zm-4 9 3 3 5-6"/></svg></span>
-            <div><h2>Calidad constante</h2><p>Estandarizaci&oacute;n en cada lote para que siempre disfrutes el mismo gran caf&eacute;.</p></div>
-          </article>
-          <article>
-            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12v5a6 6 0 0 1-12 0V8Zm12 2h2a3 3 0 0 1 0 6h-2M5 20h14M8 3v3m4-4v4m4-3v3"/></svg></span>
-            <div><h2>Del hogar a tu negocio</h2><p>Atendemos desde consumidores exigentes hasta empresas y cafeter&iacute;as.</p></div>
-          </article>
-        </div>
-      </div>
-
-      <figure class="roaster-photo">
-        <img src="/assets/home-roaster.png" alt="Maestro tostador trabajando con caf&eacute; reci&eacute;n tostado">
-      </figure>
+    <section class="clients-showcase reveal" data-site-section="clients" aria-label="Clientes CAFETIER">
+      <div class="clients-heading"><p class="eyebrow">Conf&iacute;an en CAFETIER</p><h2>Del caf&eacute; de barrio a grandes equipos.</h2></div>
+      <div class="clients-marquee" aria-hidden="true"><div class="clients-track"><img src="/assets/orders-clients.png" alt=""><img src="/assets/orders-clients.png" alt=""></div></div>
     </section>
 
-    <section class="proof-strip" aria-label="Compromisos CAFETIER">
+    <section class="proof-strip home-proof" data-site-section="proof" aria-label="Compromisos CAFETIER">
       <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V4M12 10C7 9 4 6 4 2c5 1 8 4 8 8Zm0 4c5-1 8-4 8-8-5 1-8 4-8 8Z"/></svg><p>Granos seleccionados de productores mexicanos.</p></article>
-      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a5 5 0 1 1-4 0Z"/></svg><p>Tueste medio balanceado que resalta el origen.</p></article>
-      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg><p>Entregas puntuales y seguras en todo M&eacute;xico.</p></article>
-      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v18H7V3Zm3 4h4m-4 4h4"/></svg><p>Empaque con v&aacute;lvula que conserva frescura y aroma.</p></article>
-      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M17 6.5A4 4 0 0 0 12 5c-3 0-5 1.5-5 3.5S9 12 12 12s5 1.5 5 3.5S15 19 12 19a5 5 0 0 1-5-2"/></svg><p>Precios justos y competitivos para cada volumen.</p></article>
-      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h5l3 4 4-8 3 4h3M4 18c4 3 12 3 16 0M4 6c4-3 12-3 16 0"/></svg><p>Comprometidos con la calidad y nuestros productores.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a5 5 0 1 1-4 0Z"/></svg><p>Tueste controlado para repetir el mismo perfil.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg><p>Entregas coordinadas en todo M&eacute;xico.</p></article>
+      <article><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Zm-4 9 3 3 5-6"/></svg><p>Calidad comprobada antes de cada entrega.</p></article>
     </section>
   </main>
+
+  <a class="floating-whatsapp" href="https://wa.me/522281698042?text=Hola%20Cafetier%2C%20quiero%20informaci%C3%B3n" aria-label="Escribir a CAFETIER por WhatsApp">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.1 4.9A9.8 9.8 0 0 0 3.8 16.7L2.5 21.5l4.9-1.3A9.8 9.8 0 0 0 21.8 12a9.7 9.7 0 0 0-2.7-7.1Zm-7 15.1a8 8 0 0 1-4.1-1.1l-.3-.2-2.9.8.8-2.8-.2-.3a8 8 0 1 1 6.7 3.6Z"/></svg>
+  </a>
 
   <footer class="rich-footer">
     <div class="footer-main">
@@ -208,5 +305,7 @@
       <span>www.cafetier.com</span>
     </div>
   </footer>
+  <script src="/site-content.js" defer></script>
+  <script src="/site.js" defer></script>
 </body>
 </html>

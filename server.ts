@@ -10,6 +10,8 @@ app.get("/api/healthz", c => c.json({ ok: true }));
 app.route("/api", api);
 app.get("/admin", serveStatic({ path: "./public/admin/index.html" }));
 app.get("/admin/", serveStatic({ path: "./public/admin/index.html" }));
+app.get("/editor-sitio", serveStatic({ path: "./public/editor-sitio/index.html" }));
+app.get("/editor-sitio/", serveStatic({ path: "./public/editor-sitio/index.html" }));
 app.get("/nuestro-cafe", serveStatic({ path: "./public/nuestro-cafe/index.html" }));
 app.get("/nuestro-cafe/", serveStatic({ path: "./public/nuestro-cafe/index.html" }));
 app.get("/para-negocios", serveStatic({ path: "./public/para-negocios/index.html" }));

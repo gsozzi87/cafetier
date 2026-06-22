@@ -32,6 +32,56 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 api.onError((err, c) => { console.error(err); return c.json(fail(err.message || "Error interno"), 500); });
 
+// ===== PUBLIC SITE CONTENT =====
+api.get("/site-content/:page", c => {
+  const page = String(c.req.param("page") || "").toLowerCase();
+  req(/^[a-z0-9_-]+$/.test(page), "Pagina invalida");
+  const row = qGet<{ content_json: string; updated_at: string }>("SELECT content_json,updated_at FROM site_content WHERE page=?", page);
+  if (!row) return c.json(ok(null));
+  return c.json(ok({ content: JSON.parse(row.content_json), updated_at: row.updated_at }));
+});
+
+api.put("/site-content/:page", async c => {
+  const page = String(c.req.param("page") || "").toLowerCase();
+  req(/^[a-z0-9_-]+$/.test(page), "Pagina invalida");
+  const b = await body<any>(c);
+  const content = b.content ?? b;
+  req(content && typeof content === "object" && !Array.isArray(content), "Contenido invalido");
+  const json = JSON.stringify(content);
+  req(json.length <= 300_000, "El contenido es demasiado grande");
+  const updatedAt = now();
+  qRun(`
+    INSERT INTO site_content(page,content_json,updated_at) VALUES (?,?,?)
+    ON CONFLICT(page) DO UPDATE SET content_json=excluded.content_json,updated_at=excluded.updated_at
+  `, page, json, updatedAt);
+  return c.json(ok({ content, updated_at: updatedAt }));
+});
+
+api.post("/site-media", async c => {
+  const form = await c.req.parseBody();
+  const file = form.file;
+  req(file instanceof File, "Selecciona una imagen");
+  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
+  req(allowedTypes.has(file.type), "Usa una imagen PNG, JPEG, WebP, GIF o AVIF");
+  req(file.size > 0 && file.size <= 8 * 1024 * 1024, "La imagen debe pesar menos de 8 MB");
+  const data = new Uint8Array(await file.arrayBuffer());
+  const inserted = qRun("INSERT INTO site_media(file_name,mime_type,data,created_at) VALUES (?,?,?,?)", file.name || "imagen", file.type, data, now());
+  const id = Number(inserted.lastInsertRowid);
+  return c.json(ok({ id, url: `/api/site-media/${id}`, file_name: file.name, mime_type: file.type }));
+});
+
+api.get("/site-media/:id", c => {
+  const row = qGet<{ file_name: string; mime_type: string; data: Uint8Array }>("SELECT file_name,mime_type,data FROM site_media WHERE id=?", Number(c.req.param("id")));
+  if (!row) return c.json(fail("Imagen no encontrada"), 404);
+  return new Response(row.data, {
+    headers: {
+      "Content-Type": row.mime_type,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Disposition": `inline; filename="${row.file_name.replace(/[\r\n\"]/g, "")}"`,
+    },
+  });
+});
+
 // ===== MASTER DATA =====
 api.get("/master-data", c => {
   const partners = qAll("SELECT * FROM partners ORDER BY id");
