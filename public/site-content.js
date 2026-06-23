@@ -102,8 +102,18 @@
     clients: {
       eyebrow: "Confían en CAFETIER",
       title: "Del café de barrio a grandes equipos.",
-      image: "/assets/orders-clients.png"
+      image: "/assets/orders-clients.png",
+      logos: [
+        { name: "Matricaria", image: "", href: "" },
+        { name: "Cafele", image: "", href: "" },
+        { name: "Instituto de Física UNAM", image: "", href: "" },
+        { name: "Nuupe", image: "", href: "" },
+        { name: "Café Origen", image: "", href: "" },
+        { name: "Senda", image: "", href: "" },
+        { name: "Árbol Rojo", image: "", href: "" }
+      ]
     },
+    visualEdits: [],
     proof: [
       "Granos seleccionados de productores mexicanos.",
       "Tueste controlado para repetir el mismo perfil.",
@@ -261,7 +271,8 @@
     {
       version: 1,
       sections: clone(def.sections),
-      fields: Object.fromEntries(def.fields.map(field => [field.id, { value: field.value || "", alt: field.alt || "" }]))
+      fields: Object.fromEntries(def.fields.map(field => [field.id, { value: field.value || "", alt: field.alt || "" }])),
+      visualEdits: []
     }
   ]));
   const merge = (base, incoming) => {
@@ -361,7 +372,29 @@
     setText(root, ".finder-intro>p:not(.eyebrow)", config.finder.description);
     setText(root, ".clients-heading .eyebrow", config.clients.eyebrow);
     setText(root, ".clients-heading h2", config.clients.title);
-    root.querySelectorAll(".clients-track img").forEach(image => { image.src = config.clients.image; });
+    const track = root.querySelector(".clients-track");
+    if (track) {
+      const logos = Array.isArray(config.clients.logos) && config.clients.logos.length
+        ? config.clients.logos
+        : [{ name: "Clientes CAFETIER", image: config.clients.image, href: "" }];
+      const buildLogo = logo => {
+        const node = document.createElement(logo.href ? "a" : "span");
+        node.className = "client-logo";
+        if (logo.href) node.href = logo.href;
+        if (logo.image) {
+          const image = document.createElement("img");
+          image.src = logo.image;
+          image.alt = logo.name || "Cliente CAFETIER";
+          node.appendChild(image);
+        } else {
+          const strong = document.createElement("strong");
+          strong.textContent = logo.name || "Cliente";
+          node.appendChild(strong);
+        }
+        return node;
+      };
+      track.replaceChildren(...logos.map(buildLogo), ...logos.map(buildLogo));
+    }
     config.proof.forEach((copy, index) => setText(root.querySelectorAll(".home-proof article")[index] || root, "p", copy));
 
     const main = root.querySelector("main#inicio");
@@ -376,11 +409,31 @@
     }
 
     window.CAFETIER_SITE_CONFIG = config;
+    applyVisualEdits(config.visualEdits);
     return config;
   };
 
   const setNodes = (selector, callback) => {
     document.querySelectorAll(selector).forEach(callback);
+  };
+
+  const applyVisualEdits = edits => {
+    if (!Array.isArray(edits)) return;
+    edits.forEach(edit => {
+      if (!edit?.selector) return;
+      const node = document.querySelector(edit.selector);
+      if (!node) return;
+      if (edit.type === "image") {
+        if (edit.value) node.src = edit.value;
+        if (edit.alt !== undefined) node.alt = edit.alt || "";
+        return;
+      }
+      if (edit.type === "link") {
+        node.setAttribute("href", edit.value || "#");
+        return;
+      }
+      node.textContent = edit.value ?? "";
+    });
   };
 
   const applyEditablePage = (pageId, input) => {
@@ -417,6 +470,7 @@
     }
 
     window.CAFETIER_ACTIVE_PAGE_CONFIG = config;
+    applyVisualEdits(config.visualEdits);
     return config;
   };
 

@@ -152,6 +152,41 @@ svg{display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:
 .move-actions button{width:30px;height:30px;border:1px solid var(--line);border-radius:50%;background:#fff;color:var(--green);font-size:15px}
 .move-actions button:disabled{opacity:.3;cursor:not-allowed}
 .notice{padding:12px;border:1px solid #e5d39f;border-radius:6px;background:#fff8df;color:#6f5522;font-size:11px;line-height:1.5}
+.add-button{
+  min-height:40px;
+  padding:0 15px;
+  border:1px solid var(--green);
+  border-radius:6px;
+  background:#e8efe9;
+  color:var(--green);
+  font-size:12px;
+  font-weight:900;
+}
+.collection-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.collection-actions.full{grid-column:1/-1}
+.collection-actions button{
+  min-height:34px;
+  padding:0 12px;
+  border:1px solid var(--line);
+  border-radius:6px;
+  background:#fff;
+  color:#39433b;
+  font-size:11px;
+  font-weight:800;
+}
+.collection-actions button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+.collection-actions button[data-logo-remove]{
+  border-color:#e3bbb4;
+  color:#8b3429;
+  background:#fff6f4;
+}
 
 .preview-panel{position:sticky;top:68px;height:calc(100vh - 68px);display:flex;flex-direction:column;border-left:1px solid var(--line);background:#e8ebe7}
 .preview-heading{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);background:#fff}

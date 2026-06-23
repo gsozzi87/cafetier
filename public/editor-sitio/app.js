@@ -4,18 +4,22 @@ const Editor = (() => {
     config: null,
     active: "hero",
     dirty: false,
+    visualReady: false,
   };
 
   const homeTabs = [
     { id: "hero", label: "Hero y slides" },
     { id: "pricing", label: "Precios" },
     { id: "origins", label: "Origenes" },
+    { id: "logos", label: "Logos" },
+    { id: "visual", label: "Todo editable" },
     { id: "content", label: "Contenido general" },
     { id: "structure", label: "Estructura" },
   ];
   const pageTabs = [
     { id: "content", label: "Textos" },
     { id: "media", label: "Fotos y links" },
+    { id: "visual", label: "Todo editable" },
     { id: "structure", label: "Estructura" },
   ];
   const pageOptions = () => [
@@ -38,7 +42,10 @@ const Editor = (() => {
   const setPath = (path, value) => {
     const keys = path.split(".");
     let target = state.config;
-    keys.slice(0, -1).forEach(key => { target = target[key]; });
+    keys.slice(0, -1).forEach((key, index) => {
+      if (target[key] === undefined) target[key] = /^\d+$/.test(keys[index + 1]) ? [] : {};
+      target = target[key];
+    });
     target[keys.at(-1)] = value;
   };
 
@@ -91,6 +98,98 @@ const Editor = (() => {
 
   function card(title, subtitle, content) {
     return `<section class="edit-card"><div class="edit-card-header"><h2>${esc(title)}</h2><span>${esc(subtitle || "")}</span></div>${content}</section>`;
+  }
+
+  function normalizeUrl(value) {
+    if (!value) return "";
+    try {
+      const url = new URL(value, window.location.origin);
+      return url.origin === window.location.origin ? `${url.pathname}${url.search}` : value;
+    } catch {
+      return value;
+    }
+  }
+
+  function selectorForElement(element) {
+    const doc = element.ownerDocument;
+    const scopedRoot = element.closest("[data-edit-section],[data-site-section]") || doc.querySelector("main") || doc.body;
+    const rootSelector = scopedRoot.dataset?.editSection
+      ? `[data-edit-section="${scopedRoot.dataset.editSection}"]`
+      : scopedRoot.dataset?.siteSection
+        ? `[data-site-section="${scopedRoot.dataset.siteSection}"]`
+        : scopedRoot.id
+          ? `#${scopedRoot.id}`
+          : "body";
+    if (element === scopedRoot) return rootSelector;
+    const parts = [];
+    let node = element;
+    while (node && node !== scopedRoot && node.parentElement) {
+      const tag = node.tagName.toLowerCase();
+      const siblings = [...node.parentElement.children].filter(child => child.tagName === node.tagName);
+      parts.unshift(`${tag}:nth-of-type(${siblings.indexOf(node) + 1})`);
+      node = node.parentElement;
+    }
+    return `${rootSelector} ${parts.join(" > ")}`;
+  }
+
+  function isVisibleElement(element) {
+    const rect = element.getBoundingClientRect();
+    const style = element.ownerDocument.defaultView.getComputedStyle(element);
+    return rect.width > 1 && rect.height > 1 && style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function scanPreview() {
+    const frame = $("#sitePreview");
+    const doc = frame.contentDocument;
+    if (!doc?.body) throw new Error("La vista previa todavia no esta lista.");
+    const items = [];
+    const seen = new Set();
+    const add = item => {
+      const key = `${item.type}|${item.selector}|${item.attr || ""}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(item);
+    };
+
+    doc.querySelectorAll("main h1,main h2,main h3,main p,main li,main a,main button,main strong,main small,footer h2,footer a,footer span").forEach(node => {
+      const text = node.textContent.trim().replace(/\s+/g, " ");
+      if (!text || text.length < 2 || text.length > 260 || !isVisibleElement(node)) return;
+      add({
+        type: "text",
+        group: node.closest("[data-edit-section],[data-site-section]")?.dataset.editSection || node.closest("[data-site-section]")?.dataset.siteSection || "General",
+        label: `${node.tagName.toLowerCase()} · ${text.slice(0, 42)}`,
+        selector: selectorForElement(node),
+        value: text
+      });
+    });
+
+    doc.querySelectorAll("main a[href],footer a[href]").forEach(node => {
+      if (!isVisibleElement(node)) return;
+      const text = node.textContent.trim().replace(/\s+/g, " ") || node.getAttribute("href");
+      add({
+        type: "link",
+        group: node.closest("[data-edit-section],[data-site-section]")?.dataset.editSection || node.closest("[data-site-section]")?.dataset.siteSection || "Links",
+        label: `Link · ${text.slice(0, 46)}`,
+        selector: selectorForElement(node),
+        value: normalizeUrl(node.href)
+      });
+    });
+
+    doc.querySelectorAll("main img,footer img").forEach(node => {
+      if (!isVisibleElement(node) || node.classList.contains("brand-mark")) return;
+      add({
+        type: "image",
+        group: node.closest("[data-edit-section],[data-site-section]")?.dataset.editSection || node.closest("[data-site-section]")?.dataset.siteSection || "Imagenes",
+        label: `Imagen · ${(node.alt || node.src.split("/").pop() || "sin titulo").slice(0, 46)}`,
+        selector: selectorForElement(node),
+        value: normalizeUrl(node.src),
+        alt: node.alt || ""
+      });
+    });
+
+    const existing = new Map((state.config.visualEdits || []).map(item => [`${item.type}|${item.selector}|${item.attr || ""}`, item]));
+    state.config.visualEdits = items.map(item => ({ ...item, ...(existing.get(`${item.type}|${item.selector}|${item.attr || ""}`) || {}) }));
+    state.visualReady = true;
   }
 
   function fieldForDef(def) {
@@ -198,6 +297,59 @@ const Editor = (() => {
       card("Compromisos", "Franja final", `<div class="field-grid">${proof}</div>`);
   }
 
+  function renderLogos() {
+    const logos = state.config.clients.logos || [];
+    const header = card("Marcas que confian en nosotros", "Logos individuales", `<div class="field-grid">
+      ${field("Etiqueta", "clients.eyebrow")}
+      ${field("Titulo", "clients.title")}
+    </div>`);
+    const list = logos.map((logo, index) => card(
+      logo.name || `Logo ${index + 1}`,
+      `Marca ${index + 1}`,
+      `<div class="field-grid">
+        ${field("Nombre", `clients.logos.${index}.name`)}
+        ${field("Link opcional", `clients.logos.${index}.href`)}
+        ${imageField("Logo", `clients.logos.${index}.image`)}
+        <div class="collection-actions full">
+          <button type="button" data-logo-move="up" data-logo-index="${index}" ${index === 0 ? "disabled" : ""}>Subir</button>
+          <button type="button" data-logo-move="down" data-logo-index="${index}" ${index === logos.length - 1 ? "disabled" : ""}>Bajar</button>
+          <button type="button" data-logo-remove="${index}">Quitar</button>
+        </div>
+      </div>`
+    )).join("");
+    return header + `<div class="notice">Cada logo puede ser texto o imagen. Si subes imagen, se muestra la imagen; si lo dejas vacio, se muestra el nombre.</div>` + list +
+      `<button class="add-button" type="button" data-logo-add>Agregar marca</button>`;
+  }
+
+  function renderVisualEditor() {
+    if (!state.visualReady) {
+      return `<div class="notice">Escanea la vista previa para editar textos, links e imagenes visibles de esta pagina. Usa esto para tocar contenido que no aparezca en las pestañas principales.</div>
+        <button class="add-button" type="button" data-scan-visual>Escanear pagina editable</button>`;
+    }
+    const edits = state.config.visualEdits || [];
+    if (!edits.length) {
+      return `<div class="notice">No encontre campos editables visibles. Prueba recargar la vista previa y escanear otra vez.</div>
+        <button class="add-button" type="button" data-scan-visual>Volver a escanear</button>`;
+    }
+    const groups = new Map();
+    edits.forEach((item, index) => {
+      const group = item.group || "General";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push({ item, index });
+    });
+    const cards = [...groups.entries()].map(([group, items]) => card(group, `${items.length} campos`, `<div class="field-grid">
+      ${items.map(({ item, index }) => {
+        if (item.type === "image") return imageField(item.label, `visualEdits.${index}.value`, `visualEdits.${index}.alt`);
+        return field(item.label, `visualEdits.${index}.value`, {
+          textarea: item.type === "text" && String(item.value || "").length > 80,
+          full: item.type === "text" && String(item.value || "").length > 80,
+          note: item.type === "link" ? item.selector : ""
+        });
+      }).join("")}
+    </div>`)).join("");
+    return `<button class="add-button" type="button" data-scan-visual>Actualizar escaneo</button>${cards}`;
+  }
+
   function renderStructure() {
     const rows = state.config.sections.map((section, index) => `
       <div class="section-row">
@@ -209,10 +361,10 @@ const Editor = (() => {
     return `<div class="notice">El orden se aplica de arriba hacia abajo. Puedes ocultar una seccion sin borrar su contenido.</div>${card("Orden y visibilidad", `Estructura de ${currentLabel()}`, rows)}`;
   }
 
-  const homeRenderers = { hero: renderHero, pricing: renderPricing, origins: renderOrigins, content: renderContent, structure: renderStructure };
-  const genericRenderers = { content: renderGenericContent, media: renderGenericMedia, structure: renderStructure };
-  const homeTitles = { hero: "Hero y slides", pricing: "Precios", origins: "Origenes", content: "Contenido general", structure: "Estructura de Inicio" };
-  const genericTitles = { content: "Textos editables", media: "Fotos y enlaces", structure: "Estructura" };
+  const homeRenderers = { hero: renderHero, pricing: renderPricing, origins: renderOrigins, logos: renderLogos, visual: renderVisualEditor, content: renderContent, structure: renderStructure };
+  const genericRenderers = { content: renderGenericContent, media: renderGenericMedia, visual: renderVisualEditor, structure: renderStructure };
+  const homeTitles = { hero: "Hero y slides", pricing: "Precios", origins: "Origenes", logos: "Logos de clientes", visual: "Todo editable", content: "Contenido general", structure: "Estructura de Inicio" };
+  const genericTitles = { content: "Textos editables", media: "Fotos y enlaces", visual: "Todo editable", structure: "Estructura" };
 
   function renderNav() {
     const tabs = isHome() ? homeTabs : pageTabs;
@@ -302,6 +454,44 @@ const Editor = (() => {
     });
 
     $("#editorContent").addEventListener("click", event => {
+      const scan = event.target.closest("[data-scan-visual]");
+      if (scan) {
+        try {
+          scanPreview();
+          render();
+          toast("Pagina escaneada. Edita y guarda para publicar.");
+        } catch (error) {
+          toast(error.message, "error");
+        }
+        return;
+      }
+      const addLogo = event.target.closest("[data-logo-add]");
+      if (addLogo) {
+        if (!state.config.clients.logos) state.config.clients.logos = [];
+        state.config.clients.logos.push({ name: "Nueva marca", image: "", href: "" });
+        setDirty(true);
+        render();
+        return;
+      }
+      const removeLogo = event.target.closest("[data-logo-remove]");
+      if (removeLogo) {
+        state.config.clients.logos.splice(Number(removeLogo.dataset.logoRemove), 1);
+        setDirty(true);
+        render();
+        return;
+      }
+      const moveLogo = event.target.closest("[data-logo-move]");
+      if (moveLogo) {
+        const index = Number(moveLogo.dataset.logoIndex);
+        const target = moveLogo.dataset.logoMove === "up" ? index - 1 : index + 1;
+        if (target >= 0 && target < state.config.clients.logos.length) {
+          const [item] = state.config.clients.logos.splice(index, 1);
+          state.config.clients.logos.splice(target, 0, item);
+          setDirty(true);
+          render();
+        }
+        return;
+      }
       const move = event.target.closest("[data-move]");
       if (move) moveSection(move.dataset.sectionId, move.dataset.move);
     });
@@ -329,6 +519,7 @@ const Editor = (() => {
   async function loadPage(pageId) {
     state.page = pageId;
     state.active = pageId === "homepage" ? "hero" : "content";
+    state.visualReady = false;
     $("#pageSelect").value = pageId;
     $("#sitePreview").src = currentPreviewUrl();
     $("#saveStatus").textContent = "Cargando...";
