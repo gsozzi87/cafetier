@@ -4104,24 +4104,44 @@ body.nav-open .site-header{
   position:sticky!important;
   top:0;
   z-index:2000;
+  min-height:104px!important;
+  background:linear-gradient(180deg,rgba(4,13,8,.99),rgba(8,19,12,.98))!important;
+  box-shadow:0 14px 34px rgba(0,0,0,.34),inset 0 -1px rgba(231,205,143,.18)!important;
+}
+.site-header.is-scrolled,
+body.nav-open .site-header{
+  background:linear-gradient(90deg,#030b07,#102015)!important;
+  box-shadow:0 14px 34px rgba(0,0,0,.36),inset 0 -1px rgba(231,205,143,.18)!important;
 }
 .brand-lockup{
-  min-width:250px!important;
+  min-width:310px!important;
   flex:0 0 auto;
-  gap:12px!important;
+  gap:16px!important;
 }
 .brand-mark{
-  width:58px!important;
-  height:58px!important;
+  width:76px!important;
+  height:76px!important;
   object-fit:contain;
+  transition:opacity .18s ease,visibility .18s ease;
+}
+html:not(.global-ready) .brand-mark{
+  opacity:0;
+  visibility:hidden;
 }
 .brand-text{
   display:grid!important;
   line-height:1;
 }
+.brand-text strong{
+  font-size:40px!important;
+}
+.brand-text small{
+  font-size:14px!important;
+  letter-spacing:2.2px!important;
+}
 .footer-main .brand-lockup .brand-mark{
-  width:58px!important;
-  height:58px!important;
+  width:68px!important;
+  height:68px!important;
 }
 .clients-marquee{
   overflow:visible!important;
@@ -4170,17 +4190,18 @@ body.nav-open .site-header{
 @media (max-width:820px){
   .site-header{
     grid-template-columns:minmax(0,1fr) auto auto!important;
+    min-height:82px!important;
   }
   .brand-lockup{
     min-width:0!important;
     gap:10px!important;
   }
   .brand-mark{
-    width:48px!important;
-    height:48px!important;
+    width:58px!important;
+    height:58px!important;
   }
   .brand-text strong{
-    font-size:clamp(24px,7vw,30px)!important;
+    font-size:clamp(27px,7.2vw,34px)!important;
     letter-spacing:0;
   }
   .brand-text small{

@@ -406,6 +406,7 @@
     setWhatsappLink(".brand-bottom-cta .btn:first-of-type", whatsapp.orderMessage);
 
     window.CAFETIER_GLOBAL_CONFIG = config;
+    document.documentElement.classList.add("global-ready");
     return config;
   };
 
