@@ -24,11 +24,12 @@ const Editor = (() => {
   ];
   const globalTabs = [
     { id: "brand", label: "Logo y marca" },
+    { id: "logos", label: "Marcas" },
     { id: "whatsapp", label: "WhatsApp" },
   ];
   const pageOptions = () => [
     { id: "homepage", label: "Inicio", previewUrl: "/" },
-    { id: "global", label: "Global: logo y WhatsApp", previewUrl: "/" },
+    { id: "global", label: "Global: logo, marcas y WhatsApp", previewUrl: "/" },
     ...Object.entries(window.CAFETIER_PAGE_DEFS || {}).map(([id, def]) => ({ id, label: def.label, previewUrl: def.previewUrl }))
   ];
 
@@ -332,10 +333,8 @@ const Editor = (() => {
   function renderGlobalBrand() {
     return card("Identidad CAFETIER", "Header, footer y marca global", `<div class="field-grid">
       ${imageField("Logo principal", "brand.logo", "brand.logoAlt")}
-      ${field("Nombre de marca", "brand.name")}
-      ${field("Bajada del logo", "brand.tagline")}
     </div>`) +
-      `<div class="notice">Este logo se aplica en todas las paginas del sitio. Si lo cambias aca, cambia tambien en header y footer.</div>`;
+      `<div class="notice">El logo debe ser una sola imagen completa. No se agrega texto aparte al lado del logo.</div>`;
   }
 
   function renderGlobalWhatsapp() {
@@ -398,10 +397,10 @@ const Editor = (() => {
 
   const homeRenderers = { hero: renderHero, pricing: renderPricing, origins: renderOrigins, logos: renderLogos, visual: renderVisualEditor, content: renderContent, structure: renderStructure };
   const genericRenderers = { content: renderGenericContent, media: renderGenericMedia, visual: renderVisualEditor, structure: renderStructure };
-  const globalRenderers = { brand: renderGlobalBrand, whatsapp: renderGlobalWhatsapp };
+  const globalRenderers = { brand: renderGlobalBrand, logos: renderLogos, whatsapp: renderGlobalWhatsapp };
   const homeTitles = { hero: "Hero y slides", pricing: "Precios", origins: "Origenes", logos: "Logos de clientes", visual: "Todo editable", content: "Contenido general", structure: "Estructura de Inicio" };
   const genericTitles = { content: "Textos editables", media: "Fotos y enlaces", visual: "Todo editable", structure: "Estructura" };
-  const globalTitles = { brand: "Logo y marca global", whatsapp: "WhatsApp y mensajes" };
+  const globalTitles = { brand: "Logo global", logos: "Marcas editables", whatsapp: "WhatsApp y mensajes" };
 
   function renderNav() {
     const tabs = isGlobal() ? globalTabs : isHome() ? homeTabs : pageTabs;

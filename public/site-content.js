@@ -125,10 +125,23 @@
   const globalDefaults = {
     version: 1,
     brand: {
-      logo: "/assets/cafetier-mark.svg",
+      logo: "/assets/cafetier-logo.svg",
       logoAlt: "",
       name: "CAFETIER",
       tagline: "Culto por el cafe"
+    },
+    clients: {
+      eyebrow: "Confian en CAFETIER",
+      title: "Marcas que confian en nosotros",
+      logos: [
+        { name: "Matricaria", image: "", href: "" },
+        { name: "Cafele", image: "", href: "" },
+        { name: "Instituto de Fisica UNAM", image: "", href: "" },
+        { name: "Nuupe", image: "", href: "" },
+        { name: "Cafe Origen", image: "", href: "" },
+        { name: "Senda", image: "", href: "" },
+        { name: "Arbol Rojo", image: "", href: "" }
+      ]
     },
     whatsapp: {
       display: "228 169 8042",
@@ -282,8 +295,8 @@
         { id: "delivery_copy", group: "Entregas", label: "Texto entrega", selector: ".delivery-banner p", type: "textarea", value: "Empaque disenado para preservar la frescura, aroma y calidad del cafe en cada envio." },
         { id: "contact_image", group: "Contacto", label: "Foto chat", selector: ".orders-contact>img", type: "image", value: "/assets/orders-chat.png", alt: "Conversacion de pedido por WhatsApp" },
         { id: "contact_title", group: "Contacto", label: "Titulo contacto (admite em)", selector: ".orders-contact h2", type: "html", value: "Listo para tu pedido? <em>Estamos para servirte.</em>" },
-        { id: "clients_title", group: "Clientes", label: "Titulo clientes", selector: ".orders-clients h2", value: "Nuestros principales clientes" },
-        { id: "clients_image", group: "Clientes", label: "Logos clientes", selector: ".orders-clients img", type: "image", value: "/assets/orders-clients.png", alt: "Logotipos de clientes CAFETIER" }
+        { id: "clients_eyebrow", group: "Clientes", label: "Etiqueta clientes", selector: ".orders-clients .eyebrow", value: "Confian en CAFETIER" },
+        { id: "clients_title", group: "Clientes", label: "Titulo clientes", selector: ".orders-clients h2", value: "Marcas que confian en nosotros" }
       ]
     }
   };
@@ -335,6 +348,27 @@
       return fallback;
     }
   };
+  const buildClientLogo = logo => {
+    const node = document.createElement(logo.href ? "a" : "span");
+    node.className = "client-logo";
+    if (logo.href) node.href = logo.href;
+    if (logo.image) {
+      const image = document.createElement("img");
+      image.src = logo.image;
+      image.alt = logo.name || "Cliente CAFETIER";
+      node.appendChild(image);
+    } else {
+      const strong = document.createElement("strong");
+      strong.textContent = logo.name || "Cliente";
+      node.appendChild(strong);
+    }
+    return node;
+  };
+  const renderClientLogos = (container, logos, duplicate = false) => {
+    const items = Array.isArray(logos) && logos.length ? logos : globalDefaults.clients.logos;
+    const nodes = duplicate ? [...items.map(buildClientLogo), ...items.map(buildClientLogo)] : items.map(buildClientLogo);
+    container.replaceChildren(...nodes);
+  };
   const applyGlobal = input => {
     const config = merge(globalDefaults, input || {});
     const brand = config.brand || globalDefaults.brand;
@@ -354,6 +388,12 @@
     document.querySelectorAll(".phone-link span,.quote-card strong,.contact-methods a[href*='wa.me'] strong").forEach(node => {
       node.textContent = whatsapp.display || "";
     });
+    setText(document, ".clients-heading .eyebrow", config.clients?.eyebrow);
+    setText(document, ".clients-heading h2", config.clients?.title);
+    setText(document, ".orders-clients .eyebrow", config.clients?.eyebrow);
+    setText(document, ".orders-clients h2", config.clients?.title);
+    document.querySelectorAll(".clients-track").forEach(track => renderClientLogos(track, config.clients?.logos, false));
+    document.querySelectorAll(".orders-client-grid").forEach(grid => renderClientLogos(grid, config.clients?.logos, false));
     document.querySelectorAll("a[href*='wa.me/']").forEach(link => {
       link.href = whatsappUrl(whatsapp.number, existingWhatsappMessage(link, whatsapp.genericMessage));
     });
@@ -450,23 +490,7 @@
       const logos = Array.isArray(config.clients.logos) && config.clients.logos.length
         ? config.clients.logos
         : [{ name: "Clientes CAFETIER", image: config.clients.image, href: "" }];
-      const buildLogo = logo => {
-        const node = document.createElement(logo.href ? "a" : "span");
-        node.className = "client-logo";
-        if (logo.href) node.href = logo.href;
-        if (logo.image) {
-          const image = document.createElement("img");
-          image.src = logo.image;
-          image.alt = logo.name || "Cliente CAFETIER";
-          node.appendChild(image);
-        } else {
-          const strong = document.createElement("strong");
-          strong.textContent = logo.name || "Cliente";
-          node.appendChild(strong);
-        }
-        return node;
-      };
-      track.replaceChildren(...logos.map(buildLogo), ...logos.map(buildLogo));
+      renderClientLogos(track, logos, false);
     }
     config.proof.forEach((copy, index) => setText(root.querySelectorAll(".home-proof article")[index] || root, "p", copy));
 

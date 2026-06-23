@@ -48,20 +48,6 @@
   const nav = document.querySelector(".main-nav");
   const phone = document.querySelector(".phone-link");
 
-  if (nav && !nav.querySelector(".products-nav")) {
-    const coffeeLink = nav.querySelector('a[href="/nuestro-cafe/"]');
-    const products = document.createElement("span");
-    products.className = "nav-dropdown products-nav";
-    products.innerHTML = `
-      <a href="/#precios">Productos</a>
-      <span class="dropdown-menu">
-        <a href="/nuestro-cafe/">Cafe de Chiapas</a>
-        <a href="/para-negocios/#planes">Mezcla de la casa</a>
-        <a href="/#precios">Por volumen</a>
-      </span>`;
-    coffeeLink?.insertAdjacentElement("afterend", products);
-  }
-
   document.querySelectorAll(".nav-dropdown").forEach(dropdown => {
     const link = dropdown.querySelector(":scope>a");
     if (link?.getAttribute("href") !== "/marca/") return;
