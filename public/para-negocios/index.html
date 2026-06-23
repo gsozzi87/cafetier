@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/site.css">
+  <link rel="stylesheet" href="/site.css?v=20260622g">
 </head>
-<body class="business-page">
+<body class="business-page" data-site-page="para-negocios">
   <header class="site-header">
     <a class="brand-lockup" href="/" aria-label="CAFETIER inicio">
       <img src="/assets/cafetier-mark.svg" alt="" class="brand-mark">
@@ -40,7 +40,7 @@
   </header>
 
   <main>
-    <section class="business-hero">
+    <section class="business-hero" data-edit-section="hero">
       <div class="business-hero-copy">
         <p class="eyebrow">Para negocios</p>
         <h1>Tu caf&eacute; merece un proveedor <em>tan consistente</em> como tu servicio.</h1>
@@ -52,7 +52,7 @@
       </figure>
     </section>
 
-    <section class="business-advantages" aria-labelledby="business-advantages-title">
+    <section class="business-advantages" aria-labelledby="business-advantages-title" data-edit-section="ventajas">
       <h2 id="business-advantages-title">Ventajas de trabajar con Cafetier</h2>
       <div class="advantage-grid">
         <article>
@@ -88,7 +88,7 @@
       </div>
     </section>
 
-    <section class="business-solutions" aria-labelledby="business-solutions-title">
+    <section class="business-solutions" aria-labelledby="business-solutions-title" data-edit-section="soluciones">
       <h2 id="business-solutions-title">Soluciones para cada tipo de negocio</h2>
       <div class="solution-grid">
         <article>
@@ -119,7 +119,7 @@
       </div>
     </section>
 
-    <section class="business-plans" id="planes">
+    <section class="business-plans" id="planes" data-edit-section="planes">
       <article class="plan-image-card">
         <img src="/assets/business-plan-photo.png" alt="Manos sosteniendo caf&eacute; tostado">
         <div>
@@ -152,7 +152,7 @@
       </div>
     </section>
 
-    <section class="business-cta" id="contacto">
+    <section class="business-cta" id="contacto" data-edit-section="cta">
       <div class="cta-mark" aria-hidden="true">
         <svg viewBox="0 0 48 48"><path d="M17 28 9 20l8-8 8 8m6 0 8-8 8 8-8 8M23 31l4 4 9-9M4 37c6 5 14 5 20 0 6 5 14 5 20 0"/></svg>
       </div>
@@ -167,7 +167,7 @@
       </a>
     </section>
 
-    <section class="business-proof-strip" aria-label="Compromisos para negocios">
+    <section class="business-proof-strip" aria-label="Compromisos para negocios" data-edit-section="proof">
       <article><svg viewBox="0 0 48 48"><path d="M24 42V7M24 19c-8-1-13-6-14-14 8 1 13 6 14 14Zm0 9c8-1 13-6 14-14-8 1-13 6-14 14Z"/></svg><div><h3>Caf&eacute; 100% mexicano</h3><p>Apoyamos a productores nacionales.</p></div></article>
       <article><svg viewBox="0 0 48 48"><path d="M12 14h24v24H12V14Zm5 0V9h14v5M18 25h12M24 19v12"/></svg><div><h3>Tostado de precisi&oacute;n</h3><p>Controlamos cada lote para un perfil consistente.</p></div></article>
       <article><svg viewBox="0 0 48 48"><path d="m24 4 5 7 9 1-2 9 5 7-8 4-2 9-7-5-7 5-2-9-8-4 5-7-2-9 9-1 5-7Zm-8 21 5 5 11-12"/></svg><div><h3>Calidad premium</h3><p>Granos seleccionados y proceso riguroso.</p></div></article>
@@ -225,5 +225,7 @@
       <span>www.cafetier.com</span>
     </div>
   </footer>
+  <script src="/site-content.js?v=20260622g" defer></script>
+  <script src="/site.js?v=20260622g" defer></script>
 </body>
 </html>

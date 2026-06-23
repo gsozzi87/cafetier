@@ -1,21 +1,38 @@
 const Editor = (() => {
   const state = {
+    page: "homepage",
     config: null,
     active: "hero",
     dirty: false,
   };
 
-  const tabs = [
+  const homeTabs = [
     { id: "hero", label: "Hero y slides" },
     { id: "pricing", label: "Precios" },
     { id: "origins", label: "Origenes" },
     { id: "content", label: "Contenido general" },
     { id: "structure", label: "Estructura" },
   ];
+  const pageTabs = [
+    { id: "content", label: "Textos" },
+    { id: "media", label: "Fotos y links" },
+    { id: "structure", label: "Estructura" },
+  ];
+  const pageOptions = () => [
+    { id: "homepage", label: "Inicio", previewUrl: "/" },
+    ...Object.entries(window.CAFETIER_PAGE_DEFS || {}).map(([id, def]) => ({ id, label: def.label, previewUrl: def.previewUrl }))
+  ];
 
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const clone = value => JSON.parse(JSON.stringify(value));
+  const isHome = () => state.page === "homepage";
+  const currentDef = () => window.CAFETIER_PAGE_DEFS?.[state.page];
+  const currentPreviewUrl = () => isHome() ? "/" : currentDef()?.previewUrl || "/";
+  const currentLabel = () => isHome() ? "Inicio" : currentDef()?.label || state.page;
+  const defaultConfig = () => isHome()
+    ? clone(window.CAFETIER_SITE_DEFAULTS)
+    : clone(window.CAFETIER_PAGE_DEFAULTS[state.page]);
 
   const getPath = path => path.split(".").reduce((value, key) => value?.[key], state.config);
   const setPath = (path, value) => {
@@ -74,6 +91,40 @@ const Editor = (() => {
 
   function card(title, subtitle, content) {
     return `<section class="edit-card"><div class="edit-card-header"><h2>${esc(title)}</h2><span>${esc(subtitle || "")}</span></div>${content}</section>`;
+  }
+
+  function fieldForDef(def) {
+    const valuePath = `fields.${def.id}.value`;
+    if (def.type === "image") return imageField(def.label, valuePath, `fields.${def.id}.alt`);
+    return field(def.label, valuePath, {
+      textarea: def.type === "textarea" || def.type === "html",
+      full: def.type === "textarea" || def.type === "html",
+      note: def.type === "html" ? "Puedes usar <em>texto</em> para la linea dorada." : def.attr ? `Atributo: ${def.attr}` : ""
+    });
+  }
+
+  function renderGenericContent() {
+    const def = currentDef();
+    const groups = new Map();
+    def.fields
+      .filter(item => item.type !== "image" && !item.attr)
+      .forEach(item => {
+        if (!groups.has(item.group)) groups.set(item.group, []);
+        groups.get(item.group).push(item);
+      });
+    return [...groups.entries()].map(([group, fields]) => card(group, "Textos editables", `<div class="field-grid">${fields.map(fieldForDef).join("")}</div>`)).join("");
+  }
+
+  function renderGenericMedia() {
+    const def = currentDef();
+    const fields = def.fields.filter(item => item.type === "image" || item.attr);
+    if (!fields.length) return `<div class="notice">Esta pagina no tiene medios o enlaces configurados.</div>`;
+    const groups = new Map();
+    fields.forEach(item => {
+      if (!groups.has(item.group)) groups.set(item.group, []);
+      groups.get(item.group).push(item);
+    });
+    return [...groups.entries()].map(([group, items]) => card(group, "Imagenes, videos o destinos", `<div class="field-grid">${items.map(fieldForDef).join("")}</div>`)).join("");
   }
 
   function renderHero() {
@@ -155,20 +206,24 @@ const Editor = (() => {
         <label class="visibility-toggle"><input type="checkbox" data-section-visible="${esc(section.id)}" ${section.visible !== false ? "checked" : ""}> Visible</label>
         <span class="move-actions"><button type="button" data-move="up" data-section-id="${esc(section.id)}" ${index === 0 ? "disabled" : ""} aria-label="Subir seccion">&uarr;</button><button type="button" data-move="down" data-section-id="${esc(section.id)}" ${index === state.config.sections.length - 1 ? "disabled" : ""} aria-label="Bajar seccion">&darr;</button></span>
       </div>`).join("");
-    return `<div class="notice">El orden se aplica de arriba hacia abajo. Puedes ocultar una seccion sin borrar su contenido.</div>${card("Orden y visibilidad", "Estructura de Inicio", rows)}`;
+    return `<div class="notice">El orden se aplica de arriba hacia abajo. Puedes ocultar una seccion sin borrar su contenido.</div>${card("Orden y visibilidad", `Estructura de ${currentLabel()}`, rows)}`;
   }
 
-  const renderers = { hero: renderHero, pricing: renderPricing, origins: renderOrigins, content: renderContent, structure: renderStructure };
-  const titles = { hero: "Hero y slides", pricing: "Precios", origins: "Origenes", content: "Contenido general", structure: "Estructura de Inicio" };
+  const homeRenderers = { hero: renderHero, pricing: renderPricing, origins: renderOrigins, content: renderContent, structure: renderStructure };
+  const genericRenderers = { content: renderGenericContent, media: renderGenericMedia, structure: renderStructure };
+  const homeTitles = { hero: "Hero y slides", pricing: "Precios", origins: "Origenes", content: "Contenido general", structure: "Estructura de Inicio" };
+  const genericTitles = { content: "Textos editables", media: "Fotos y enlaces", structure: "Estructura" };
 
   function renderNav() {
+    const tabs = isHome() ? homeTabs : pageTabs;
     $("#editorNav").innerHTML = tabs.map(tab => `<button type="button" data-tab="${tab.id}" class="${tab.id === state.active ? "is-active" : ""}">${esc(tab.label)}</button>`).join("");
   }
 
   function render() {
     renderNav();
-    $("#panelTitle").textContent = titles[state.active];
-    $("#editorContent").innerHTML = renderers[state.active]();
+    $("#panelEyebrow").textContent = currentLabel();
+    $("#panelTitle").textContent = (isHome() ? homeTitles : genericTitles)[state.active];
+    $("#editorContent").innerHTML = (isHome() ? homeRenderers : genericRenderers)[state.active]();
   }
 
   async function uploadImage(file, path) {
@@ -187,14 +242,14 @@ const Editor = (() => {
     button.disabled = true;
     $("#saveStatus").textContent = "Guardando...";
     try {
-      await api("/site-content/homepage", {
+      await api(`/site-content/${state.page}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: state.config }),
       });
       setDirty(false);
-      $("#sitePreview").src = `/?editor-preview=${Date.now()}`;
-      toast("Cambios publicados en Inicio.");
+      $("#sitePreview").src = `${currentPreviewUrl()}?editor-preview=${Date.now()}`;
+      toast(`Cambios publicados en ${currentLabel()}.`);
     } catch (error) {
       $("#saveStatus").textContent = "Error al guardar";
       toast(error.message, "error");
@@ -253,10 +308,17 @@ const Editor = (() => {
 
     $("#saveButton").addEventListener("click", save);
     $("#resetButton").addEventListener("click", () => {
-      state.config = clone(window.CAFETIER_SITE_DEFAULTS);
+      state.config = defaultConfig();
       setDirty(true);
       render();
       toast("Valores restaurados en el editor. Guarda para publicarlos.");
+    });
+    $("#pageSelect").addEventListener("change", async event => {
+      if (state.dirty && !confirm("Tienes cambios sin guardar. Cambiar de pagina los descarta en esta sesion.")) {
+        event.target.value = state.page;
+        return;
+      }
+      await loadPage(event.target.value);
     });
     document.querySelectorAll("[data-preview-size]").forEach(button => button.addEventListener("click", () => {
       document.querySelectorAll("[data-preview-size]").forEach(item => item.classList.toggle("is-active", item === button));
@@ -264,19 +326,30 @@ const Editor = (() => {
     }));
   }
 
-  async function init() {
-    bindEvents();
+  async function loadPage(pageId) {
+    state.page = pageId;
+    state.active = pageId === "homepage" ? "hero" : "content";
+    $("#pageSelect").value = pageId;
+    $("#sitePreview").src = currentPreviewUrl();
+    $("#saveStatus").textContent = "Cargando...";
     try {
-      const stored = await api("/site-content/homepage");
-      state.config = window.CAFETIER_SITE_MERGE(window.CAFETIER_SITE_DEFAULTS, stored?.content || {});
+      const stored = await api(`/site-content/${pageId}`);
+      const base = pageId === "homepage" ? window.CAFETIER_SITE_DEFAULTS : window.CAFETIER_PAGE_DEFAULTS[pageId];
+      state.config = window.CAFETIER_SITE_MERGE(base, stored?.content || {});
       setDirty(false);
       render();
     } catch (error) {
-      state.config = clone(window.CAFETIER_SITE_DEFAULTS);
+      state.config = defaultConfig();
       $("#saveStatus").textContent = "Usando valores locales";
       render();
       toast(error.message, "error");
     }
+  }
+
+  async function init() {
+    $("#pageSelect").innerHTML = pageOptions().map(page => `<option value="${esc(page.id)}">${esc(page.label)}</option>`).join("");
+    bindEvents();
+    await loadPage(state.page);
   }
 
   return { init };

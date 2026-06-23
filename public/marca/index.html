@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/site.css">
+  <link rel="stylesheet" href="/site.css?v=20260622g">
 </head>
-<body class="brand-page">
+<body class="brand-page" data-site-page="marca">
   <header class="site-header">
     <a class="brand-lockup" href="/" aria-label="CAFETIER inicio">
       <img src="/assets/cafetier-mark.svg" alt="" class="brand-mark">
@@ -37,7 +37,7 @@
   </header>
 
   <main>
-    <section class="brand-hero public-split-hero">
+    <section class="brand-hero public-split-hero" data-edit-section="hero">
       <div class="split-copy">
         <h1>M&aacute;s que un nombre, <em>una forma de hacer caf&eacute;.</em></h1>
         <div class="hero-rule" aria-hidden="true"><span></span></div>
@@ -46,7 +46,7 @@
       <img src="/assets/brand-hero.png" alt="Maestro tostador trabajando en una tostadora CAFETIER">
     </section>
 
-    <section class="brand-philosophy">
+    <section class="brand-philosophy" id="filosofia" data-edit-section="filosofia">
       <h2>Nuestra filosof&iacute;a</h2>
       <div class="philosophy-grid">
         <article>
@@ -64,7 +64,7 @@
       </div>
     </section>
 
-    <section class="brand-story">
+    <section class="brand-story" id="historia" data-edit-section="historia">
       <img src="/assets/brand-origin.png" alt="Manos sosteniendo cerezas maduras de caf&eacute;">
       <div>
         <p class="eyebrow">Nuestra historia</p>
@@ -75,7 +75,7 @@
       </div>
     </section>
 
-    <section class="brand-registration" id="registro">
+    <section class="brand-registration" id="registro" data-edit-section="registro">
       <div class="brand-stamp" aria-hidden="true">
         <span>Caf&eacute; mexicano</span>
         <strong>MX</strong>
@@ -88,7 +88,7 @@
       <img src="/assets/brand-certificate.png" alt="T&iacute;tulo de registro de marca CAFETIER">
     </section>
 
-    <section class="brand-bottom-cta">
+    <section class="brand-bottom-cta" data-edit-section="cta">
       <div>
         <h2>Lo que nos define <em>se siente en cada taza.</em></h2>
         <p>Culto por el caf&eacute;. Todos los d&iacute;as.</p>
@@ -111,5 +111,7 @@
     </div>
     <div class="footer-bottom"><span>Contiene cafe&iacute;na. Evitar en ni&ntilde;os.</span><span>&copy; 2025 CAFETIER. Todos los derechos reservados.</span><span>www.cafetier.com</span></div>
   </footer>
+  <script src="/site-content.js?v=20260622g" defer></script>
+  <script src="/site.js?v=20260622g" defer></script>
 </body>
 </html>

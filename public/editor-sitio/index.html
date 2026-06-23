@@ -18,6 +18,10 @@
     </a>
     <div class="header-actions">
       <span class="save-status" id="saveStatus">Cargando...</span>
+      <label class="page-picker">
+        <span>P&aacute;gina</span>
+        <select id="pageSelect" aria-label="Elegir p&aacute;gina"></select>
+      </label>
       <a class="icon-button" href="/" target="_blank" title="Abrir sitio" aria-label="Abrir sitio">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
       </a>
@@ -32,7 +36,7 @@
       <nav id="editorNav" aria-label="Secciones del editor"></nav>
       <div class="sidebar-note">
         <strong>Publicaci&oacute;n inmediata</strong>
-        <span>Al guardar, la portada usa los cambios en la siguiente carga.</span>
+        <span>Al guardar, la p&aacute;gina elegida usa los cambios en la siguiente carga.</span>
       </div>
     </aside>
 
@@ -63,7 +67,7 @@
   </div>
 
   <div class="toast" id="editorToast" role="status" aria-live="polite"></div>
-  <script src="/site-content.js"></script>
-  <script src="/editor-sitio/app.js"></script>
+  <script src="/site-content.js?v=20260622g"></script>
+  <script src="/editor-sitio/app.js?v=20260622g"></script>
 </body>
 </html>

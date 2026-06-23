@@ -40,6 +40,26 @@ svg{display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:
 .editor-brand small{margin-top:3px;color:#d9c58e;font-size:10px;text-transform:uppercase}
 .header-actions{display:flex;align-items:center;gap:8px}
 .save-status{margin-right:6px;color:#cbd4cd;font-size:11px}
+.page-picker{
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 10px;
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:6px;
+  background:rgba(255,255,255,.06);
+}
+.page-picker span{color:#d9c58e;font-size:10px;font-weight:800;text-transform:uppercase}
+.page-picker select{
+  min-width:150px;
+  border:0;
+  background:transparent;
+  color:#fff;
+  font-weight:800;
+  outline:none;
+}
+.page-picker option{color:#14261b}
 .primary-button,.secondary-button,.icon-button,.text-button{
   min-height:38px;
   display:inline-flex;
@@ -157,6 +177,8 @@ svg{display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:
 @media (max-width:760px){
   .editor-header{align-items:flex-start;flex-direction:column}
   .header-actions{width:100%;flex-wrap:wrap}
+  .page-picker{order:2;flex:1}
+  .page-picker select{min-width:0;width:100%}
   .save-status{order:3;width:100%}
   .editor-shell{display:block}
   .editor-sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
