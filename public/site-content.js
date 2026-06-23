@@ -125,7 +125,7 @@
   const globalDefaults = {
     version: 1,
     brand: {
-      logo: "/assets/cafetier-logo.svg",
+      logo: "/assets/cafetier-mark.svg",
       logoAlt: "",
       name: "CAFETIER",
       tagline: "Culto por el cafe"

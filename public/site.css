@@ -4099,29 +4099,29 @@ body.nav-open .site-header{
   }
 }
 
-/* Final structure pass: header in layout, single-image logo, simple mobile nav. */
+/* Final structure pass: header in layout, editable mark logo, simple mobile nav. */
 .site-header{
   position:sticky!important;
   top:0;
   z-index:2000;
 }
 .brand-lockup{
-  min-width:0!important;
+  min-width:250px!important;
   flex:0 0 auto;
-  gap:0!important;
+  gap:12px!important;
 }
 .brand-mark{
-  width:clamp(150px,16vw,220px)!important;
-  height:64px!important;
+  width:58px!important;
+  height:58px!important;
   object-fit:contain;
-  object-position:left center;
 }
 .brand-text{
-  display:none!important;
+  display:grid!important;
+  line-height:1;
 }
 .footer-main .brand-lockup .brand-mark{
-  width:min(220px,62vw)!important;
-  height:72px!important;
+  width:58px!important;
+  height:58px!important;
 }
 .clients-marquee{
   overflow:visible!important;
@@ -4171,9 +4171,21 @@ body.nav-open .site-header{
   .site-header{
     grid-template-columns:minmax(0,1fr) auto auto!important;
   }
+  .brand-lockup{
+    min-width:0!important;
+    gap:10px!important;
+  }
   .brand-mark{
-    width:min(176px,48vw)!important;
-    height:52px!important;
+    width:48px!important;
+    height:48px!important;
+  }
+  .brand-text strong{
+    font-size:clamp(24px,7vw,30px)!important;
+    letter-spacing:0;
+  }
+  .brand-text small{
+    font-size:10px!important;
+    letter-spacing:1.1px!important;
   }
   .nav-toggle{
     width:46px!important;

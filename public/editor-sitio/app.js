@@ -333,8 +333,10 @@ const Editor = (() => {
   function renderGlobalBrand() {
     return card("Identidad CAFETIER", "Header, footer y marca global", `<div class="field-grid">
       ${imageField("Logo principal", "brand.logo", "brand.logoAlt")}
+      ${field("Nombre de marca", "brand.name")}
+      ${field("Bajada del logo", "brand.tagline")}
     </div>`) +
-      `<div class="notice">El logo debe ser una sola imagen completa. No se agrega texto aparte al lado del logo.</div>`;
+      `<div class="notice">La imagen es el isotipo. El nombre CAFETIER y la bajada se muestran como texto al lado, como estaba antes.</div>`;
   }
 
   function renderGlobalWhatsapp() {
