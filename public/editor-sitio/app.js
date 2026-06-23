@@ -22,8 +22,13 @@ const Editor = (() => {
     { id: "visual", label: "Todo editable" },
     { id: "structure", label: "Estructura" },
   ];
+  const globalTabs = [
+    { id: "brand", label: "Logo y marca" },
+    { id: "whatsapp", label: "WhatsApp" },
+  ];
   const pageOptions = () => [
     { id: "homepage", label: "Inicio", previewUrl: "/" },
+    { id: "global", label: "Global: logo y WhatsApp", previewUrl: "/" },
     ...Object.entries(window.CAFETIER_PAGE_DEFS || {}).map(([id, def]) => ({ id, label: def.label, previewUrl: def.previewUrl }))
   ];
 
@@ -31,10 +36,13 @@ const Editor = (() => {
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const clone = value => JSON.parse(JSON.stringify(value));
   const isHome = () => state.page === "homepage";
+  const isGlobal = () => state.page === "global";
   const currentDef = () => window.CAFETIER_PAGE_DEFS?.[state.page];
-  const currentPreviewUrl = () => isHome() ? "/" : currentDef()?.previewUrl || "/";
-  const currentLabel = () => isHome() ? "Inicio" : currentDef()?.label || state.page;
-  const defaultConfig = () => isHome()
+  const currentPreviewUrl = () => isGlobal() || isHome() ? "/" : currentDef()?.previewUrl || "/";
+  const currentLabel = () => isGlobal() ? "Global" : isHome() ? "Inicio" : currentDef()?.label || state.page;
+  const defaultConfig = () => isGlobal()
+    ? clone(window.CAFETIER_GLOBAL_DEFAULTS)
+    : isHome()
     ? clone(window.CAFETIER_SITE_DEFAULTS)
     : clone(window.CAFETIER_PAGE_DEFAULTS[state.page]);
 
@@ -321,6 +329,33 @@ const Editor = (() => {
       `<button class="add-button" type="button" data-logo-add>Agregar marca</button>`;
   }
 
+  function renderGlobalBrand() {
+    return card("Identidad CAFETIER", "Header, footer y marca global", `<div class="field-grid">
+      ${imageField("Logo principal", "brand.logo", "brand.logoAlt")}
+      ${field("Nombre de marca", "brand.name")}
+      ${field("Bajada del logo", "brand.tagline")}
+    </div>`) +
+      `<div class="notice">Este logo se aplica en todas las paginas del sitio. Si lo cambias aca, cambia tambien en header y footer.</div>`;
+  }
+
+  function renderGlobalWhatsapp() {
+    return card("Datos de WhatsApp", "Numero visible y enlace tecnico", `<div class="field-grid">
+      ${field("Numero visible", "whatsapp.display")}
+      ${field("Numero para wa.me", "whatsapp.number", { note: "Usa codigo de pais y solo numeros. Ejemplo: 522281698042." })}
+    </div>`) +
+      card("Mensajes predeterminados", "Textos que salen al abrir WhatsApp", `<div class="field-grid">
+        ${field("Boton general del header", "whatsapp.genericMessage", { textarea: true, full: true })}
+        ${field("Boton flotante movil", "whatsapp.floatingMessage", { textarea: true, full: true })}
+        ${field("Pedido directo", "whatsapp.orderMessage", { textarea: true, full: true })}
+        ${field("Cotizacion para negocio", "whatsapp.quoteMessage", { textarea: true, full: true })}
+        ${field("Menudeo", "whatsapp.menudeoMessage", { textarea: true, full: true })}
+        ${field("Medio mayoreo", "whatsapp.medioMessage", { textarea: true, full: true })}
+        ${field("Mayoreo", "whatsapp.mayoreoMessage", { textarea: true, full: true })}
+        ${field("Negocio a medida", "whatsapp.businessMessage", { textarea: true, full: true })}
+        ${field("Resultado del selector", "whatsapp.finderMessage", { textarea: true, full: true, note: "Variables disponibles: {tier}, {range}, {price}, {profile}, {context}." })}
+      </div>`);
+  }
+
   function renderVisualEditor() {
     if (!state.visualReady) {
       return `<div class="notice">Escanea la vista previa para editar textos, links e imagenes visibles de esta pagina. Usa esto para tocar contenido que no aparezca en las pestañas principales.</div>
@@ -363,19 +398,23 @@ const Editor = (() => {
 
   const homeRenderers = { hero: renderHero, pricing: renderPricing, origins: renderOrigins, logos: renderLogos, visual: renderVisualEditor, content: renderContent, structure: renderStructure };
   const genericRenderers = { content: renderGenericContent, media: renderGenericMedia, visual: renderVisualEditor, structure: renderStructure };
+  const globalRenderers = { brand: renderGlobalBrand, whatsapp: renderGlobalWhatsapp };
   const homeTitles = { hero: "Hero y slides", pricing: "Precios", origins: "Origenes", logos: "Logos de clientes", visual: "Todo editable", content: "Contenido general", structure: "Estructura de Inicio" };
   const genericTitles = { content: "Textos editables", media: "Fotos y enlaces", visual: "Todo editable", structure: "Estructura" };
+  const globalTitles = { brand: "Logo y marca global", whatsapp: "WhatsApp y mensajes" };
 
   function renderNav() {
-    const tabs = isHome() ? homeTabs : pageTabs;
+    const tabs = isGlobal() ? globalTabs : isHome() ? homeTabs : pageTabs;
     $("#editorNav").innerHTML = tabs.map(tab => `<button type="button" data-tab="${tab.id}" class="${tab.id === state.active ? "is-active" : ""}">${esc(tab.label)}</button>`).join("");
   }
 
   function render() {
     renderNav();
+    const titles = isGlobal() ? globalTitles : isHome() ? homeTitles : genericTitles;
+    const renderers = isGlobal() ? globalRenderers : isHome() ? homeRenderers : genericRenderers;
     $("#panelEyebrow").textContent = currentLabel();
-    $("#panelTitle").textContent = (isHome() ? homeTitles : genericTitles)[state.active];
-    $("#editorContent").innerHTML = (isHome() ? homeRenderers : genericRenderers)[state.active]();
+    $("#panelTitle").textContent = titles[state.active];
+    $("#editorContent").innerHTML = renderers[state.active]();
   }
 
   async function uploadImage(file, path) {
@@ -518,14 +557,18 @@ const Editor = (() => {
 
   async function loadPage(pageId) {
     state.page = pageId;
-    state.active = pageId === "homepage" ? "hero" : "content";
+    state.active = pageId === "global" ? "brand" : pageId === "homepage" ? "hero" : "content";
     state.visualReady = false;
     $("#pageSelect").value = pageId;
     $("#sitePreview").src = currentPreviewUrl();
     $("#saveStatus").textContent = "Cargando...";
     try {
       const stored = await api(`/site-content/${pageId}`);
-      const base = pageId === "homepage" ? window.CAFETIER_SITE_DEFAULTS : window.CAFETIER_PAGE_DEFAULTS[pageId];
+      const base = pageId === "global"
+        ? window.CAFETIER_GLOBAL_DEFAULTS
+        : pageId === "homepage"
+          ? window.CAFETIER_SITE_DEFAULTS
+          : window.CAFETIER_PAGE_DEFAULTS[pageId];
       state.config = window.CAFETIER_SITE_MERGE(base, stored?.content || {});
       setDirty(false);
       render();

@@ -12,8 +12,24 @@
     return document.body.dataset.sitePage || map[path] || "homepage";
   };
 
+  const pageId = pageFromPath();
+  let globalConfig = window.CAFETIER_GLOBAL_DEFAULTS || null;
+
   try {
-    const pageId = pageFromPath();
+    const response = await fetch("/api/site-content/global");
+    const payload = await response.json();
+    if (response.ok && payload.success) {
+      globalConfig = window.CAFETIER_SITE_MERGE
+        ? window.CAFETIER_SITE_MERGE(window.CAFETIER_GLOBAL_DEFAULTS, payload.data?.content || {})
+        : (payload.data?.content || window.CAFETIER_GLOBAL_DEFAULTS);
+      window.applyCafetierGlobalContent?.(globalConfig);
+    }
+  } catch (error) {
+    console.warn("No se pudo cargar la configuracion global del sitio.", error);
+    window.applyCafetierGlobalContent?.(globalConfig);
+  }
+
+  try {
     const response = await fetch(`/api/site-content/${pageId}`);
     const payload = await response.json();
     if (response.ok && payload.success && payload.data?.content) {
@@ -67,6 +83,7 @@
     floating.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.1 4.9A9.8 9.8 0 0 0 3.8 16.7L2.5 21.5l4.9-1.3A9.8 9.8 0 0 0 21.8 12a9.7 9.7 0 0 0-2.7-7.1Zm-7 15.1a8 8 0 0 1-4.1-1.1l-.3-.2-2.9.8.8-2.8-.2-.3a8 8 0 1 1 6.7 3.6Z"/></svg>';
     document.body.appendChild(floating);
   }
+  window.applyCafetierGlobalContent?.(globalConfig);
 
   if (header && nav && !header.querySelector(".nav-toggle")) {
     const toggle = document.createElement("button");
@@ -260,8 +277,28 @@
     form.querySelector("[data-result-price]").textContent = tier.price;
     form.querySelector("[data-result-copy]").textContent = `Te recomendamos ${tier.range}, con ${taste.description}, ${context}.`;
 
-    const message = `Hola CAFETIER, hice el selector de la web. Me interesa ${tier.title} (${tier.range}), perfil ${taste.label}, ${context}. Quiero conocer disponibilidad y entrega.`;
-    form.querySelector("[data-result-whatsapp]").href = `https://wa.me/522281698042?text=${encodeURIComponent(message)}`;
+    const global = window.CAFETIER_GLOBAL_CONFIG || window.CAFETIER_GLOBAL_DEFAULTS || {};
+    const whatsapp = global.whatsapp || {};
+    const tokens = {
+      tier: tier.title,
+      range: tier.range,
+      price: tier.price,
+      profile: taste.label,
+      context
+    };
+    const tierTemplates = {
+      menudeo: whatsapp.menudeoMessage,
+      medio: whatsapp.medioMessage,
+      mayoreo: whatsapp.mayoreoMessage
+    };
+    const optionMessage = use === "negocio" ? whatsapp.businessMessage : tierTemplates[volume];
+    const detailMessage = window.CAFETIER_FORMAT_MESSAGE
+      ? window.CAFETIER_FORMAT_MESSAGE(whatsapp.finderMessage, tokens)
+      : `Hola CAFETIER, hice el selector de la web. Me interesa ${tier.title} (${tier.range}), perfil ${taste.label}, ${context}. Quiero conocer disponibilidad y entrega.`;
+    const message = [optionMessage, detailMessage].filter(Boolean).join("\n\n");
+    form.querySelector("[data-result-whatsapp]").href = window.CAFETIER_WHATSAPP_URL
+      ? window.CAFETIER_WHATSAPP_URL(whatsapp.number, message)
+      : `https://wa.me/${whatsapp.number || "522281698042"}?text=${encodeURIComponent(message)}`;
 
     steps.forEach(step => { step.hidden = true; });
     form.querySelector(".finder-actions").hidden = true;

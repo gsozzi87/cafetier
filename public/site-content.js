@@ -122,6 +122,29 @@
     ]
   };
 
+  const globalDefaults = {
+    version: 1,
+    brand: {
+      logo: "/assets/cafetier-mark.svg",
+      logoAlt: "",
+      name: "CAFETIER",
+      tagline: "Culto por el cafe"
+    },
+    whatsapp: {
+      display: "228 169 8042",
+      number: "522281698042",
+      genericMessage: "Hola Cafetier, quiero informacion sobre su cafe",
+      floatingMessage: "Hola Cafetier, quiero pedir cafe",
+      orderMessage: "Hola Cafetier, quiero hacer un pedido. Les cuento lo que necesito:",
+      quoteMessage: "Hola Cafetier, quiero una cotizacion para mi negocio",
+      menudeoMessage: "Hola Cafetier, quiero pedir cafe por menudeo (menos de 9 kg)",
+      medioMessage: "Hola Cafetier, quiero pedir cafe medio mayoreo (10 a 24 kg)",
+      mayoreoMessage: "Hola Cafetier, quiero pedir cafe mayoreo (mas de 25 kg)",
+      businessMessage: "Hola Cafetier, tengo una cafeteria o negocio y quiero una solucion a medida",
+      finderMessage: "Hola CAFETIER, hice el selector de la web. Me interesa {tier} ({range}), perfil {profile}, {context}. Quiero conocer disponibilidad y entrega."
+    }
+  };
+
   const pageDefs = {
     "nuestro-cafe": {
       label: "Nuestro cafe",
@@ -294,6 +317,56 @@
     const textNode = [...node.childNodes].find(child => child.nodeType === 3);
     if (textNode) textNode.nodeValue = `${value} `;
     else node.prepend(document.createTextNode(`${value} `));
+  };
+  const cleanWhatsappNumber = value => String(value || "").replace(/[^\d]/g, "");
+  const whatsappUrl = (number, message) => {
+    const safeNumber = cleanWhatsappNumber(number) || cleanWhatsappNumber(globalDefaults.whatsapp.number);
+    const text = String(message || "").trim();
+    return `https://wa.me/${safeNumber}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+  };
+  const formatMessage = (template, data = {}) => Object.entries(data).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, String(value ?? "")),
+    String(template || "")
+  );
+  const existingWhatsappMessage = (link, fallback) => {
+    try {
+      return new URL(link.href, window.location.origin).searchParams.get("text") || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const applyGlobal = input => {
+    const config = merge(globalDefaults, input || {});
+    const brand = config.brand || globalDefaults.brand;
+    const whatsapp = config.whatsapp || globalDefaults.whatsapp;
+    const setWhatsappLink = (selector, message) => {
+      document.querySelectorAll(selector).forEach(link => {
+        link.href = whatsappUrl(whatsapp.number, message);
+      });
+    };
+
+    document.querySelectorAll(".brand-mark").forEach(image => {
+      if (brand.logo) image.src = brand.logo;
+      image.alt = brand.logoAlt || "";
+    });
+    document.querySelectorAll(".brand-text strong").forEach(node => { node.textContent = brand.name || ""; });
+    document.querySelectorAll(".brand-text small").forEach(node => { node.textContent = brand.tagline || ""; });
+    document.querySelectorAll(".phone-link span,.quote-card strong,.contact-methods a[href*='wa.me'] strong").forEach(node => {
+      node.textContent = whatsapp.display || "";
+    });
+    document.querySelectorAll("a[href*='wa.me/']").forEach(link => {
+      link.href = whatsappUrl(whatsapp.number, existingWhatsappMessage(link, whatsapp.genericMessage));
+    });
+
+    setWhatsappLink(".phone-link", whatsapp.genericMessage);
+    setWhatsappLink(".floating-whatsapp", whatsapp.floatingMessage);
+    setWhatsappLink(".orders-hero .btn", whatsapp.orderMessage);
+    setWhatsappLink(".quote-card", whatsapp.quoteMessage);
+    setWhatsappLink(".business-cta .quote-card", whatsapp.quoteMessage);
+    setWhatsappLink(".brand-bottom-cta .btn:first-of-type", whatsapp.orderMessage);
+
+    window.CAFETIER_GLOBAL_CONFIG = config;
+    return config;
   };
 
   const apply = input => {
@@ -475,7 +548,11 @@
   };
 
   window.CAFETIER_SITE_DEFAULTS = defaults;
+  window.CAFETIER_GLOBAL_DEFAULTS = globalDefaults;
   window.CAFETIER_SITE_MERGE = merge;
+  window.CAFETIER_WHATSAPP_URL = whatsappUrl;
+  window.CAFETIER_FORMAT_MESSAGE = formatMessage;
+  window.applyCafetierGlobalContent = applyGlobal;
   window.applyCafetierSiteContent = apply;
   window.CAFETIER_PAGE_DEFS = pageDefs;
   window.CAFETIER_PAGE_DEFAULTS = pageConfigDefaults;
