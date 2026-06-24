@@ -50,6 +50,7 @@ a{text-decoration:none;color:inherit}
 .metric .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
 .metric .value{font-size:20px;font-weight:800;margin-top:6px}
 .metric small{display:block;margin-top:6px;color:var(--muted)}
+.metric.accent{border-color:#d8c189;background:#fffaf0}
 .row{display:flex;gap:12px;align-items:center}
 .row.wrap{flex-wrap:wrap}
 .row.between{justify-content:space-between}
@@ -59,11 +60,11 @@ a{text-decoration:none;color:inherit}
 .table th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.7px}
 .table tr:hover td{background:#fbfaf6}
 .badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700}
-.badge.open,.badge.pending_purchase{background:var(--orange-soft);color:var(--orange)}
-.badge.pending_capital{background:var(--red-soft);color:var(--red)}
-.badge.ready,.badge.completed,.badge.paid,.badge.funded,.badge.received{background:var(--green-soft);color:var(--green)}
-.badge.in_production,.badge.partial,.badge.partial_shipped,.badge.partially_funded{background:var(--blue-soft);color:var(--blue)}
-.badge.cancelled{background:#f0f0f0;color:#666}
+.badge.open,.badge.abierto,.badge.pendiente,.badge.pending_purchase{background:var(--orange-soft);color:var(--orange)}
+.badge.pending_capital,.badge.sin_fondos{background:var(--red-soft);color:var(--red)}
+.badge.ready,.badge.listo,.badge.completado,.badge.completed,.badge.paid,.badge.funded,.badge.received,.badge.recibida{background:var(--green-soft);color:var(--green)}
+.badge.in_production,.badge.en_produccion,.badge.partial,.badge.parcial,.badge.envio_parcial,.badge.partial_shipped,.badge.partially_funded{background:var(--blue-soft);color:var(--blue)}
+.badge.cancelled,.badge.cancelada{background:#f0f0f0;color:#666}
 .kpi-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .muted{color:var(--muted)}
 .small{font-size:12px}

@@ -41,6 +41,16 @@ export function normPartner(name: string | null | undefined) {
   return raw;
 }
 
+export function normAccount(name: string | null | undefined) {
+  const raw = String(name || "").trim();
+  if (!raw) return "Caja chica";
+  const partner = normPartner(raw);
+  if (partner === "Itza" || partner === "Axel") return partner;
+  const k = raw.toLowerCase();
+  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja"].includes(k)) return "Caja chica";
+  return raw;
+}
+
 export function getSettings() {
   const rows = qAll<{ key: string; value: string }>("SELECT key, value FROM settings");
   const o: Record<string, string> = {};
@@ -76,9 +86,135 @@ export function finance() {
   const dividends = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='dividend'") ?? 0);
   const unrecovered = Math.max(0, r2(contributed - capReturned));
   const cash = r2(contributed + revenue - expenses - capReturned - dividends);
-  const profit = r2(revenue - expenses - dividends);
-  const distributable = unrecovered > 0 ? 0 : Math.max(0, Math.min(profit, cash));
-  return { cash, revenue, expenses, contributed, capReturned, unrecovered, dividends, profit, distributable };
+  const profit = r2(revenue - expenses);
+  const retainedProfit = r2(profit - dividends);
+  const distributable = unrecovered > 0 ? 0 : Math.max(0, Math.min(retainedProfit, cash));
+  return {
+    cash,
+    revenue,
+    expenses,
+    contributed,
+    capReturned,
+    unrecovered,
+    dividends,
+    profit,
+    retainedProfit,
+    distributable,
+    availableCash: cash,
+    totalContributed: contributed,
+    capitalRecovered: capReturned,
+    unrecoveredCapital: unrecovered,
+    dividendsPaid: dividends,
+    distributableDividends: distributable,
+  };
+}
+
+export function accountBalances() {
+  const balances: Record<string, number> = { Axel: 0, Itza: 0, "Caja chica": 0 };
+  const add = (account: string | null | undefined, amount: number) => {
+    const key = normAccount(account);
+    balances[key] = r2((balances[key] || 0) + Number(amount || 0));
+  };
+
+  for (const r of qAll<any>("SELECT COALESCE(received_account, partner_name) AS account, amount FROM capital_contributions")) add(r.account, r.amount);
+  for (const r of qAll<any>("SELECT COALESCE(received_account, registered_by, 'Axel') AS account, amount FROM sales_payments")) add(r.account, r.amount);
+  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END) AS account, amount FROM expenses")) add(r.account, -Number(r.amount || 0));
+  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, 'Caja chica') AS account, amount FROM withdrawals")) add(r.account, -Number(r.amount || 0));
+
+  for (const key of Object.keys(balances)) balances[key] = r2(balances[key]);
+  return balances;
+}
+
+export function partnerCapital() {
+  return qAll<any>("SELECT * FROM partners ORDER BY id").map(p => {
+    const contributed = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions WHERE partner_name=?", p.name) ?? 0);
+    const recovered = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='capital_return' AND partner_name=?", p.name) ?? 0);
+    const dividends = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='dividend' AND partner_name=?", p.name) ?? 0);
+    const unrecovered = Math.max(0, r2(contributed - recovered));
+    return {
+      ...p,
+      contributed: r2(contributed),
+      recovered: r2(recovered),
+      capital_returned: r2(recovered),
+      unrecovered,
+      unrecovered_capital: unrecovered,
+      dividends: r2(dividends),
+      dividends_paid: r2(dividends),
+    };
+  });
+}
+
+export function financialPosition(month = thisMonth()) {
+  const f = finance();
+  const accounts = accountBalances();
+  const partners = partnerCapital().map(p => ({
+    ...p,
+    dividend_capacity: r2((f.distributable * p.share_pct) / 100),
+    dividends_available: r2((f.distributable * p.share_pct) / 100),
+  }));
+  const receivables = Number(qVal(`
+    SELECT COALESCE(SUM(CASE WHEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) > 0
+      THEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) ELSE 0 END),0) AS v
+    FROM sales_orders so
+    WHERE so.status != 'cancelado'
+  `) ?? 0);
+  const receivablesMonth = Number(qVal(`
+    SELECT COALESCE(SUM(CASE WHEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) > 0
+      THEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) ELSE 0 END),0) AS v
+    FROM sales_orders so
+    WHERE so.status != 'cancelado' AND substr(so.created_at,1,7)=?
+  `, month) ?? 0);
+  const revenueMonth = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments WHERE substr(created_at,1,7)=?", month) ?? 0);
+  const expenseMonth = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE substr(expense_date,1,7)=?", month) ?? 0);
+  const roastedMonth = Number(qVal("SELECT COALESCE(SUM(rb.roasted_kg),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=?", month) ?? 0);
+  const shippedMonth = Number(qVal("SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments WHERE substr(created_at,1,7)=?", month) ?? 0);
+  const itza = partners.find(p => p.name === "Itza");
+  const axel = partners.find(p => p.name === "Axel");
+  const axelCash = Math.max(0, Number(accounts.Axel || 0));
+  const itzaUnrecovered = Number(itza?.unrecovered || 0);
+  const axelToItza = r2(Math.min(axelCash, itzaUnrecovered));
+  const monthlyProfit = r2(revenueMonth - expenseMonth);
+  return {
+    finance: f,
+    accounts,
+    partners,
+    receivables: r2(receivables),
+    receivablesMonth: r2(receivablesMonth),
+    inventory: {
+      green: invTotal("green_coffee"),
+      roasted: invTotal("roasted_coffee"),
+      packaged: invTotal("packaged_coffee"),
+      supplies: invTotal("supply"),
+    },
+    monthly: {
+      month,
+      revenue: r2(revenueMonth),
+      expenses: r2(expenseMonth),
+      profit: monthlyProfit,
+      roastedKg: r2(roastedMonth),
+      shippedKg: r2(shippedMonth),
+      profitPerRoastedKg: roastedMonth > 0 ? r2(monthlyProfit / roastedMonth) : 0,
+      profitPerShippedKg: shippedMonth > 0 ? r2(monthlyProfit / shippedMonth) : 0,
+    },
+    settlement: {
+      axel_to_itza: axelToItza,
+      axelToItza,
+      reason: axelToItza > 0
+        ? "Axel tiene dinero de la empresa y hay capital de Itza pendiente por recuperar."
+        : itzaUnrecovered > 0
+          ? "Itza tiene capital pendiente, pero no hay saldo positivo registrado en la cuenta de Axel."
+          : "No hay capital pendiente de Itza por recuperar.",
+      itza_unrecovered: r2(itzaUnrecovered),
+      axel_unrecovered: r2(Number(axel?.unrecovered || 0)),
+      axel_account_cash: r2(axelCash),
+    },
+    dividendAdvice: {
+      canDistribute: f.unrecovered <= 0 && f.distributable > 0,
+      available: f.distributable,
+      blockedReason: f.unrecovered > 0 ? "Primero hay que devolver aportes reembolsables de socios." : f.distributable <= 0 ? "Todavia no hay utilidad distribuible con caja disponible." : "",
+      alreadyPaid: f.dividends,
+    },
+  };
 }
 
 export function ensureInvItem(data: { item_type: string; item_name: string; unit?: string; origin_id?: number | null; variety_id?: number | null; lot_label?: string | null }) {
@@ -165,20 +301,21 @@ export function recalcPO(poId: number) {
   return qGet("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function createPO(input: { sourceType: string; sourceId?: number | null; description: string; requestedKg: number; estimatedCost?: number; supplier?: string | null }) {
+export function createPO(input: { sourceType: string; sourceId?: number | null; description: string; requestedKg: number; estimatedCost?: number; estimatedShippingCost?: number; supplier?: string | null; notes?: string | null }) {
   const f = finance();
   const est = r2(input.estimatedCost ?? 0);
-  const status = est > f.cash ? "sin_fondos" : "pendiente";
-  const res = qRun("INSERT INTO purchase_orders (po_no,source_type,source_id,status,description,requested_kg,estimated_cost,actual_cost,received_kg,supplier,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,0,?,?,?)", docNo("OC"), input.sourceType, input.sourceId ?? null, status, input.description, r2(input.requestedKg), est, input.supplier ?? null, now(), now());
+  const ship = r2(input.estimatedShippingCost ?? 0);
+  const status = est + ship > f.cash ? "sin_fondos" : "pendiente";
+  const res = qRun("INSERT INTO purchase_orders (po_no,source_type,source_id,status,description,requested_kg,estimated_cost,estimated_shipping_cost,actual_cost,actual_shipping_cost,received_kg,supplier,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,0,0,?,?,?,?)", docNo("OC"), input.sourceType, input.sourceId ?? null, status, input.description, r2(input.requestedKg), est, ship, input.supplier ?? null, input.notes ?? null, now(), now());
   const poId = Number(res.lastInsertRowid);
   if (input.sourceType === "sales_order" && input.sourceId) recalcSO(input.sourceId);
   return qGet<any>("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0) {
+export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0, paidFromAccount?: string | null) {
   const cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name=? LIMIT 1", catName);
   if (!cat) return null;
-  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?)", today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, now());
+  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?,?)", today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, normAccount(paidFromAccount || paidBy), now());
   return Number(res.lastInsertRowid);
 }
 
@@ -200,21 +337,24 @@ export function initDB() {
 
     CREATE TABLE IF NOT EXISTS sales_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT NOT NULL UNIQUE, order_type TEXT NOT NULL CHECK(order_type IN ('mostrador','mayoreo')), client_id INTEGER, status TEXT DEFAULT 'abierto' CHECK(status IN ('abierto','esperando_compra','en_produccion','listo','envio_parcial','completado','cancelado')), delivery_date TEXT, total_weight_kg REAL DEFAULT 0, price_per_kg REAL DEFAULT 0, total_amount REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (client_id) REFERENCES clients(id));
     CREATE TABLE IF NOT EXISTS sales_order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, product_id INTEGER, description TEXT NOT NULL, presentation TEXT, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'pz', unit_weight_kg REAL DEFAULT 0, unit_price REAL DEFAULT 0, subtotal REAL DEFAULT 0, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
-    CREATE TABLE IF NOT EXISTS sales_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT, notes TEXT, registered_by TEXT, created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS sales_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT, notes TEXT, registered_by TEXT, received_account TEXT DEFAULT 'Axel', created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS sales_shipments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, weight_kg REAL NOT NULL, destination_address TEXT, carrier TEXT, tracking_number TEXT, shipping_cost REAL DEFAULT 0, registered_by TEXT, notes TEXT, expense_id INTEGER, created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
 
-    CREATE TABLE IF NOT EXISTS purchase_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS purchase_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_order_id INTEGER NOT NULL, inventory_item_id INTEGER NOT NULL, quantity_kg REAL NOT NULL, unit_cost REAL DEFAULT 0, total_cost REAL NOT NULL, shipping_cost REAL DEFAULT 0, supplier TEXT, lot_label TEXT, origin_id INTEGER, variety_id INTEGER, registered_by TEXT, created_at TEXT NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS purchase_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, estimated_shipping_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, actual_shipping_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS purchase_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_order_id INTEGER NOT NULL, inventory_item_id INTEGER NOT NULL, quantity_kg REAL NOT NULL, unit_cost REAL DEFAULT 0, total_cost REAL NOT NULL, shipping_cost REAL DEFAULT 0, supplier TEXT, lot_label TEXT, origin_id INTEGER, variety_id INTEGER, registered_by TEXT, funding_source TEXT, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE);
 
-    CREATE TABLE IF NOT EXISTS capital_contributions (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_name TEXT NOT NULL, amount REAL NOT NULL, description TEXT NOT NULL, contribution_date TEXT NOT NULL, created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS withdrawals (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL CHECK(kind IN ('capital_return','dividend')), partner_name TEXT NOT NULL, amount REAL NOT NULL, month TEXT, contribution_id INTEGER, notes TEXT, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS capital_contributions (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_name TEXT NOT NULL, amount REAL NOT NULL, description TEXT NOT NULL, contribution_date TEXT NOT NULL, capital_request_id INTEGER, received_account TEXT, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS withdrawals (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL CHECK(kind IN ('capital_return','dividend')), partner_name TEXT NOT NULL, amount REAL NOT NULL, month TEXT, contribution_id INTEGER, dividend_order_id INTEGER, paid_from_account TEXT, notes TEXT, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS capital_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, request_no TEXT NOT NULL UNIQUE, amount_requested REAL NOT NULL, amount_funded REAL DEFAULT 0, status TEXT DEFAULT 'open', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS dividend_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, dividend_no TEXT NOT NULL UNIQUE, month TEXT NOT NULL, total_amount REAL NOT NULL, status TEXT DEFAULT 'open', notes TEXT, created_at TEXT NOT NULL, paid_at TEXT);
+    CREATE TABLE IF NOT EXISTS partner_assets (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_name TEXT NOT NULL, owner_partner TEXT NOT NULL, purchased_by TEXT, purchase_date TEXT NOT NULL, amount REAL DEFAULT 0, notes TEXT, status TEXT DEFAULT 'active', created_at TEXT NOT NULL);
 
     CREATE TABLE IF NOT EXISTS roasting_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, session_date TEXT NOT NULL, operator TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS roasting_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, batch_no TEXT NOT NULL UNIQUE, green_inventory_item_id INTEGER NOT NULL, roast_profile_id INTEGER, sales_order_id INTEGER, green_kg REAL NOT NULL, roasted_kg REAL, loss_pct REAL, machine_minutes REAL DEFAULT 0, notes TEXT, artisan_file_name TEXT, artisan_data TEXT, ai_review TEXT, created_at TEXT NOT NULL, FOREIGN KEY (session_id) REFERENCES roasting_sessions(id) ON DELETE CASCADE, FOREIGN KEY (green_inventory_item_id) REFERENCES inventory_items(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id), FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id));
     CREATE TABLE IF NOT EXISTS batch_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER NOT NULL, file_name TEXT NOT NULL, stored_name TEXT NOT NULL, mime_type TEXT, notes TEXT, created_at TEXT NOT NULL, FOREIGN KEY (batch_id) REFERENCES roasting_batches(id) ON DELETE CASCADE);
 
     CREATE TABLE IF NOT EXISTS machine_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT NOT NULL, log_type TEXT NOT NULL CHECK(log_type IN ('mantenimiento','mejora','pieza','incidencia')), description TEXT NOT NULL, cost REAL DEFAULT 0, registered_by TEXT, expense_id INTEGER, created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, expense_date TEXT NOT NULL, category_id INTEGER NOT NULL, amount REAL NOT NULL, description TEXT, paid_by TEXT NOT NULL, supplier TEXT, notes TEXT, auto_generated INTEGER DEFAULT 0, ref_type TEXT, ref_id INTEGER, from_cashbox INTEGER DEFAULT 1, from_utilities INTEGER DEFAULT 0, created_at TEXT NOT NULL, FOREIGN KEY (category_id) REFERENCES expense_categories(id));
+    CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, expense_date TEXT NOT NULL, category_id INTEGER NOT NULL, amount REAL NOT NULL, description TEXT, paid_by TEXT NOT NULL, supplier TEXT, notes TEXT, auto_generated INTEGER DEFAULT 0, ref_type TEXT, ref_id INTEGER, from_cashbox INTEGER DEFAULT 1, from_utilities INTEGER DEFAULT 0, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (category_id) REFERENCES expense_categories(id));
 
     INSERT OR IGNORE INTO partners (name, share_pct) VALUES ('Itza', 50), ('Axel', 50);
     INSERT OR IGNORE INTO roast_profiles (name) VALUES ('Filtro'),('Espresso'),('Omniroast'),('Claro'),('Medio'),('Oscuro');
@@ -229,6 +369,21 @@ export function initDB() {
   ensureColumn("clients", "postal_code", "TEXT");
   ensureColumn("expenses", "from_cashbox", "INTEGER DEFAULT 1");
   ensureColumn("expenses", "from_utilities", "INTEGER DEFAULT 0");
+  ensureColumn("expenses", "paid_from_account", "TEXT");
+  ensureColumn("sales_payments", "received_account", "TEXT DEFAULT 'Axel'");
+  ensureColumn("purchase_orders", "estimated_shipping_cost", "REAL DEFAULT 0");
+  ensureColumn("purchase_orders", "actual_shipping_cost", "REAL DEFAULT 0");
+  ensureColumn("purchase_orders", "notes", "TEXT");
+  ensureColumn("purchase_entries", "funding_source", "TEXT");
+  ensureColumn("purchase_entries", "paid_from_account", "TEXT");
+  ensureColumn("capital_contributions", "capital_request_id", "INTEGER");
+  ensureColumn("capital_contributions", "received_account", "TEXT");
+  ensureColumn("withdrawals", "dividend_order_id", "INTEGER");
+  ensureColumn("withdrawals", "paid_from_account", "TEXT");
+  qRun("UPDATE sales_payments SET received_account=COALESCE(received_account, registered_by, 'Axel')");
+  qRun("UPDATE expenses SET paid_from_account=COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END)");
+  qRun("UPDATE capital_contributions SET received_account=COALESCE(received_account, partner_name)");
+  qRun("UPDATE withdrawals SET paid_from_account=COALESCE(paid_from_account, 'Caja chica')");
   qRun("UPDATE capital_contributions SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE withdrawals SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");

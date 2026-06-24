@@ -32,6 +32,8 @@ function val(id) { return document.getElementById(id)?.value; }
 function setStatus(text) { document.getElementById("statusPill").textContent = text; }
 function statusBadge(status) { return `<span class="badge ${status}">${esc(status)}</span>`; }
 function titleize(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
+function isWholesale(type) { return ["mayoreo", "wholesale"].includes(String(type || "")); }
+function isClosedStatus(status) { return ["completado", "cancelado", "completed", "cancelled"].includes(String(status || "")); }
 
 async function api(path, options = {}) {
   const opts = { ...options };
@@ -162,6 +164,10 @@ async function renderDashboard() {
       <div class="card metric"><div class="label">Gastos del mes</div><div class="value money">${money(d.expenseMonth)}</div><small>Incluye compras y costos</small></div>
       <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(d.finance.availableCash)}</div><small>Capital + cobros - gastos - retiros</small></div>
       <div class="card metric"><div class="label">Dividendos distribuibles</div><div class="value money">${money(d.finance.distributableDividends)}</div><small>${d.finance.unrecoveredCapital > 0 ? "Bloqueado hasta recuperar capital" : "Listo para fin de mes"}</small></div>
+      <div class="card metric accent"><div class="label">Axel → Itza sugerido</div><div class="value money">${money(d.settlement?.axelToItza || 0)}</div><small>${esc(d.settlement?.reason || "")}</small></div>
+      <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(d.receivables || 0)}</div><small>Ventas pendientes de pago</small></div>
+      <div class="card metric"><div class="label">Utilidad/kg tostado</div><div class="value money">${money(d.monthly?.profitPerRoastedKg || 0)}</div><small>${kg(d.monthly?.roastedKg || d.roastedMonth)} tostados este mes</small></div>
+      <div class="card metric"><div class="label">Saldo en Axel</div><div class="value money">${money(d.accounts?.Axel || 0)}</div><small>Dinero del negocio en su cuenta</small></div>
     </div>
 
     <div class="split" style="margin-top:12px">
@@ -247,8 +253,8 @@ async function renderDashboard() {
 }
 
 function salesTotals(order) {
-  const paid = Number(order.paid_amount || 0);
-  const shipped = Number(order.shipped_kg || 0);
+  const paid = Number(order.paid_amount ?? order.paid ?? 0);
+  const shipped = Number(order.shipped_kg ?? order.shipped ?? 0);
   return { paid, shipped, pending: Math.max(0, Number(order.total_amount || 0) - paid) };
 }
 
@@ -341,7 +347,7 @@ async function renderSalesDetail(id) {
       </div>
       <div class="row wrap">
         <button class="btn secondary" onclick="App.addPayment(${order.id})">Registrar pago</button>
-        ${order.order_type === "wholesale" ? `<button class="btn secondary" onclick="App.addShipment(${order.id})">Registrar envío</button>` : ""}
+        ${isWholesale(order.order_type) ? `<button class="btn secondary" onclick="App.addShipment(${order.id})">Registrar envío</button>` : ""}
       </div>
     </div>
 
@@ -366,11 +372,11 @@ async function renderSalesDetail(id) {
           ${payments.length ? payments.map(p => `
             <div class="item">
               <div class="row between"><strong>${money(p.amount)}</strong><div class="line-actions"><span class="pill">${esc(p.method || "-")}</span><button class="btn red sm" onclick="App.deletePayment(${p.id},${order.id})">Eliminar</button></div></div>
-              <div class="small muted">${esc((p.created_at || "").slice(0, 10))} ${p.notes ? "· " + esc(p.notes) : ""}</div>
+              <div class="small muted">${esc((p.created_at || "").slice(0, 10))} · ${esc(p.received_account || "Axel")} ${p.notes ? "· " + esc(p.notes) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin pagos.</div>`}
         </div>
 
-        ${order.order_type === "wholesale" ? `
+        ${isWholesale(order.order_type) ? `
         <div class="card">
           <div class="row between"><h3>Envíos</h3><button class="btn ghost sm" onclick="App.addShipment(${order.id})">+ Envío</button></div>
           ${shipments.length ? shipments.map(s => `
@@ -394,7 +400,7 @@ async function renderSalesDetail(id) {
           </div>` : ""}
 
         <div class="card">
-          <div class="row between"><h3>Batches ligados</h3>${order.order_type === "wholesale" ? `<button class="btn ghost sm" onclick="App.setView('roasting')">Ir a tostado</button>` : ""}</div>
+          <div class="row between"><h3>Batches ligados</h3>${isWholesale(order.order_type) ? `<button class="btn ghost sm" onclick="App.setView('roasting')">Ir a tostado</button>` : ""}</div>
           ${batches.length ? batches.map(b => `
             <div class="item">
               <div class="row between"><strong>${esc(b.batch_no)}</strong><span class="pill">${esc(b.roast_profile_name || "Sin perfil")}</span></div>
@@ -455,7 +461,7 @@ async function renderPurchaseDetail(id) {
         ${statusBadge(po.status)}
       </div>
       <div class="row wrap">
-        ${po.status !== "received" && po.status !== "cancelled" ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
+        ${!["received", "recibida", "cancelled", "cancelada"].includes(po.status) ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
       </div>
     </div>
 
@@ -477,7 +483,7 @@ async function renderPurchaseDetail(id) {
         <h3>Entradas recibidas</h3>
         ${entries.length ? `
         <table class="table">
-          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo/kg</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Proveedor</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo/kg</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Pago</th><th>Proveedor</th></tr></thead>
           <tbody>${entries.map(e => `
             <tr>
               <td>${esc((e.created_at || "").slice(0, 10))}</td>
@@ -487,6 +493,7 @@ async function renderPurchaseDetail(id) {
               <td class="money">${money(e.total_cost)}</td>
               <td class="money">${money(e.shipping_cost || 0)}</td>
               <td class="money">${money((e.total_cost || 0) + (e.shipping_cost || 0))}</td>
+              <td>${esc(e.paid_from_account || "")}<div class="tiny muted">${esc(e.funding_source || "")}</div></td>
               <td>${esc(e.supplier || "")}</td>
             </tr>`).join("")}
           </tbody>
@@ -507,12 +514,13 @@ async function renderPurchaseDetail(id) {
 }
 
 async function renderCapital() {
-  const [summary, requests, contributions, dividends, withdrawals] = await Promise.all([
+  const [summary, requests, contributions, dividends, withdrawals, assets] = await Promise.all([
     api("/capital/summary"),
     api("/capital-requests"),
     api("/capital-contributions"),
     api("/dividend-orders"),
     api("/withdrawals"),
+    api("/partner-assets"),
   ]);
 
   document.getElementById("content").innerHTML = `
@@ -522,6 +530,7 @@ async function renderCapital() {
         <button class="btn secondary" onclick="App.newContribution()">Registrar aporte</button>
         <button class="btn secondary" onclick="App.newCapitalReturn()">Devolver capital</button>
         <button class="btn green" onclick="App.newDividendOrder()">Orden de dividendos fin de mes</button>
+        <button class="btn secondary" onclick="App.newPartnerAsset()">Activo personal de socio</button>
       </div>
     </div>
 
@@ -530,6 +539,10 @@ async function renderCapital() {
       <div class="card metric"><div class="label">Capital aportado</div><div class="value money">${money(summary.finance.totalContributed)}</div><small>Recuperado ${money(summary.finance.capitalRecovered)}</small></div>
       <div class="card metric"><div class="label">Capital pendiente</div><div class="value money">${money(summary.finance.unrecoveredCapital)}</div><small>${summary.finance.unrecoveredCapital > 0 ? "Bloquea dividendos" : "Capital totalmente recuperado"}</small></div>
       <div class="card metric"><div class="label">Dividendos distribuibles</div><div class="value money">${money(summary.finance.distributableDividends)}</div><small>Solo al recuperar el capital</small></div>
+      <div class="card metric accent"><div class="label">Axel → Itza sugerido</div><div class="value money">${money(summary.settlement?.axelToItza || 0)}</div><small>${esc(summary.settlement?.reason || "")}</small></div>
+      <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(summary.receivables || 0)}</div><small>Pedidos aún no pagados</small></div>
+      <div class="card metric"><div class="label">Utilidad/kg tostado</div><div class="value money">${money(summary.monthly?.profitPerRoastedKg || 0)}</div><small>${kg(summary.monthly?.roastedKg || 0)} tostados en ${esc(summary.monthly?.month || "")}</small></div>
+      <div class="card metric"><div class="label">Dividendos pagados</div><div class="value money">${money(summary.dividendAdvice?.alreadyPaid || 0)}</div><small>${summary.dividendAdvice?.canDistribute ? "Puede evaluarse reparto" : esc(summary.dividendAdvice?.blockedReason || "")}</small></div>
     </div>
 
     <div class="split" style="margin-top:12px">
@@ -540,6 +553,15 @@ async function renderCapital() {
             <div class="item">
               <div class="row between"><strong>${esc(p.name)} · ${p.share_pct}%</strong><span class="money">${money(p.dividend_capacity)}</span></div>
               <div class="small muted">Aportó ${money(p.contributed)} · recuperó ${money(p.capital_returned)} · dividendos pagados ${money(p.dividends_paid)}</div>
+            </div>`).join("")}
+        </div>
+
+        <div class="card">
+          <h3>Dónde está el dinero</h3>
+          ${Object.entries(summary.accounts || {}).map(([name, amount]) => `
+            <div class="item">
+              <div class="row between"><strong>${esc(name)}</strong><span class="money">${money(amount)}</span></div>
+              <div class="small muted">Saldo operativo registrado en esa cuenta/custodia.</div>
             </div>`).join("")}
         </div>
 
@@ -565,6 +587,16 @@ async function renderCapital() {
       </div>
 
       <div class="stack">
+        <div class="card">
+          <div class="row between"><h3>Activos personales en uso</h3><button class="btn ghost sm" onclick="App.newPartnerAsset()">+ Activo</button></div>
+          ${assets.length ? assets.map(a => `
+            <div class="item">
+              <div class="row between"><strong>${esc(a.asset_name)}</strong><span class="pill">${esc(a.owner_partner)}</span></div>
+              <div class="small muted">${esc(a.purchase_date)} · ${money(a.amount)} · ${esc(a.status || "active")}</div>
+              <div class="small muted">${esc(a.notes || "No afecta utilidad ni capital reembolsable.")}</div>
+            </div>`).join("") : `<div class="empty">Sin activos personales registrados.</div>`}
+        </div>
+
         <div class="card">
           <div class="row between"><h3>Órdenes de dividendos</h3><span class="pill">${dividends.length}</span></div>
           ${dividends.length ? dividends.map(d => `
@@ -625,7 +657,7 @@ async function renderRoastingDetail(id) {
     api("/sales-orders"),
   ]);
   const { session, batches } = data;
-  const openSales = sales.filter(s => s.order_type === "wholesale" && !["completed","cancelled"].includes(s.status));
+  const openSales = sales.filter(s => isWholesale(s.order_type) && !isClosedStatus(s.status));
 
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
@@ -722,7 +754,7 @@ async function renderExpenses() {
               <td>${esc(e.expense_date)}</td>
               <td><strong>${esc(e.description || e.category_name)}</strong><div class="tiny muted">${esc(e.supplier || "")}</div></td>
               <td>${esc(e.category_name)}</td>
-              <td>${esc(e.paid_by)}</td>
+              <td>${esc(e.paid_from_account || e.paid_by)}<div class="tiny muted">${esc(e.paid_by || "")}</div></td>
               <td class="money">${money(e.amount)}</td>
               <td><button class="btn red sm" onclick="App.deleteExpense(${e.id})">Eliminar</button></td>
             </tr>`).join("")}
@@ -844,8 +876,12 @@ function personOptions() {
 function roastOperatorOptions() {
   return parseListSetting("roast_operators", ["Axel"]).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
 }
+function accountOptions(selected = "Axel") {
+  const accounts = ["Axel", "Itza", "Caja chica"];
+  return accounts.map(name => `<option value="${esc(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`).join("");
+}
 function fundingSourceOptions() {
-  return `<option value="cash">Dinero disponible en caja</option>${(state.master.partners || []).map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}`;
+  return `<option value="business_account">Cuenta/dinero del negocio</option><option value="partner_contribution">Lo puso un socio y se le debe</option>`;
 }
 function expenseCategoryOptions() {
   return (state.master.expenseCategories || []).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
@@ -866,6 +902,7 @@ async function newRetailSale() {
     <div class="notice ok">Se descontará café tostado disponible y se registrará el pago al momento.</div>
     <div class="field"><label>Cliente opcional</label><select class="select" id="retClient"><option value="">Mostrador</option>${clientOptions()}</select></div>
     <div class="field"><label>Método de pago</label><select class="select" id="retMethod"><option>efectivo</option><option>transferencia</option><option>tarjeta</option></select></div>
+    <div class="field"><label>Cuenta que recibe</label><select class="select" id="retAccount">${accountOptions("Axel")}</select></div>
     <div class="field"><label>Productos</label>
       <table class="table">
         <thead><tr><th>Producto</th><th>Presentación</th><th>Peso</th><th>Precio</th><th>Cant.</th></tr></thead>
@@ -896,9 +933,10 @@ async function newRetailSale() {
       await api("/sales-orders", {
         method: "POST",
         body: {
-          order_type: "retail",
+          order_type: "mostrador",
           client_id: val("retClient") || null,
           payment_method: val("retMethod"),
+          received_account: val("retAccount"),
           pay_now: 1,
           items: lines,
         },
@@ -927,7 +965,7 @@ async function newWholesaleSale() {
       await api("/sales-orders", {
         method: "POST",
         body: {
-          order_type: "wholesale",
+          order_type: "mayoreo",
           client_id: Number(val("whClient")),
           delivery_date: val("whDelivery") || null,
           total_weight_kg: Number(val("whKg")),
@@ -950,6 +988,7 @@ function addPayment(orderId) {
     <div class="form-grid">
       <div class="field"><label>Monto</label><input class="input" id="payAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Método</label><select class="select" id="payMethod"><option>transferencia</option><option>efectivo</option><option>tarjeta</option></select></div>
+      <div class="field"><label>Cuenta que recibió</label><select class="select" id="payAccount">${accountOptions("Axel")}</select></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="payNotes" /></div>
   `, [{
@@ -958,7 +997,7 @@ function addPayment(orderId) {
     onClick: async modal => {
       await api(`/sales-orders/${orderId}/payments`, {
         method: "POST",
-        body: { amount: Number(val("payAmount")), method: val("payMethod"), notes: val("payNotes") || null },
+        body: { amount: Number(val("payAmount")), method: val("payMethod"), received_account: val("payAccount"), notes: val("payNotes") || null },
       });
       modal.remove();
       toast("Pago registrado.", "ok");
@@ -1054,7 +1093,7 @@ function receivePurchase(poId) {
   const o = state.master.origins || [];
   const v = state.master.varieties || [];
   const modal = openModal("Ejecutar compra / registrar recepción", `
-    <div class="notice warn">Al ejecutar la compra se valida caja total = mercancía + envío. Si no alcanza, se genera automáticamente la orden de ingreso de capital.</div>
+    <div class="notice warn">Elegí si se pagó con dinero del negocio o si lo puso un socio y queda como capital reembolsable.</div>
     <div class="form-grid">
       <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" /></div>
@@ -1064,6 +1103,8 @@ function receivePurchase(poId) {
       <div class="field"><label>Lote</label><input class="input" id="rcvLot" /></div>
       <div class="field"><label>Origen</label><select class="select" id="rcvOrigin"><option value="">-</option>${o.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Variedad</label><select class="select" id="rcvVar"><option value="">-</option>${v.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Fuente de pago</label><select class="select" id="rcvFunding">${fundingSourceOptions()}</select></div>
+      <div class="field"><label>Cuenta / socio</label><select class="select" id="rcvAccount">${accountOptions("Axel")}</select></div>
     </div>
     <div class="field"><label>Registrado por</label><select class="select" id="rcvBy">${personOptions()}</select></div>
   `, [{
@@ -1082,6 +1123,9 @@ function receivePurchase(poId) {
           origin_id: val("rcvOrigin") || null,
           variety_id: val("rcvVar") || null,
           registered_by: val("rcvBy"),
+          funding_source: val("rcvFunding"),
+          paid_from_account: val("rcvAccount"),
+          partner_name: val("rcvAccount"),
         },
       });
       modal.remove();
@@ -1130,6 +1174,7 @@ async function newContribution() {
       <div class="field"><label>Monto</label><input class="input" id="contribAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Fecha</label><input class="input" id="contribDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
       <div class="field"><label>Orden de capital</label><select class="select" id="contribReq"><option value="">Sin ligar</option>${requests.filter(r => r.status !== "funded" && r.status !== "cancelled").map(r => `<option value="${r.id}">${esc(r.request_no)} · ${money(r.amount_requested - r.amount_funded)}</option>`).join("")}</select></div>
+      <div class="field"><label>Cuenta donde quedó</label><select class="select" id="contribAccount">${accountOptions("Axel")}</select></div>
     </div>
     <div class="field"><label>Descripción</label><input class="input" id="contribDesc" /></div>
   `, [{
@@ -1143,6 +1188,7 @@ async function newContribution() {
           amount: Number(val("contribAmount")),
           contribution_date: val("contribDate"),
           capital_request_id: val("contribReq") || null,
+          received_account: val("contribAccount"),
           description: val("contribDesc"),
         },
       });
@@ -1159,6 +1205,7 @@ function newCapitalReturn() {
       <div class="field"><label>Socio</label><select class="select" id="capRetPartner">${partnerOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="capRetAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Mes</label><input class="input" id="capRetMonth" type="month" value="${new Date().toISOString().slice(0,7)}" /></div>
+      <div class="field"><label>Sale de cuenta</label><select class="select" id="capRetAccount">${accountOptions("Axel")}</select></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="capRetNotes" /></div>
   `, [{
@@ -1171,6 +1218,7 @@ function newCapitalReturn() {
           partner_name: val("capRetPartner"),
           amount: Number(val("capRetAmount")),
           month: val("capRetMonth"),
+          paid_from_account: val("capRetAccount"),
           notes: val("capRetNotes") || null,
         },
       });
@@ -1215,6 +1263,41 @@ function payDividendOrder(id) {
     .catch(err => toast(err.message, "error"));
 }
 
+function newPartnerAsset() {
+  openModal("Activo personal de socio", `
+    <div class="notice ok">Usalo para máquina, balanza, selladora u otra cosa que queda como propiedad de un socio. No baja utilidad ni genera deuda reembolsable.</div>
+    <div class="form-grid">
+      <div class="field"><label>Activo</label><input class="input" id="assetName" placeholder="Ej: Selladora" /></div>
+      <div class="field"><label>Dueño</label><select class="select" id="assetOwner">${partnerOptions()}</select></div>
+      <div class="field"><label>Comprado por</label><select class="select" id="assetBuyer">${partnerOptions()}</select></div>
+      <div class="field"><label>Fecha</label><input class="input" id="assetDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="field"><label>Monto referencial</label><input class="input" id="assetAmount" type="number" step="0.01" value="0" /></div>
+      <div class="field"><label>Estado</label><select class="select" id="assetStatus"><option value="active">En uso</option><option value="returned">Devuelto</option><option value="sold">Vendido</option><option value="retired">Retirado</option></select></div>
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="assetNotes" placeholder="Ej: si se disuelve, se lo queda Itza"></textarea></div>
+  `, [{
+    label: "Guardar activo",
+    kind: "primary",
+    onClick: async modal => {
+      await api("/partner-assets", {
+        method: "POST",
+        body: {
+          asset_name: val("assetName"),
+          owner_partner: val("assetOwner"),
+          purchased_by: val("assetBuyer"),
+          purchase_date: val("assetDate"),
+          amount: Number(val("assetAmount")),
+          status: val("assetStatus"),
+          notes: val("assetNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Activo registrado sin afectar utilidades.", "ok");
+      setView("capital");
+    }
+  }]);
+}
+
 function newRoastingSession() {
   openModal("Nueva sesión de tostado", `
     <div class="form-grid">
@@ -1249,7 +1332,7 @@ async function newBatch(sessionId) {
       <div class="field"><label>Kg verde</label><input class="input" id="batchGreenKg" type="number" step="0.01" /></div>
       <div class="field"><label>Kg tostado</label><input class="input" id="batchRoastedKg" type="number" step="0.01" /></div>
       <div class="field"><label>Minutos</label><input class="input" id="batchMinutes" type="number" step="0.01" value="18" /></div>
-      <div class="field"><label>Pedido ligado</label><select class="select" id="batchSale"><option value="">Sin ligar</option>${sales.filter(s => s.order_type === "wholesale" && s.status !== "completed" && s.status !== "cancelled").map(s => `<option value="${s.id}">${esc(s.order_no)} · ${esc(s.client_name || "")}</option>`).join("")}</select></div>
+      <div class="field"><label>Pedido ligado</label><select class="select" id="batchSale"><option value="">Sin ligar</option>${sales.filter(s => isWholesale(s.order_type) && !isClosedStatus(s.status)).map(s => `<option value="${s.id}">${esc(s.order_no)} · ${esc(s.client_name || "")}</option>`).join("")}</select></div>
     </div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="batchNotes"></textarea></div>
   `, [{
@@ -1285,7 +1368,7 @@ async function editBatch(batchId, sessionId) {
       <div class="field"><label>Perfil</label><select class="select" id="ebatchProfile"><option value="">-</option>${state.master.roastProfiles.map(p => `<option value="${p.id}" ${Number(batch.roast_profile_id) === Number(p.id) ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Kg tostado</label><input class="input" id="ebatchRoastedKg" type="number" step="0.01" value="${esc(batch.roasted_kg || "")}" /></div>
       <div class="field"><label>Minutos</label><input class="input" id="ebatchMinutes" type="number" step="0.01" value="${esc(batch.machine_minutes || 0)}" /></div>
-      <div class="field"><label>Pedido ligado</label><select class="select" id="ebatchSale"><option value="">Sin ligar</option>${sales.filter(s => s.order_type === "wholesale" && s.status !== "completed" && s.status !== "cancelled").map(s => `<option value="${s.id}" ${Number(batch.sales_order_id) === Number(s.id) ? "selected" : ""}>${esc(s.order_no)} · ${esc(s.client_name || "")}</option>`).join("")}</select></div>
+      <div class="field"><label>Pedido ligado</label><select class="select" id="ebatchSale"><option value="">Sin ligar</option>${sales.filter(s => isWholesale(s.order_type) && !isClosedStatus(s.status)).map(s => `<option value="${s.id}" ${Number(batch.sales_order_id) === Number(s.id) ? "selected" : ""}>${esc(s.order_no)} · ${esc(s.client_name || "")}</option>`).join("")}</select></div>
     </div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="ebatchNotes">${esc(batch.notes || "")}</textarea></div>
   `, [{
@@ -1444,12 +1527,14 @@ function deleteInventoryItem(id) {
 
 function newExpense() {
   openModal("Nuevo gasto", `
-    <div class="notice warn">Sólo se validan fondos disponibles cuando el gasto sale de caja chica.</div>
+    <div class="notice warn">Si es balanza, selladora o máquina que se queda un socio, registralo como activo personal en Capital, no como gasto.</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="expDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="expCat">${expenseCategoryOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="expAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Pagado por</label><select class="select" id="expPaidBy">${personOptions()}</select></div>
+      <div class="field"><label>Fuente de pago</label><select class="select" id="expFunding">${fundingSourceOptions()}</select></div>
+      <div class="field"><label>Cuenta / socio</label><select class="select" id="expAccount">${accountOptions("Axel")}</select></div>
       <div class="field"><label>¿Sale de utilidades?</label><select class="select" id="expUtilities"><option value="1">Sí</option><option value="0">No</option></select></div>
       <div class="field"><label>¿Sale de caja chica?</label><select class="select" id="expCashbox"><option value="1">Sí</option><option value="0">No</option></select></div>
       <div class="field"><label>Proveedor</label><input class="input" id="expSupplier" /></div>
@@ -1467,6 +1552,9 @@ function newExpense() {
           category_id: Number(val("expCat")),
           amount: Number(val("expAmount")),
           paid_by: val("expPaidBy"),
+          funding_source: val("expFunding"),
+          paid_from_account: val("expAccount"),
+          partner_name: val("expAccount"),
           from_utilities: Number(val("expUtilities")),
           from_cashbox: Number(val("expCashbox")),
           supplier: val("expSupplier") || null,
@@ -1493,10 +1581,11 @@ function newMachineLog() {
     <div class="notice warn">Si el registro tiene costo, se generará también el gasto correspondiente. Si la fuente es un socio, primero se registra el aporte de capital.</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="mlDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
-      <div class="field"><label>Tipo</label><select class="select" id="mlType"><option value="maintenance">mantenimiento</option><option value="improvement">mejora</option><option value="part">pieza</option><option value="incident">incidencia</option></select></div>
+      <div class="field"><label>Tipo</label><select class="select" id="mlType"><option value="mantenimiento">mantenimiento</option><option value="mejora">mejora</option><option value="pieza">pieza</option><option value="incidencia">incidencia</option></select></div>
       <div class="field"><label>Costo</label><input class="input" id="mlCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Registrado por</label><select class="select" id="mlBy">${personOptions()}</select></div>
       <div class="field"><label>Fuente del dinero</label><select class="select" id="mlFunding">${fundingSourceOptions()}</select></div>
+      <div class="field"><label>Cuenta / socio</label><select class="select" id="mlAccount">${accountOptions("Axel")}</select></div>
     </div>
     <div class="field"><label>Descripción</label><textarea class="textarea" id="mlDesc"></textarea></div>
   `, [{
@@ -1511,6 +1600,8 @@ function newMachineLog() {
           cost: Number(val("mlCost")),
           registered_by: val("mlBy"),
           funding_source: val("mlFunding"),
+          paid_from_account: val("mlAccount"),
+          partner_name: val("mlAccount"),
           description: val("mlDesc"),
         },
       });
@@ -1696,6 +1787,7 @@ const App = {
   newCapitalReturn,
   newDividendOrder,
   payDividendOrder,
+  newPartnerAsset,
   newRoastingSession,
   openRoasting,
   newBatch,
