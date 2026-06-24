@@ -361,7 +361,7 @@ export function initDB() {
     INSERT OR IGNORE INTO origins (name) VALUES ('Chiapas'),('Veracruz'),('Oaxaca'),('Puebla'),('Guerrero'),('Nayarit'),('Colombia'),('Brasil'),('Guatemala'),('Etiopía'),('Blend');
     INSERT OR IGNORE INTO varieties (name) VALUES ('Typica'),('Bourbon'),('Caturra'),('Catuaí'),('Geisha'),('SL28'),('Pacamara'),('Maragogipe'),('Mundo Novo'),('Catimor'),('Blend');
     INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',1),('Electricidad',1),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Otros',0);
-    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','15'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','20'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
   `);
   ensureColumn("clients", "cafe_name", "TEXT");
   ensureColumn("clients", "contact_name", "TEXT");
@@ -394,6 +394,47 @@ export function initDB() {
   qRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");
   qRun("DELETE FROM partners WHERE name NOT IN ('Itza','Axel')");
   qRun("INSERT OR REPLACE INTO settings (key,value) VALUES ('people','Itza|Axel'),('individual_people','Itza|Axel'),('operators','Axel|Itza'),('roast_operators','Axel|Itza')");
+  qRun("UPDATE settings SET value='20' WHERE key='default_loss_pct' AND value='15'");
   migrateInventoryTypes();
   ensureInvItem({ item_type: "roasted_coffee", item_name: "Café tostado disponible", unit: "kg" });
+}
+
+// Merma (loss) estimated dynamically from the most recent roasting batches,
+// falling back to the configured default. Clamped to a sane range.
+export function estimatedLoss(): number {
+  const avg = qVal<number>("SELECT AVG(loss_pct) AS v FROM (SELECT loss_pct FROM roasting_batches WHERE loss_pct IS NOT NULL ORDER BY id DESC LIMIT 12)");
+  const fallback = getNum("default_loss_pct", 20);
+  let loss = avg != null && Number.isFinite(Number(avg)) && Number(avg) > 0 ? Number(avg) : fallback;
+  loss = Math.min(40, Math.max(5, loss));
+  return r2(loss);
+}
+
+// Green coffee needed to obtain a target roasted weight, given the estimated loss.
+export function greenNeededForRoasted(roastedKg: number, loss = estimatedLoss()): number {
+  const factor = 1 - loss / 100;
+  return factor > 0 ? r2(roastedKg / factor) : r2(roastedKg);
+}
+
+// One-time data reset. scope "operativo" keeps catalogs, clients, products and
+// settings; scope "todo" also clears clients and products. Children are removed
+// before parents so foreign keys stay satisfied without disabling them.
+export function resetData(scope: "operativo" | "todo" = "operativo") {
+  const tables = [
+    "sales_payments", "sales_shipments", "sales_order_items",
+    "batch_photos", "roasting_batches", "roasting_sessions",
+    "purchase_entries", "purchase_orders",
+    "inventory_movements", "inventory_items",
+    "sales_orders",
+    "machine_logs", "expenses",
+    "withdrawals", "capital_contributions", "capital_requests", "dividend_orders", "partner_assets",
+  ];
+  const run = tx(() => {
+    for (const t of tables) qRun(`DELETE FROM ${t}`);
+    if (scope === "todo") { qRun("DELETE FROM products"); qRun("DELETE FROM clients"); }
+    const seqNames = scope === "todo" ? [...tables, "products", "clients"] : tables;
+    qRun(`DELETE FROM sqlite_sequence WHERE name IN (${seqNames.map(() => "?").join(",")})`, ...seqNames);
+    ensureInvItem({ item_type: "roasted_coffee", item_name: "Café tostado disponible", unit: "kg" });
+  });
+  run();
+  return { scope, tablesCleared: tables.length };
 }

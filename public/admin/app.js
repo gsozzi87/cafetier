@@ -35,6 +35,8 @@ function statusBadge(status) { return `<span class="badge ${status}">${esc(statu
 function titleize(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
 function isWholesale(type) { return ["mayoreo", "wholesale"].includes(String(type || "")); }
 function isClosedStatus(status) { return ["completado", "cancelado", "completed", "cancelled"].includes(String(status || "")); }
+function editIcon(call, title = "Editar") { return `<button class="icon-btn edit" title="${title}" aria-label="${title}" onclick="${call}">✎</button>`; }
+function delIcon(call, title = "Eliminar") { return `<button class="icon-btn del" title="${title}" aria-label="${title}" onclick="${call}">🗑</button>`; }
 
 async function api(path, options = {}) {
   const opts = { ...options };
@@ -289,7 +291,7 @@ async function renderSales() {
                 <td class="money">${money(order.total_amount)}</td>
                 <td class="money">${money(t.paid)}</td>
                 <td>${kg(t.shipped)}</td>
-                <td><button class="btn ghost sm" onclick="App.openSale(${order.id})">Abrir</button></td>
+                <td><div class="line-actions">${editIcon(`App.editSale(${order.id})`)}${delIcon(`App.deleteSale(${order.id})`)}<button class="btn ghost sm" onclick="App.openSale(${order.id})">Abrir</button></div></td>
               </tr>
             `;
           }).join("")}
@@ -379,6 +381,8 @@ async function renderSalesDetail(id) {
       <div class="row wrap">
         <button class="btn secondary" onclick="App.addPayment(${order.id})">Registrar pago</button>
         ${isWholesale(order.order_type) ? `<button class="btn secondary" onclick="App.addShipment(${order.id})">Registrar envío</button>` : ""}
+        <button class="btn ghost" onclick="App.editSale(${order.id})">✎ Editar</button>
+        <button class="btn red" onclick="App.deleteSale(${order.id})">🗑 Eliminar</button>
       </div>
     </div>
 
@@ -472,7 +476,7 @@ async function renderPurchases() {
               <td class="money">${money(po.estimated_cost)}</td>
               <td class="money">${money(po.estimated_shipping_cost || 0)}</td>
               <td class="money">${money(po.capital_missing)}</td>
-              <td><button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></td>
+              <td><div class="line-actions">${["received","recibida","cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -493,6 +497,8 @@ async function renderPurchaseDetail(id) {
       </div>
       <div class="row wrap">
         ${!["received", "recibida", "cancelled", "cancelada"].includes(po.status) ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
+        ${!["received", "recibida", "cancelled", "cancelada"].includes(po.status) ? `<button class="btn ghost" onclick="App.editPurchase(${po.id})">✎ Editar</button>` : ""}
+        ${po.status !== "cancelada" && po.status !== "cancelled" ? `<button class="btn red" onclick="App.deletePurchase(${po.id})">🗑 Eliminar</button>` : ""}
       </div>
     </div>
 
@@ -749,12 +755,16 @@ async function renderCapital() {
 }
 
 async function renderRoasting() {
-  const rows = await api("/roasting-sessions");
+  const [rows, loss] = await Promise.all([
+    api("/roasting-sessions"),
+    api("/admin/loss").catch(() => ({ estimatedLossPct: null })),
+  ]);
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
         <button class="btn primary" onclick="App.newRoastingSession()">Nueva sesión</button>
       </div>
+      <span class="pill" title="Promedio de los últimos tuestes; se usa para estimar el café verde necesario">Merma estimada: ${loss.estimatedLossPct != null ? pct(loss.estimatedLossPct) : "—"}</span>
     </div>
     <div class="card">
       <table class="table">
@@ -768,7 +778,7 @@ async function renderRoasting() {
               <td>${kg(r.total_green)}</td>
               <td>${kg(r.total_roasted)}</td>
               <td>${numFmt.format(r.total_minutes || 0)}</td>
-              <td><button class="btn ghost sm" onclick="App.openRoasting(${r.id})">Abrir</button></td>
+              <td><div class="line-actions">${editIcon(`App.editRoastingSession(${r.id})`)}${Number(r.batch_count) === 0 ? delIcon(`App.deleteRoastingSession(${r.id})`) : ""}<button class="btn ghost sm" onclick="App.openRoasting(${r.id})">Abrir</button></div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -794,6 +804,8 @@ async function renderRoastingDetail(id) {
       </div>
       <div class="row wrap">
         <button class="btn primary" onclick="App.newBatch(${session.id})">Nuevo batch</button>
+        <button class="btn ghost" onclick="App.editRoastingSession(${session.id})">✎ Editar sesión</button>
+        ${batches.length === 0 ? `<button class="btn red" onclick="App.deleteRoastingSession(${session.id})">🗑 Eliminar sesión</button>` : ""}
       </div>
     </div>
 
@@ -853,7 +865,7 @@ async function renderInventory() {
               <td>${esc(i.lot_label || "-")}</td>
               <td>${numFmt.format(i.quantity)} ${esc(i.unit)}</td>
               <td>${numFmt.format(i.min_stock)} ${esc(i.unit)}</td>
-              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${esc(i.item_name).replace(/'/g,"&#39;")}')">Movimiento</button><button class="btn red sm" onclick="App.deleteInventoryItem(${i.id})">Eliminar</button></div></td>
+              <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${esc(i.item_name).replace(/'/g,"&#39;")}')">Movimiento</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -883,7 +895,7 @@ async function renderExpenses() {
               <td>${esc(e.category_name)}</td>
               <td>${esc(e.paid_from_account || e.paid_by)}<div class="tiny muted">${esc(e.paid_by || "")}</div></td>
               <td class="money">${money(e.amount)}</td>
-              <td><button class="btn red sm" onclick="App.deleteExpense(${e.id})">Eliminar</button></td>
+              <td><div class="line-actions">${e.auto_generated ? `<span class="pill" title="Generado automáticamente">auto</span>` : editIcon(`App.editExpense(${e.id})`)}${delIcon(`App.deleteExpense(${e.id})`)}</div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -910,7 +922,7 @@ async function renderMachine() {
               <td>${esc(r.log_type)}</td>
               <td>${esc(r.description)}</td>
               <td class="money">${money(r.cost)}</td>
-              <td><button class="btn red sm" onclick="App.deleteMachineLog(${r.id})">Eliminar</button></td>
+              <td><div class="line-actions">${editIcon(`App.editMachineLog(${r.id})`)}${delIcon(`App.deleteMachineLog(${r.id})`)}</div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -922,6 +934,7 @@ async function renderMachine() {
 async function renderConfig() {
   const master = await refreshMaster(true);
   const settings = master.settings || {};
+  const loss = await api("/admin/loss").catch(() => ({ estimatedLossPct: null }));
   document.getElementById("content").innerHTML = `
     <div class="split">
       <div class="stack">
@@ -930,7 +943,7 @@ async function renderConfig() {
           <div class="form-grid">
             <div class="field"><label>Nombre del negocio</label><input class="input" id="cfgBusiness" value="${esc(settings.business_name || "CAFETIER")}" /></div>
             <div class="field"><label>Slogan</label><input class="input" id="cfgTagline" value="${esc(settings.business_tagline || "Culto por el café")}" /></div>
-            <div class="field"><label>Merma estándar %</label><input class="input" id="cfgLoss" type="number" step="0.01" value="${esc(settings.default_loss_pct || "15")}" /></div>
+            <div class="field"><label>Merma estándar %</label><input class="input" id="cfgLoss" type="number" step="0.01" value="${esc(settings.default_loss_pct || "20")}" /><small class="muted">Merma estimada actual (últimos tuestes): <strong>${loss.estimatedLossPct != null ? pct(loss.estimatedLossPct) : "—"}</strong></small></div>
             <div class="field"><label>kW máquina</label><input class="input" id="cfgKw" type="number" step="0.01" value="${esc(settings.machine_kw || "0")}" /></div>
             <div class="field"><label>$ por kWh</label><input class="input" id="cfgKwh" type="number" step="0.01" value="${esc(settings.kwh_price || "0")}" /></div>
             <div class="field"><label>Costo verde/kg por defecto</label><input class="input" id="cfgGreen" type="number" step="0.01" value="${esc(settings.default_green_cost_per_kg || "0")}" /></div>
@@ -973,6 +986,12 @@ async function renderConfig() {
                 <div class="small muted">${rows.map(r => esc(r.name)).join(" · ") || "Sin datos"}</div>
               </div>`).join("")}
           </div>
+        </div>
+
+        <div class="card danger-zone">
+          <h3>Zona de peligro</h3>
+          <p class="small muted">Reinicia los datos del sistema. Esta acción no se puede deshacer.</p>
+          <div class="footer-actions"><button class="btn red" onclick="App.openResetModal()">Reiniciar datos</button></div>
         </div>
       </div>
     </div>
@@ -1179,6 +1198,53 @@ function deleteShipment(shipmentId, orderId) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editSale(id) {
+  const { order } = await api(`/sales-orders/${id}`);
+  const wholesale = isWholesale(order.order_type);
+  openModal("Editar pedido", `
+    <div class="form-grid">
+      <div class="field"><label>Cliente</label><select class="select" id="esClient"><option value="">Mostrador</option>${(state.master.clients || []).map(c => `<option value="${c.id}" ${Number(order.client_id) === Number(c.id) ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Entrega</label><input class="input" id="esDelivery" type="date" value="${esc((order.delivery_date || "").slice(0, 10))}" /></div>
+      ${wholesale ? `
+      <div class="field"><label>Kg a entregar</label><input class="input" id="esKg" type="number" step="0.01" value="${esc(order.total_weight_kg || 0)}" /></div>
+      <div class="field"><label>Precio por kg</label><input class="input" id="esPriceKg" type="number" step="0.01" value="${esc(order.price_per_kg || 0)}" /></div>
+      <div class="field"><label>Total</label><input class="input" id="esTotal" type="number" step="0.01" value="${esc(order.total_amount || 0)}" /></div>` : `<div class="notice ok">Los totales de una venta de mostrador se calculan desde sus productos.</div>`}
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="esNotes">${esc(order.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/sales-orders/${id}`, {
+        method: "PUT",
+        body: {
+          client_id: val("esClient") || null,
+          delivery_date: val("esDelivery") || null,
+          notes: val("esNotes") || null,
+          total_weight_kg: wholesale ? Number(val("esKg")) : Number(order.total_weight_kg || 0),
+          price_per_kg: wholesale ? Number(val("esPriceKg")) : Number(order.price_per_kg || 0),
+          total_amount: wholesale ? Number(val("esTotal")) : Number(order.total_amount || 0),
+        },
+      });
+      modal.remove();
+      toast("Pedido actualizado.", "ok");
+      openSale(id);
+    }
+  }]);
+  if (wholesale) {
+    const kgEl = document.getElementById("esKg"), priceEl = document.getElementById("esPriceKg"), totalEl = document.getElementById("esTotal");
+    const sync = () => { const k = Number(kgEl?.value || 0), p = Number(priceEl?.value || 0); if (totalEl && k > 0 && p > 0) totalEl.value = String(round2(k * p)); };
+    kgEl?.addEventListener("input", sync); priceEl?.addEventListener("input", sync);
+  }
+}
+
+function deleteSale(id) {
+  if (!confirm("¿Eliminar este pedido? Se borran sus pagos y envíos; el inventario y los gastos de envío se revierten.")) return;
+  api(`/sales-orders/${id}`, { method: "DELETE" })
+    .then(() => { toast("Pedido eliminado.", "ok"); setView("sales"); })
+    .catch(err => toast(err.message, "error"));
+}
+
 function newManualPurchase() {
   openModal("Nueva orden de compra", `
     <div class="form-grid">
@@ -1272,6 +1338,46 @@ function receivePurchase(poId) {
   kgEl?.addEventListener('input', syncTotal);
   unitEl?.addEventListener('input', syncTotal);
   syncTotal();
+}
+
+async function editPurchase(id) {
+  const { purchaseOrder: po } = await api(`/purchase-orders/${id}`);
+  openModal("Editar orden de compra", `
+    <div class="form-grid">
+      <div class="field"><label>Descripción</label><input class="input" id="epDesc" value="${esc(po.description || "")}" /></div>
+      <div class="field"><label>Proveedor</label><input class="input" id="epSupplier" value="${esc(po.supplier || "")}" /></div>
+      <div class="field"><label>Kg requeridos</label><input class="input" id="epKg" type="number" step="0.01" value="${esc(po.requested_green_kg || 0)}" /></div>
+      <div class="field"><label>Mercancía estimada total</label><input class="input" id="epCost" type="number" step="0.01" value="${esc(po.estimated_cost || 0)}" /></div>
+      <div class="field"><label>Envío estimado compra</label><input class="input" id="epShip" type="number" step="0.01" value="${esc(po.estimated_shipping_cost || 0)}" /></div>
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="epNotes">${esc(po.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/purchase-orders/${id}`, {
+        method: "PUT",
+        body: {
+          description: val("epDesc"),
+          supplier: val("epSupplier") || null,
+          requested_green_kg: Number(val("epKg")),
+          estimated_cost: Number(val("epCost")),
+          estimated_shipping_cost: Number(val("epShip")),
+          notes: val("epNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Orden de compra actualizada.", "ok");
+      openPurchase(id);
+    }
+  }]);
+}
+
+function deletePurchase(id) {
+  if (!confirm("¿Eliminar esta orden de compra? Si ya recibió café se cancelará para conservar el inventario y la contabilidad.")) return;
+  api(`/purchase-orders/${id}`, { method: "DELETE" })
+    .then(res => { toast(res && res.cancelled ? "Orden cancelada (tenía recepciones)." : "Orden eliminada.", "ok"); setView("purchases"); })
+    .catch(err => toast(err.message, "error"));
 }
 
 function newCapitalRequest() {
@@ -1526,6 +1632,38 @@ function deleteBatch(batchId, sessionId) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editRoastingSession(id) {
+  const { session } = await api(`/roasting-sessions/${id}`);
+  const ops = parseListSetting("roast_operators", ["Axel"]);
+  if (session.operator && !ops.includes(session.operator)) ops.unshift(session.operator);
+  openModal("Editar sesión de tostado", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="ersDate" type="date" value="${esc((session.session_date || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Operador</label><select class="select" id="ersOperator">${ops.map(n => `<option value="${esc(n)}" ${n === session.operator ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="ersNotes">${esc(session.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/roasting-sessions/${id}`, {
+        method: "PUT",
+        body: { session_date: val("ersDate"), operator: val("ersOperator"), notes: val("ersNotes") || null },
+      });
+      modal.remove();
+      toast("Sesión actualizada.", "ok");
+      openRoasting(id);
+    }
+  }]);
+}
+
+function deleteRoastingSession(id) {
+  if (!confirm("¿Eliminar esta sesión de tostado?")) return;
+  api(`/roasting-sessions/${id}`, { method: "DELETE" })
+    .then(() => { toast("Sesión eliminada.", "ok"); setView("roasting"); })
+    .catch(err => toast(err.message, "error"));
+}
+
 
 async function uploadArtisan(batchId, sessionId, input) {
   const file = input?.files?.[0];
@@ -1652,6 +1790,44 @@ function deleteInventoryItem(id) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editInventoryItem(id) {
+  const items = await api("/inventory");
+  const item = items.find(i => Number(i.id) === Number(id));
+  if (!item) { toast("Ítem no encontrado.", "error"); return; }
+  openModal("Editar ítem de inventario", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="eiName" value="${esc(item.item_name || "")}" /></div>
+      <div class="field"><label>Cantidad</label><input class="input" id="eiQty" type="number" step="0.01" value="${esc(item.quantity || 0)}" /></div>
+      <div class="field"><label>Unidad</label><input class="input" id="eiUnit" value="${esc(item.unit || "kg")}" /></div>
+      <div class="field"><label>Stock mínimo</label><input class="input" id="eiMin" type="number" step="0.01" value="${esc(item.min_stock || 0)}" /></div>
+      <div class="field"><label>Lote</label><input class="input" id="eiLot" value="${esc(item.lot_label || "")}" /></div>
+      <div class="field"><label>Origen</label><select class="select" id="eiOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}" ${Number(item.origin_id) === Number(o.id) ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Variedad</label><select class="select" id="eiVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}" ${Number(item.variety_id) === Number(v.id) ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
+    </div>
+    <div class="notice warn">Cambiar la cantidad acá ajusta el stock directo, sin registrar un movimiento. Para entradas/salidas trazables usá "Movimiento".</div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/inventory/${id}`, {
+        method: "PUT",
+        body: {
+          item_name: val("eiName"),
+          quantity: Number(val("eiQty")),
+          unit: val("eiUnit") || "kg",
+          min_stock: Number(val("eiMin")),
+          lot_label: val("eiLot") || null,
+          origin_id: val("eiOrigin") || null,
+          variety_id: val("eiVar") || null,
+        },
+      });
+      modal.remove();
+      toast("Ítem actualizado.", "ok");
+      setView("inventory");
+    }
+  }]);
+}
+
 function newExpense() {
   openModal("Nuevo gasto", `
     <div class="notice warn">Si es balanza, selladora o máquina que se queda un socio, registralo como activo personal en Capital, no como gasto.</div>
@@ -1703,6 +1879,56 @@ function deleteExpense(id) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editExpense(id) {
+  const all = await api("/expenses");
+  const e = all.find(x => Number(x.id) === Number(id));
+  if (!e) { toast("Gasto no encontrado.", "error"); return; }
+  if (e.auto_generated) { toast("Este gasto se generó automáticamente; editá su origen (envío/compra/máquina).", "error"); return; }
+  const sel = (cur, v) => String(cur) === String(v) ? "selected" : "";
+  const cats = (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${sel(e.category_id, c.id)}>${esc(c.name)}</option>`).join("");
+  const people = parseListSetting("individual_people", ["Itza", "Axel"]).map(n => `<option value="${esc(n)}" ${sel(e.paid_by, n)}>${esc(n)}</option>`).join("");
+  const funding = `<option value="cash" ${e.from_cashbox ? "selected" : ""}>Dinero disponible en caja</option>${(state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${!e.from_cashbox && String(e.paid_from_account) === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")}`;
+  const accounts = ["Caja chica", ...(state.master.partners || []).map(p => p.name)].map(a => `<option value="${esc(a)}" ${sel(e.paid_from_account, a)}>${esc(a)}</option>`).join("");
+  openModal("Editar gasto", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="eeDate" type="date" value="${esc((e.expense_date || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Categoría</label><select class="select" id="eeCat">${cats}</select></div>
+      <div class="field"><label>Monto</label><input class="input" id="eeAmount" type="number" step="0.01" value="${esc(e.amount || 0)}" /></div>
+      <div class="field"><label>Pagado por</label><select class="select" id="eePaidBy">${people}</select></div>
+      <div class="field"><label>Fuente de pago</label><select class="select" id="eeFunding">${funding}</select></div>
+      <div class="field"><label>Cuenta / socio</label><select class="select" id="eeAccount">${accounts}</select></div>
+      <div class="field"><label>Proveedor</label><input class="input" id="eeSupplier" value="${esc(e.supplier || "")}" /></div>
+    </div>
+    <div class="field"><label>Descripción</label><input class="input" id="eeDesc" value="${esc(e.description || "")}" /></div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="eeNotes">${esc(e.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/expenses/${id}`, {
+        method: "PUT",
+        body: {
+          expense_date: val("eeDate"),
+          category_id: Number(val("eeCat")),
+          amount: Number(val("eeAmount")),
+          paid_by: val("eePaidBy"),
+          funding_source: val("eeFunding"),
+          paid_from_account: val("eeAccount"),
+          partner_name: val("eeAccount"),
+          from_cashbox: val("eeFunding") === "cash" ? 1 : 0,
+          from_utilities: Number(e.from_utilities || 0),
+          supplier: val("eeSupplier") || null,
+          description: val("eeDesc") || null,
+          notes: val("eeNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Gasto actualizado.", "ok");
+      setView("expenses");
+    }
+  }]);
+}
+
 function newMachineLog() {
   openModal("Nuevo registro de máquina", `
     <div class="notice warn">Si el registro tiene costo, se generará también el gasto correspondiente. Si la fuente es un socio, primero se registra el aporte de capital.</div>
@@ -1744,6 +1970,37 @@ function deleteMachineLog(id) {
   api(`/machine-logs/${id}`, { method: "DELETE" })
     .then(() => { toast("Registro eliminado.", "ok"); setView("machine"); })
     .catch(err => toast(err.message, "error"));
+}
+
+async function editMachineLog(id) {
+  const all = await api("/machine-logs");
+  const m = all.find(x => Number(x.id) === Number(id));
+  if (!m) { toast("Registro no encontrado.", "error"); return; }
+  const types = ["mantenimiento", "mejora", "pieza", "incidencia"];
+  const ppl = parseListSetting("individual_people", ["Itza", "Axel"]);
+  if (m.registered_by && !ppl.includes(m.registered_by)) ppl.unshift(m.registered_by);
+  openModal("Editar registro de máquina", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="emlDate" type="date" value="${esc((m.log_date || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Tipo</label><select class="select" id="emlType">${types.map(t => `<option value="${t}" ${t === m.log_type ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+      <div class="field"><label>Costo</label><input class="input" id="emlCost" type="number" step="0.01" value="${esc(m.cost || 0)}" /></div>
+      <div class="field"><label>Registrado por</label><select class="select" id="emlBy">${ppl.map(n => `<option value="${esc(n)}" ${n === m.registered_by ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label>Descripción</label><textarea class="textarea" id="emlDesc">${esc(m.description || "")}</textarea></div>
+    ${m.expense_id ? `<div class="notice warn">Editar acá no cambia el gasto ya generado por este registro.</div>` : ""}
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/machine-logs/${id}`, {
+        method: "PUT",
+        body: { log_date: val("emlDate"), log_type: val("emlType"), description: val("emlDesc"), cost: Number(val("emlCost")), registered_by: val("emlBy") },
+      });
+      modal.remove();
+      toast("Registro actualizado.", "ok");
+      setView("machine");
+    }
+  }]);
 }
 
 async function saveSettings() {
@@ -1961,6 +2218,31 @@ function newCatalogItem(table, label) {
   }]);
 }
 
+function openResetModal() {
+  openModal("Reiniciar datos", `
+    <div class="notice error">Vas a borrar datos de forma permanente. Hacelo solo si estás seguro.</div>
+    <div class="field"><label>Alcance</label>
+      <select class="select" id="rstScope">
+        <option value="operativo">Operativo — borra ventas, compras, tostado, inventario, gastos y capital (conserva clientes, productos y catálogos)</option>
+        <option value="todo">Todo — además borra clientes y productos</option>
+      </select>
+    </div>
+    <div class="field"><label>Escribí REINICIAR para confirmar</label><input class="input" id="rstConfirm" placeholder="REINICIAR" /></div>
+  `, [{
+    label: "Reiniciar ahora",
+    kind: "red",
+    onClick: async modal => {
+      if ((val("rstConfirm") || "").trim().toUpperCase() !== "REINICIAR") throw new Error("Escribí REINICIAR para confirmar.");
+      await api("/admin/reset", { method: "POST", body: { scope: val("rstScope"), confirm: "REINICIAR" } });
+      modal.remove();
+      state.master = null;
+      await refreshMaster(true);
+      toast("Datos reiniciados.", "ok");
+      setView("dashboard");
+    }
+  }]);
+}
+
 const App = {
   setView,
   render,
@@ -1968,12 +2250,16 @@ const App = {
   newRetailSale,
   newWholesaleSale,
   openSale,
+  editSale,
+  deleteSale,
   addPayment,
   deletePayment,
   addShipment,
   deleteShipment,
   newManualPurchase,
   openPurchase,
+  editPurchase,
+  deletePurchase,
   receivePurchase,
   applyCashbookFilter,
   editCashbookMovement,
@@ -1985,6 +2271,8 @@ const App = {
   payDividendOrder,
   newPartnerAsset,
   newRoastingSession,
+  editRoastingSession,
+  deleteRoastingSession,
   openRoasting,
   newBatch,
   editBatch,
@@ -1994,11 +2282,15 @@ const App = {
   deleteBatchPhoto,
   newInventoryItem,
   newInventoryMovement,
+  editInventoryItem,
   deleteInventoryItem,
   newExpense,
+  editExpense,
   deleteExpense,
   newMachineLog,
+  editMachineLog,
   deleteMachineLog,
+  openResetModal,
   saveSettings,
   addRoastOperator,
   removeRoastOperator,

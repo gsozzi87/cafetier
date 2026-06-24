@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { accountBalances, autoExpense, createPO, docNo, ensureInvItem, finance, financialPosition, getNum, getSettings, invMove, invTotal, normAccount, normInvType, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, thisMonth, today, tx } from "./db";
+import { accountBalances, autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, resetData, thisMonth, today, tx } from "./db";
 
 const api = new Hono();
 const ok = (d: any = null) => ({ success: true, data: d });
@@ -194,6 +194,7 @@ api.get("/dashboard", c => {
     shippedMonth,
     minMonth,
     avgLoss,
+    estimatedLossPct: estimatedLoss(),
     openSales,
     pendingPO,
     pendingPurchaseOrders: pendingPO,
@@ -357,12 +358,19 @@ api.delete("/products/:id", c => { qRun("UPDATE products SET active=0 WHERE id=?
 // ===== INVENTORY =====
 api.get("/inventory", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id ORDER BY i.item_type, i.item_name"))));
 api.get("/inventory/green", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id WHERE i.item_type='green_coffee' AND i.quantity>0 ORDER BY i.item_name"))));
-api.get("/inventory/summary", c => c.json(ok({ verde: invTotal("green_coffee"), tostado: invTotal("roasted_coffee"), empaquetado: invTotal("packaged_coffee"), finance: finance() })));
+api.get("/inventory/summary", c => c.json(ok({ verde: invTotal("green_coffee"), tostado: invTotal("roasted_coffee"), empaquetado: invTotal("packaged_coffee"), estimatedLossPct: estimatedLoss(), finance: finance() })));
 api.post("/inventory", async c => { const b = await body(c); req(b.item_type, "Tipo obligatorio"); req(b.item_name, "Nombre obligatorio"); const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,?,?,?,?,?,?)", normInvType(b.item_type), b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null); return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", Number(r.lastInsertRowid)))); });
 api.put("/inventory/:id", async c => { const b = await body(c); qRun("UPDATE inventory_items SET item_name=?,quantity=?,unit=?,min_stock=?,origin_id=?,variety_id=?,lot_label=? WHERE id=?", b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null, c.req.param("id")); return c.json(ok(true)); });
 api.post("/inventory/:id/movements", async c => { const b = await body(c); req(["in","out","adjust"].includes(b.direction), "Dirección inválida"); const m = tx(() => { invMove(Number(c.req.param("id")), b.direction, num(b.quantity), b.reason || "Manual", b.registered_by); }); m(); return c.json(ok(true)); });
 api.get("/inventory/:id/movements", c => c.json(ok(qAll("SELECT * FROM inventory_movements WHERE item_id=? ORDER BY id DESC", c.req.param("id")))));
-api.delete("/inventory/:id", c => { qRun("DELETE FROM inventory_items WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
+api.delete("/inventory/:id", c => {
+  const id = Number(c.req.param("id"));
+  const inBatches = Number(qVal("SELECT COUNT(*) AS v FROM roasting_batches WHERE green_inventory_item_id=?", id) ?? 0);
+  const inEntries = Number(qVal("SELECT COUNT(*) AS v FROM purchase_entries WHERE inventory_item_id=?", id) ?? 0);
+  if (inBatches > 0 || inEntries > 0) return c.json(fail("No se puede eliminar: este ítem tiene historial de tostado o de compras. Ajustá su cantidad a 0 con un movimiento."), 400);
+  qRun("DELETE FROM inventory_items WHERE id=?", id); // movements cascade
+  return c.json(ok(true));
+});
 
 // ===== SALES ORDERS =====
 api.get("/sales-orders", c => c.json(ok(qAll("SELECT so.*, c.name AS client_name, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid_amount, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped_kg FROM sales_orders so LEFT JOIN clients c ON c.id=so.client_id ORDER BY so.id DESC"))));
@@ -419,12 +427,11 @@ api.post("/sales-orders", async c => {
 
     // Wholesale: check green stock
     if (type === "mayoreo" && totalKg > 0) {
-      const loss = getNum("default_loss_pct", 15);
-      const needGreen = r2(totalKg / (1 - loss / 100));
+      const needGreen = greenNeededForRoasted(totalKg);
       const greenAvail = invTotal("green_coffee");
       const deficit = r2(Math.max(0, needGreen - greenAvail));
       if (deficit > 0) {
-        createPO({ sourceType: "sales_order", sourceId: orderId, description: `Café verde para ${orderNo}`, requestedKg: deficit, estimatedCost: r2(deficit * getNum("default_green_cost_per_kg", 0)) });
+        createPO({ sourceType: "sales_order", sourceId: orderId, description: `Café verde para ${orderNo} (merma ${estimatedLoss()}%)`, requestedKg: deficit, estimatedCost: r2(deficit * getNum("default_green_cost_per_kg", 0)) });
       }
     }
 
@@ -436,7 +443,30 @@ api.post("/sales-orders", async c => {
 
 api.put("/sales-orders/:id", async c => { const b = await body(c); qRun("UPDATE sales_orders SET client_id=?,delivery_date=?,total_weight_kg=?,price_per_kg=?,total_amount=?,notes=?,updated_at=? WHERE id=?", b.client_id||null, b.delivery_date||null, num(b.total_weight_kg), num(b.price_per_kg), num(b.total_amount), b.notes||null, now(), c.req.param("id")); return c.json(ok(recalcSO(Number(c.req.param("id"))))); });
 api.patch("/sales-orders/:id/status", async c => { const b = await body(c); qRun("UPDATE sales_orders SET status=?,updated_at=? WHERE id=?", b.status, now(), c.req.param("id")); return c.json(ok(true)); });
-api.delete("/sales-orders/:id", c => { qRun("DELETE FROM sales_orders WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
+api.delete("/sales-orders/:id", c => {
+  const id = Number(c.req.param("id"));
+  const order = qGet<any>("SELECT * FROM sales_orders WHERE id=?", id);
+  if (!order) return c.json(ok(true));
+  const del = tx(() => {
+    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
+    // Reverse shipments: restore roasted stock and remove the shipping expense each one generated.
+    for (const s of qAll<any>("SELECT * FROM sales_shipments WHERE order_id=?", id)) {
+      if (ri?.id && Number(s.weight_kg) > 0) invMove(ri.id, "in", Number(s.weight_kg), `Reverso envío (borrado ${order.order_no})`, "Sistema");
+      if (s.expense_id) qRun("DELETE FROM expenses WHERE id=?", s.expense_id);
+    }
+    // Reverse the roasted stock a counter sale deducted on creation.
+    if (order.order_type === "mostrador" && ri?.id && Number(order.total_weight_kg) > 0) {
+      invMove(ri.id, "in", Number(order.total_weight_kg), `Reverso venta mostrador ${order.order_no}`, "Sistema");
+    }
+    // Keep production and purchasing history, just detach it from the deleted order.
+    qRun("UPDATE roasting_batches SET sales_order_id=NULL WHERE sales_order_id=?", id);
+    qRun("UPDATE purchase_orders SET source_type='manual', source_id=NULL WHERE source_type='sales_order' AND source_id=?", id);
+    // Items, payments and shipments cascade with the order.
+    qRun("DELETE FROM sales_orders WHERE id=?", id);
+  });
+  del();
+  return c.json(ok(true));
+});
 
 // Payments
 api.post("/sales-orders/:id/payments", async c => { const b = await body(c); req(num(b.amount)>0, "Monto inválido"); qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,received_account,created_at) VALUES (?,?,?,?,?,?,?)", c.req.param("id"), r2(num(b.amount)), b.method||"transferencia", b.notes||null, b.registered_by||"Sistema", normAccount(b.received_account || "Axel"), now()); recalcSO(Number(c.req.param("id"))); return c.json(ok(true)); });
@@ -541,7 +571,21 @@ api.put("/purchase-orders/:id", async c => {
   if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
   return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", id))));
 });
-api.delete("/purchase-orders/:id", c => { qRun("UPDATE purchase_orders SET status='cancelada',updated_at=? WHERE id=?", now(), c.req.param("id")); return c.json(ok(true)); });
+api.delete("/purchase-orders/:id", c => {
+  const id = Number(c.req.param("id"));
+  const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", id);
+  if (!po) return c.json(ok(true));
+  const entries = Number(qVal("SELECT COUNT(*) AS v FROM purchase_entries WHERE purchase_order_id=?", id) ?? 0);
+  if (entries === 0) {
+    // Nothing was received yet: delete it outright.
+    qRun("DELETE FROM purchase_orders WHERE id=?", id);
+    if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
+    return c.json(ok({ deleted: true }));
+  }
+  // Already received stock/expenses: cancel to preserve inventory and accounting.
+  qRun("UPDATE purchase_orders SET status='cancelada',updated_at=? WHERE id=?", now(), id);
+  return c.json(ok({ cancelled: true }));
+});
 
 // ===== CAPITAL =====
 api.get("/capital/summary", c => {
@@ -705,9 +749,16 @@ api.put("/roasting-sessions/:id", async c => { const b = await body(c); qRun("UP
 api.post("/roasting-sessions/:id/batches", async c => {
   const sessionId = Number(c.req.param("id")); const b = await body(c);
   req(b.green_inventory_item_id, "Seleccioná el café verde"); req(num(b.green_kg)>0, "Kg verde inválidos");
+  const gi = qGet<any>("SELECT * FROM inventory_items WHERE id=?", b.green_inventory_item_id);
+  req(gi, "Inventario no encontrado"); req(gi.item_type === "green_coffee", "Debe ser café verde");
+  const greenKg = r2(num(b.green_kg));
+  // Not enough green for this batch: trigger a green-coffee purchase order and stop.
+  if (Number(gi.quantity || 0) < greenKg) {
+    const deficit = r2(greenKg - Number(gi.quantity || 0));
+    const po = createPO({ sourceType: "manual", description: `Café verde para tostar: ${gi.item_name}`, requestedKg: deficit, estimatedCost: r2(deficit * getNum("default_green_cost_per_kg", 0)) });
+    return c.json(fail(`No hay suficiente café verde (disponible ${Number(gi.quantity || 0).toFixed(1)} kg, requerido ${greenKg.toFixed(1)} kg). Se generó la orden de compra ${po?.po_no} por ${deficit.toFixed(1)} kg.`), 400);
+  }
   const create = tx(() => {
-    const gi = qGet<any>("SELECT * FROM inventory_items WHERE id=?", b.green_inventory_item_id);
-    req(gi, "Inventario no encontrado"); req(gi.item_type === "green_coffee", "Debe ser café verde");
     const rkg = b.roasted_kg === null || b.roasted_kg === undefined || b.roasted_kg === "" ? null : r2(num(b.roasted_kg));
     const lp = rkg && num(b.green_kg) > 0 ? r2(((num(b.green_kg) - rkg) / num(b.green_kg)) * 100) : null;
     const bno = docNo("RB");
@@ -825,6 +876,16 @@ api.delete("/machine-logs/:id", c => {
   const row = qGet<any>("SELECT * FROM machine_logs WHERE id=?", c.req.param("id"));
   if (row?.expense_id) qRun("DELETE FROM expenses WHERE id=?", row.expense_id);
   qRun("DELETE FROM machine_logs WHERE id=?", c.req.param("id")); return c.json(ok(true));
+});
+
+// ===== ADMIN =====
+api.get("/admin/loss", c => c.json(ok({ estimatedLossPct: estimatedLoss(), defaultLossPct: getNum("default_loss_pct", 20) })));
+api.post("/admin/reset", async c => {
+  const b = await body(c);
+  req(String(b.confirm || "").trim().toUpperCase() === "REINICIAR", "Escribí REINICIAR para confirmar");
+  const scope = b.scope === "todo" ? "todo" : "operativo";
+  const result = resetData(scope);
+  return c.json(ok(result));
 });
 
 export default api;

@@ -137,3 +137,49 @@ a{text-decoration:none;color:inherit}
 .photo-card img{width:100%;height:110px;object-fit:cover;border-radius:8px;background:#f3efe5}
 .photo-actions{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:6px}
 @media (max-width: 760px){.brand-logo{width:44px;height:44px}.brand h1{font-size:24px}.brand p{font-size:10px;letter-spacing:1.5px}}
+
+/* ===== Icon action buttons (✎ / 🗑) ===== */
+.icon-btn{appearance:none;border:1px solid var(--line);background:#fff;width:30px;height:30px;border-radius:9px;cursor:pointer;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:.15s;padding:0;color:var(--muted)}
+.icon-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.icon-btn.edit:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.icon-btn.del:hover{border-color:var(--red);color:var(--red);background:var(--red-soft)}
+.line-actions{gap:6px}
+
+/* ===== Danger zone ===== */
+.danger-zone{border-color:#efc7c7;background:linear-gradient(180deg,#fffafa,#fff)}
+.danger-zone h3{color:var(--red)}
+
+/* ===== Professional polish ===== */
+:root{--shadow:0 8px 24px rgba(34,25,10,.07);--accent:#8a6512}
+.sidebar{background:linear-gradient(180deg,#fffdf9,#f8f3ea)}
+.brand{gap:14px;padding-bottom:18px}
+.brand-logo{width:54px;height:54px;border-radius:15px;padding:6px;border:1px solid var(--line);background:radial-gradient(circle at 30% 28%,#fff,#fbf6ec)}
+.brand h1{font-size:27px;letter-spacing:5px}
+.brand p{letter-spacing:2.4px}
+.nav-item{font-weight:600}
+.nav-item.active{box-shadow:inset 3px 0 0 var(--accent)}
+.topbar{box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.topbar h2{font-size:15px;font-weight:800;letter-spacing:.2px}
+.btn{box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.btn.primary{background:linear-gradient(180deg,#9a7518,#7f5e11);border-color:#7f5e11}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.red{background:linear-gradient(180deg,#c24545,#a83434);border-color:#a83434}
+.btn.green{background:linear-gradient(180deg,#23824a,#1c6b3c);border-color:#1c6b3c}
+.btn.ghost:hover{background:var(--accent-soft);border-color:#dcc794;color:var(--accent)}
+.card{border-radius:16px}
+.card h3{font-family:var(--font-display);font-size:18px;letter-spacing:.3px}
+.metric .value{font-weight:800}
+.metric.accent{box-shadow:0 8px 24px rgba(138,101,18,.12)}
+.table th{font-weight:800}
+.table tbody tr:nth-child(even) td{background:#fcfbf7}
+.table tr:hover td{background:#f6efde}
+.badge{letter-spacing:.3px}
+.pill{font-weight:600}
+.input,.select,.textarea,.search{transition:.15s}
+.input:focus,.select:focus,.textarea:focus,.search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.modal{border-radius:20px}
+.modal-title{font-family:var(--font-display);font-size:22px;letter-spacing:.4px}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#d9d0bd;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#c9bea6}
+::-webkit-scrollbar-track{background:transparent}
