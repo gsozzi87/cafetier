@@ -308,7 +308,9 @@ async function renderSalesDetail(id) {
       </div>
       <div class="row wrap">
         <button class="btn secondary" onclick="App.addPayment(${order.id})">Registrar pago</button>
-        ${order.order_type === "wholesale" ? `<button class="btn secondary" onclick="App.addShipment(${order.id})">Registrar envío</button>` : ""}
+        ${order.order_type === "mayoreo" ? `<button class="btn secondary" onclick="App.addShipment(${order.id})">Registrar envío</button>` : ""}
+        <button class="btn ghost" onclick="App.editSale(${order.id})">Editar</button>
+        <button class="btn red" onclick="App.deleteSale(${order.id})">Eliminar</button>
       </div>
     </div>
 
@@ -337,7 +339,7 @@ async function renderSalesDetail(id) {
             </div>`).join("") : `<div class="empty">Sin pagos.</div>`}
         </div>
 
-        ${order.order_type === "wholesale" ? `
+        ${order.order_type === "mayoreo" ? `
         <div class="card">
           <div class="row between"><h3>Envíos</h3><button class="btn ghost sm" onclick="App.addShipment(${order.id})">+ Envío</button></div>
           ${shipments.length ? shipments.map(s => `
@@ -361,7 +363,7 @@ async function renderSalesDetail(id) {
           </div>` : ""}
 
         <div class="card">
-          <div class="row between"><h3>Batches ligados</h3>${order.order_type === "wholesale" ? `<button class="btn ghost sm" onclick="App.setView('roasting')">Ir a tostado</button>` : ""}</div>
+          <div class="row between"><h3>Batches ligados</h3>${order.order_type === "mayoreo" ? `<button class="btn ghost sm" onclick="App.setView('roasting')">Ir a tostado</button>` : ""}</div>
           ${batches.length ? batches.map(b => `
             <div class="item">
               <div class="row between"><strong>${esc(b.batch_no)}</strong><span class="pill">${esc(b.roast_profile_name || "Sin perfil")}</span></div>
@@ -422,7 +424,9 @@ async function renderPurchaseDetail(id) {
         ${statusBadge(po.status)}
       </div>
       <div class="row wrap">
-        ${po.status !== "received" && po.status !== "cancelled" ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
+        ${po.status !== "recibida" && po.status !== "cancelada" ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
+        ${po.status !== "recibida" && po.status !== "cancelada" ? `<button class="btn ghost" onclick="App.editPurchase(${po.id})">Editar</button>` : ""}
+        ${po.status !== "cancelada" ? `<button class="btn red" onclick="App.deletePurchase(${po.id})">Cancelar orden</button>` : ""}
       </div>
     </div>
 
@@ -602,6 +606,8 @@ async function renderRoastingDetail(id) {
       </div>
       <div class="row wrap">
         <button class="btn primary" onclick="App.newBatch(${session.id})">Nuevo batch</button>
+        <button class="btn ghost" onclick="App.editRoastingSession(${session.id})">Editar sesión</button>
+        ${batches.length === 0 ? `<button class="btn red" onclick="App.deleteRoastingSession(${session.id})">Eliminar sesión</button>` : ""}
       </div>
     </div>
 
@@ -661,7 +667,7 @@ async function renderInventory() {
               <td>${esc(i.lot_label || "-")}</td>
               <td>${numFmt.format(i.quantity)} ${esc(i.unit)}</td>
               <td>${numFmt.format(i.min_stock)} ${esc(i.unit)}</td>
-              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${esc(i.item_name).replace(/'/g,"&#39;")}')">Movimiento</button><button class="btn red sm" onclick="App.deleteInventoryItem(${i.id})">Eliminar</button></div></td>
+              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editInventoryItem(${i.id})">Editar</button><button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${esc(i.item_name).replace(/'/g,"&#39;")}')">Movimiento</button><button class="btn red sm" onclick="App.deleteInventoryItem(${i.id})">Eliminar</button></div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -691,7 +697,7 @@ async function renderExpenses() {
               <td>${esc(e.category_name)}</td>
               <td>${esc(e.paid_by)}</td>
               <td class="money">${money(e.amount)}</td>
-              <td><button class="btn red sm" onclick="App.deleteExpense(${e.id})">Eliminar</button></td>
+              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editExpense(${e.id})">Editar</button><button class="btn red sm" onclick="App.deleteExpense(${e.id})">Eliminar</button></div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -984,6 +990,56 @@ function deleteShipment(shipmentId, orderId) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editSale(id) {
+  const { order } = await api(`/sales-orders/${id}`);
+  const isWholesale = order.order_type === "mayoreo";
+  openModal("Editar pedido", `
+    <div class="form-grid">
+      <div class="field"><label>Cliente</label><select class="select" id="esClient"><option value="">Mostrador</option>${(state.master.clients || []).map(c => `<option value="${c.id}" ${Number(order.client_id) === Number(c.id) ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Entrega</label><input class="input" id="esDelivery" type="date" value="${esc((order.delivery_date || "").slice(0, 10))}" /></div>
+      ${isWholesale ? `
+      <div class="field"><label>Kg a entregar</label><input class="input" id="esKg" type="number" step="0.01" value="${esc(order.total_weight_kg || 0)}" /></div>
+      <div class="field"><label>Precio por kg</label><input class="input" id="esPriceKg" type="number" step="0.01" value="${esc(order.price_per_kg || 0)}" /></div>
+      <div class="field"><label>Total</label><input class="input" id="esTotal" type="number" step="0.01" value="${esc(order.total_amount || 0)}" /></div>` : `<div class="notice ok">Los totales de una venta de mostrador se calculan desde los productos.</div>`}
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="esNotes">${esc(order.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/sales-orders/${id}`, {
+        method: "PUT",
+        body: {
+          client_id: val("esClient") || null,
+          delivery_date: val("esDelivery") || null,
+          notes: val("esNotes") || null,
+          total_weight_kg: isWholesale ? Number(val("esKg")) : Number(order.total_weight_kg || 0),
+          price_per_kg: isWholesale ? Number(val("esPriceKg")) : Number(order.price_per_kg || 0),
+          total_amount: isWholesale ? Number(val("esTotal")) : Number(order.total_amount || 0),
+        },
+      });
+      modal.remove();
+      toast("Pedido actualizado.", "ok");
+      openSale(id);
+    }
+  }]);
+  if (isWholesale) {
+    const kgEl = document.getElementById("esKg");
+    const priceEl = document.getElementById("esPriceKg");
+    const totalEl = document.getElementById("esTotal");
+    const sync = () => { const k = Number(kgEl?.value || 0), p = Number(priceEl?.value || 0); if (totalEl && k > 0 && p > 0) totalEl.value = String(round2(k * p)); };
+    kgEl?.addEventListener("input", sync);
+    priceEl?.addEventListener("input", sync);
+  }
+}
+
+function deleteSale(id) {
+  if (!confirm("¿Eliminar este pedido? Se borrarán también sus pagos y envíos registrados.")) return;
+  api(`/sales-orders/${id}`, { method: "DELETE" })
+    .then(() => { toast("Pedido eliminado.", "ok"); setView("sales"); })
+    .catch(err => toast(err.message, "error"));
+}
+
 function newManualPurchase() {
   openModal("Nueva orden de compra", `
     <div class="form-grid">
@@ -1072,6 +1128,46 @@ function receivePurchase(poId) {
   kgEl?.addEventListener('input', syncTotal);
   unitEl?.addEventListener('input', syncTotal);
   syncTotal();
+}
+
+async function editPurchase(id) {
+  const { purchaseOrder: po } = await api(`/purchase-orders/${id}`);
+  openModal("Editar orden de compra", `
+    <div class="form-grid">
+      <div class="field"><label>Descripción</label><input class="input" id="epDesc" value="${esc(po.description || "")}" /></div>
+      <div class="field"><label>Proveedor</label><input class="input" id="epSupplier" value="${esc(po.supplier || "")}" /></div>
+      <div class="field"><label>Kg requeridos</label><input class="input" id="epKg" type="number" step="0.01" value="${esc(po.requested_green_kg || 0)}" /></div>
+      <div class="field"><label>Mercancía estimada total</label><input class="input" id="epCost" type="number" step="0.01" value="${esc(po.estimated_cost || 0)}" /></div>
+      <div class="field"><label>Envío estimado compra</label><input class="input" id="epShip" type="number" step="0.01" value="${esc(po.estimated_shipping_cost || 0)}" /></div>
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="epNotes">${esc(po.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/purchase-orders/${id}`, {
+        method: "PUT",
+        body: {
+          description: val("epDesc"),
+          supplier: val("epSupplier") || null,
+          requested_green_kg: Number(val("epKg")),
+          estimated_cost: Number(val("epCost")),
+          estimated_shipping_cost: Number(val("epShip")),
+          notes: val("epNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Orden de compra actualizada.", "ok");
+      openPurchase(id);
+    }
+  }]);
+}
+
+function deletePurchase(id) {
+  if (!confirm("¿Cancelar esta orden de compra?")) return;
+  api(`/purchase-orders/${id}`, { method: "DELETE" })
+    .then(() => { toast("Orden de compra cancelada.", "ok"); setView("purchases"); })
+    .catch(err => toast(err.message, "error"));
 }
 
 function newCapitalRequest() {
@@ -1287,6 +1383,38 @@ function deleteBatch(batchId, sessionId) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editRoastingSession(id) {
+  const { session } = await api(`/roasting-sessions/${id}`);
+  const ops = parseListSetting("roast_operators", ["Axel"]);
+  if (session.operator && !ops.includes(session.operator)) ops.unshift(session.operator);
+  openModal("Editar sesión de tostado", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="ersDate" type="date" value="${esc((session.session_date || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Operador</label><select class="select" id="ersOperator">${ops.map(n => `<option value="${esc(n)}" ${n === session.operator ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="ersNotes">${esc(session.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/roasting-sessions/${id}`, {
+        method: "PUT",
+        body: { session_date: val("ersDate"), operator: val("ersOperator"), notes: val("ersNotes") || null },
+      });
+      modal.remove();
+      toast("Sesión actualizada.", "ok");
+      openRoasting(id);
+    }
+  }]);
+}
+
+function deleteRoastingSession(id) {
+  if (!confirm("¿Eliminar esta sesión de tostado?")) return;
+  api(`/roasting-sessions/${id}`, { method: "DELETE" })
+    .then(() => { toast("Sesión eliminada.", "ok"); setView("roasting"); })
+    .catch(err => toast(err.message, "error"));
+}
+
 
 async function uploadArtisan(batchId, sessionId, input) {
   const file = input?.files?.[0];
@@ -1413,6 +1541,44 @@ function deleteInventoryItem(id) {
     .catch(err => toast(err.message, "error"));
 }
 
+async function editInventoryItem(id) {
+  const items = await api("/inventory");
+  const item = items.find(i => Number(i.id) === Number(id));
+  if (!item) { toast("Ítem no encontrado.", "error"); return; }
+  openModal("Editar ítem de inventario", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="eiName" value="${esc(item.item_name || "")}" /></div>
+      <div class="field"><label>Cantidad</label><input class="input" id="eiQty" type="number" step="0.01" value="${esc(item.quantity || 0)}" /></div>
+      <div class="field"><label>Unidad</label><input class="input" id="eiUnit" value="${esc(item.unit || "kg")}" /></div>
+      <div class="field"><label>Stock mínimo</label><input class="input" id="eiMin" type="number" step="0.01" value="${esc(item.min_stock || 0)}" /></div>
+      <div class="field"><label>Lote</label><input class="input" id="eiLot" value="${esc(item.lot_label || "")}" /></div>
+      <div class="field"><label>Origen</label><select class="select" id="eiOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}" ${Number(item.origin_id) === Number(o.id) ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Variedad</label><select class="select" id="eiVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}" ${Number(item.variety_id) === Number(v.id) ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
+    </div>
+    <div class="notice warn">Cambiar la cantidad acá ajusta el stock directo, sin registrar un movimiento. Para entradas/salidas trazables usá "Movimiento".</div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/inventory/${id}`, {
+        method: "PUT",
+        body: {
+          item_name: val("eiName"),
+          quantity: Number(val("eiQty")),
+          unit: val("eiUnit") || "kg",
+          min_stock: Number(val("eiMin")),
+          lot_label: val("eiLot") || null,
+          origin_id: val("eiOrigin") || null,
+          variety_id: val("eiVar") || null,
+        },
+      });
+      modal.remove();
+      toast("Ítem actualizado.", "ok");
+      setView("inventory");
+    }
+  }]);
+}
+
 function newExpense() {
   openModal("Nuevo gasto", `
     <div class="notice warn">Elegí si el gasto sale de caja o si lo financia un socio. Si lo cubre un socio, el sistema registra primero el aporte de capital a su favor.</div>
@@ -1453,6 +1619,46 @@ function deleteExpense(id) {
   api(`/expenses/${id}`, { method: "DELETE" })
     .then(() => { toast("Gasto eliminado.", "ok"); setView("expenses"); })
     .catch(err => toast(err.message, "error"));
+}
+
+async function editExpense(id) {
+  const all = await api("/expenses");
+  const e = all.find(x => Number(x.id) === Number(id));
+  if (!e) { toast("Gasto no encontrado.", "error"); return; }
+  const currentFunding = Number(e.from_cashbox) ? "cash" : (e.paid_from_account || "cash");
+  const fundingOpts = `<option value="cash" ${currentFunding === "cash" ? "selected" : ""}>Dinero disponible en caja</option>${(state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${currentFunding === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")}`;
+  const catOpts = (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${Number(e.category_id) === Number(c.id) ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+  openModal("Editar gasto", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="eeDate" type="date" value="${esc((e.expense_date || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Categoría</label><select class="select" id="eeCat">${catOpts}</select></div>
+      <div class="field"><label>Monto</label><input class="input" id="eeAmount" type="number" step="0.01" value="${esc(e.amount || 0)}" /></div>
+      <div class="field"><label>Fuente del dinero</label><select class="select" id="eeFunding">${fundingOpts}</select></div>
+      <div class="field"><label>Proveedor</label><input class="input" id="eeSupplier" value="${esc(e.supplier || "")}" /></div>
+    </div>
+    <div class="field"><label>Descripción</label><input class="input" id="eeDesc" value="${esc(e.description || "")}" /></div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="eeNotes">${esc(e.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/expenses/${id}`, {
+        method: "PUT",
+        body: {
+          expense_date: val("eeDate"),
+          category_id: Number(val("eeCat")),
+          amount: Number(val("eeAmount")),
+          funding_source: val("eeFunding"),
+          supplier: val("eeSupplier") || null,
+          description: val("eeDesc") || null,
+          notes: val("eeNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Gasto actualizado.", "ok");
+      setView("expenses");
+    }
+  }]);
 }
 
 function newMachineLog() {
@@ -1647,15 +1853,21 @@ const App = {
   deletePayment,
   addShipment,
   deleteShipment,
+  editSale,
+  deleteSale,
   newManualPurchase,
   openPurchase,
   receivePurchase,
+  editPurchase,
+  deletePurchase,
   newCapitalRequest,
   newContribution,
   newCapitalReturn,
   newDividendOrder,
   payDividendOrder,
   newRoastingSession,
+  editRoastingSession,
+  deleteRoastingSession,
   openRoasting,
   newBatch,
   editBatch,
@@ -1665,8 +1877,10 @@ const App = {
   deleteBatchPhoto,
   newInventoryItem,
   newInventoryMovement,
+  editInventoryItem,
   deleteInventoryItem,
   newExpense,
+  editExpense,
   deleteExpense,
   newMachineLog,
   deleteMachineLog,

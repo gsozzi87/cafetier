@@ -523,6 +523,24 @@ api.post("/purchase-orders/:id/receive", async c => {
   receive();
   return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", poId))));
 });
+api.put("/purchase-orders/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", id);
+  if (!po) return c.json(fail("No encontrada"), 404);
+  if (po.status === "recibida") return c.json(fail("No se puede editar una orden ya recibida"), 400);
+  const b = await body(c);
+  const description = b.description ?? po.description;
+  req(description, "Descripción obligatoria");
+  const requestedKg = r2(num(b.requested_kg ?? b.requested_green_kg ?? po.requested_kg));
+  req(requestedKg > 0, "Kg requeridos");
+  const est = r2(num(b.estimated_cost ?? po.estimated_cost));
+  const ship = r2(num(b.estimated_shipping_cost ?? po.estimated_shipping_cost));
+  let status = po.status;
+  if (status !== "cancelada") status = est + ship > finance().cash ? "sin_fondos" : po.received_kg > 0 ? "parcial" : "pendiente";
+  qRun("UPDATE purchase_orders SET description=?,supplier=?,requested_kg=?,estimated_cost=?,estimated_shipping_cost=?,notes=?,status=?,updated_at=? WHERE id=?", description, b.supplier ?? po.supplier ?? null, requestedKg, est, ship, b.notes ?? po.notes ?? null, status, now(), id);
+  if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
+  return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", id))));
+});
 api.delete("/purchase-orders/:id", c => { qRun("UPDATE purchase_orders SET status='cancelada',updated_at=? WHERE id=?", now(), c.req.param("id")); return c.json(ok(true)); });
 
 // ===== CAPITAL =====
