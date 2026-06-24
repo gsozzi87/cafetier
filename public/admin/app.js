@@ -863,7 +863,7 @@ async function renderInventory() {
               <td>${esc(i.item_type)}</td>
               <td><strong>${esc(i.item_name)}</strong><div class="tiny muted">${esc(i.origin_name || "")} ${i.variety_name ? "· " + esc(i.variety_name) : ""}</div></td>
               <td>${esc(i.lot_label || "-")}</td>
-              <td>${numFmt.format(i.quantity)} ${esc(i.unit)}</td>
+              <td>${numFmt.format(i.quantity)} ${esc(i.unit)} ${Number(i.min_stock) > 0 && Number(i.quantity) <= Number(i.min_stock) ? `<span class="badge sin_fondos" title="Por debajo del mínimo">bajo</span>` : ""}</td>
               <td>${numFmt.format(i.min_stock)} ${esc(i.unit)}</td>
               <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${esc(i.item_name).replace(/'/g,"&#39;")}')">Movimiento</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
             </tr>`).join("")}

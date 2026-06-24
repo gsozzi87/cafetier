@@ -259,6 +259,66 @@ function migrateInventoryTypes() {
   `);
 }
 
+// Older databases were created with English status / type CHECK constraints
+// ('pending_purchase', 'wholesale', 'received'...). The current schema uses
+// Spanish values, and CREATE TABLE IF NOT EXISTS never alters an existing table,
+// so writing a Spanish status fails the old CHECK. Rebuild any drifted table,
+// translating existing values, so the schema matches the code exactly.
+function migrateStatusSchema() {
+  const poDef = qGet<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='purchase_orders'");
+  if (poDef?.sql && (poDef.sql.includes("'pending_purchase'") || poDef.sql.includes("'pending_capital'") || poDef.sql.includes("'received'"))) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE purchase_orders_new (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, estimated_shipping_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, actual_shipping_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      INSERT INTO purchase_orders_new (id,po_no,source_type,source_id,status,description,requested_kg,estimated_cost,estimated_shipping_cost,actual_cost,actual_shipping_cost,received_kg,supplier,notes,created_at,updated_at)
+      SELECT id,po_no,
+        CASE source_type WHEN 'sales_order' THEN 'sales_order' ELSE 'manual' END,
+        source_id,
+        CASE status WHEN 'pending_capital' THEN 'sin_fondos' WHEN 'pending_purchase' THEN 'pendiente' WHEN 'partial' THEN 'parcial' WHEN 'received' THEN 'recibida' WHEN 'cancelled' THEN 'cancelada'
+          WHEN 'sin_fondos' THEN 'sin_fondos' WHEN 'pendiente' THEN 'pendiente' WHEN 'parcial' THEN 'parcial' WHEN 'recibida' THEN 'recibida' WHEN 'cancelada' THEN 'cancelada' ELSE 'pendiente' END,
+        description,COALESCE(requested_kg,0),COALESCE(estimated_cost,0),COALESCE(estimated_shipping_cost,0),COALESCE(actual_cost,0),COALESCE(actual_shipping_cost,0),COALESCE(received_kg,0),supplier,notes,COALESCE(created_at,CURRENT_TIMESTAMP),COALESCE(updated_at,CURRENT_TIMESTAMP)
+      FROM purchase_orders;
+      DROP TABLE purchase_orders;
+      ALTER TABLE purchase_orders_new RENAME TO purchase_orders;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+  const soDef = qGet<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='sales_orders'");
+  if (soDef?.sql && (soDef.sql.includes("'wholesale'") || soDef.sql.includes("'retail'") || soDef.sql.includes("'in_production'") || soDef.sql.includes("'completed'"))) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE sales_orders_new (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT NOT NULL UNIQUE, order_type TEXT NOT NULL CHECK(order_type IN ('mostrador','mayoreo')), client_id INTEGER, status TEXT DEFAULT 'abierto' CHECK(status IN ('abierto','esperando_compra','en_produccion','listo','envio_parcial','completado','cancelado')), delivery_date TEXT, total_weight_kg REAL DEFAULT 0, price_per_kg REAL DEFAULT 0, total_amount REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (client_id) REFERENCES clients(id));
+      INSERT INTO sales_orders_new (id,order_no,order_type,client_id,status,delivery_date,total_weight_kg,price_per_kg,total_amount,notes,created_at,updated_at)
+      SELECT id,order_no,
+        CASE order_type WHEN 'retail' THEN 'mostrador' WHEN 'wholesale' THEN 'mayoreo' WHEN 'mostrador' THEN 'mostrador' WHEN 'mayoreo' THEN 'mayoreo' ELSE 'mayoreo' END,
+        client_id,
+        CASE status WHEN 'open' THEN 'abierto' WHEN 'pending_purchase' THEN 'esperando_compra' WHEN 'in_production' THEN 'en_produccion' WHEN 'ready' THEN 'listo' WHEN 'partial_shipped' THEN 'envio_parcial' WHEN 'completed' THEN 'completado' WHEN 'cancelled' THEN 'cancelado'
+          WHEN 'abierto' THEN 'abierto' WHEN 'esperando_compra' THEN 'esperando_compra' WHEN 'en_produccion' THEN 'en_produccion' WHEN 'listo' THEN 'listo' WHEN 'envio_parcial' THEN 'envio_parcial' WHEN 'completado' THEN 'completado' WHEN 'cancelado' THEN 'cancelado' ELSE 'abierto' END,
+        delivery_date,COALESCE(total_weight_kg,0),COALESCE(price_per_kg,0),COALESCE(total_amount,0),notes,COALESCE(created_at,CURRENT_TIMESTAMP),COALESCE(updated_at,CURRENT_TIMESTAMP)
+      FROM sales_orders;
+      DROP TABLE sales_orders;
+      ALTER TABLE sales_orders_new RENAME TO sales_orders;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+  const mlDef = qGet<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='machine_logs'");
+  if (mlDef?.sql && (mlDef.sql.includes("'maintenance'") || mlDef.sql.includes("'improvement'") || mlDef.sql.includes("'incident'"))) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE machine_logs_new (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT NOT NULL, log_type TEXT NOT NULL CHECK(log_type IN ('mantenimiento','mejora','pieza','incidencia')), description TEXT NOT NULL, cost REAL DEFAULT 0, registered_by TEXT, expense_id INTEGER, created_at TEXT NOT NULL);
+      INSERT INTO machine_logs_new (id,log_date,log_type,description,cost,registered_by,expense_id,created_at)
+      SELECT id,log_date,
+        CASE log_type WHEN 'maintenance' THEN 'mantenimiento' WHEN 'improvement' THEN 'mejora' WHEN 'part' THEN 'pieza' WHEN 'incident' THEN 'incidencia'
+          WHEN 'mantenimiento' THEN 'mantenimiento' WHEN 'mejora' THEN 'mejora' WHEN 'pieza' THEN 'pieza' WHEN 'incidencia' THEN 'incidencia' ELSE 'mantenimiento' END,
+        description,COALESCE(cost,0),registered_by,expense_id,COALESCE(created_at,CURRENT_TIMESTAMP)
+      FROM machine_logs;
+      DROP TABLE machine_logs;
+      ALTER TABLE machine_logs_new RENAME TO machine_logs;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+}
+
 export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: number, reason: string, by?: string | null) {
   const cur = Number(qVal("SELECT COALESCE(quantity,0) AS v FROM inventory_items WHERE id=?", itemId) ?? 0);
   let next = cur;
@@ -396,7 +456,20 @@ export function initDB() {
   qRun("INSERT OR REPLACE INTO settings (key,value) VALUES ('people','Itza|Axel'),('individual_people','Itza|Axel'),('operators','Axel|Itza'),('roast_operators','Axel|Itza')");
   qRun("UPDATE settings SET value='20' WHERE key='default_loss_pct' AND value='15'");
   migrateInventoryTypes();
+  migrateStatusSchema();
   ensureInvItem({ item_type: "roasted_coffee", item_name: "Café tostado disponible", unit: "kg" });
+
+  // One-shot data reset via env var (set RESET_DB_ON_BOOT=operativo|todo in the host,
+  // redeploy once). A marker prevents it from wiping again on later restarts.
+  const resetFlag = process.env.RESET_DB_ON_BOOT;
+  if (resetFlag) {
+    const marker = qVal<string>("SELECT value FROM settings WHERE key='last_boot_reset'");
+    if (marker !== resetFlag) {
+      resetData(resetFlag === "todo" ? "todo" : "operativo");
+      qRun("INSERT OR REPLACE INTO settings(key,value) VALUES ('last_boot_reset',?)", resetFlag);
+      console.log(`[RESET_DB_ON_BOOT] Datos reiniciados (alcance=${resetFlag}).`);
+    }
+  }
 }
 
 // Merma (loss) estimated dynamically from the most recent roasting batches,
