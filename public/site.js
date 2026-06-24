@@ -57,8 +57,7 @@
     menu.innerHTML = `
       <a href="/marca/#historia">Nuestra historia</a>
       <a href="/marca/#registro">Marca registrada</a>
-      <a href="/marca/#filosofia">Filosofia</a>
-      <a class="internal-link" href="/admin/">Acceso interno</a>`;
+      <a href="/marca/#filosofia">Filosofia</a>`;
   });
 
   if (!document.querySelector(".floating-whatsapp")) {

@@ -144,7 +144,6 @@ svg{display:block}
   font-size:12px;
 }
 .dropdown-menu a:hover{background:rgba(231,205,143,.12)}
-.internal-link{opacity:.72}
 .phone-link{
   display:inline-flex;
   align-items:center;
@@ -1809,16 +1808,6 @@ svg{display:block}
   gap:18px;
   align-items:center;
 }
-.admin-dot{
-  width:18px;
-  height:18px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  border-radius:50%;
-  opacity:.42;
-}
-.admin-dot:hover{opacity:1;background:rgba(255,255,255,.1)}
 
 .coffee-page{background:#f7efe2}
 .coffee-hero{
