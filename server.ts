@@ -8,10 +8,24 @@ initDB();
 const app = new Hono();
 app.get("/api/healthz", c => c.json({ ok: true }));
 app.route("/api", api);
+app.get("/admin", serveStatic({ path: "./public/admin/index.html" }));
+app.get("/admin/", serveStatic({ path: "./public/admin/index.html" }));
+app.get("/editor-sitio", serveStatic({ path: "./public/editor-sitio/index.html" }));
+app.get("/editor-sitio/", serveStatic({ path: "./public/editor-sitio/index.html" }));
+app.get("/nuestro-cafe", serveStatic({ path: "./public/nuestro-cafe/index.html" }));
+app.get("/nuestro-cafe/", serveStatic({ path: "./public/nuestro-cafe/index.html" }));
+app.get("/para-negocios", serveStatic({ path: "./public/para-negocios/index.html" }));
+app.get("/para-negocios/", serveStatic({ path: "./public/para-negocios/index.html" }));
+app.get("/proceso", serveStatic({ path: "./public/proceso/index.html" }));
+app.get("/proceso/", serveStatic({ path: "./public/proceso/index.html" }));
+app.get("/marca", serveStatic({ path: "./public/marca/index.html" }));
+app.get("/marca/", serveStatic({ path: "./public/marca/index.html" }));
+app.get("/pedidos", serveStatic({ path: "./public/pedidos/index.html" }));
+app.get("/pedidos/", serveStatic({ path: "./public/pedidos/index.html" }));
 app.use("/*", serveStatic({ root: "./public" }));
 app.get("*", serveStatic({ path: "./public/index.html" }));
 
 const port = Number(process.env.PORT || 3000);
-console.log(`☕ CAFETIER v4 corriendo en puerto ${port}`);
+console.log(`CAFETIER v4 corriendo en puerto ${port}`);
 
 export default { port, fetch: app.fetch };

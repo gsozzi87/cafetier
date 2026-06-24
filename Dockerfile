@@ -2,13 +2,12 @@ FROM oven/bun:1-alpine
 
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json bun.lock ./
 RUN bun install --production
 
 COPY server.ts api.ts db.ts ./
 RUN mkdir -p public /data /data/uploads
-COPY index.html manifest.json ./public/
-COPY logo.png ./public/
+COPY public/ ./public/
 
 ENV DB_PATH=/data/cafetier.db
 ENV UPLOAD_PATH=/data/uploads

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 124" fill="none" role="img" aria-label="CAFETIER">
+  <!-- hojas de café -->
+  <path d="M60 86 C41 81 25 85 14 98 C31 105 51 101 61 87 Z" fill="#2f7d44"/>
+  <path d="M60 86 C79 81 95 85 106 98 C89 105 69 101 59 87 Z" fill="#2f7d44"/>
+  <path d="M20 96 Q41 89 58 87" stroke="#e2f1e6" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".75"/>
+  <path d="M100 96 Q79 89 62 87" stroke="#e2f1e6" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".75"/>
+  <!-- flor de granos de café -->
+  <g>
+    <g transform="rotate(-46 60 86)"><ellipse cx="60" cy="44" rx="10" ry="19" fill="#5a3415"/><path d="M60 27 Q65.5 44 60 61" stroke="#c89a5c" stroke-width="2.3" fill="none" stroke-linecap="round"/></g>
+    <g transform="rotate(-23 60 86)"><ellipse cx="60" cy="42" rx="10.5" ry="20" fill="#6b4220"/><path d="M60 24 Q66 42 60 60" stroke="#d2a767" stroke-width="2.3" fill="none" stroke-linecap="round"/></g>
+    <g transform="rotate(0 60 86)"><ellipse cx="60" cy="40" rx="11" ry="21" fill="#5a3415"/><path d="M60 21 Q66 40 60 59" stroke="#c89a5c" stroke-width="2.4" fill="none" stroke-linecap="round"/></g>
+    <g transform="rotate(23 60 86)"><ellipse cx="60" cy="42" rx="10.5" ry="20" fill="#6b4220"/><path d="M60 24 Q66 42 60 60" stroke="#d2a767" stroke-width="2.3" fill="none" stroke-linecap="round"/></g>
+    <g transform="rotate(46 60 86)"><ellipse cx="60" cy="44" rx="10" ry="19" fill="#5a3415"/><path d="M60 27 Q65.5 44 60 61" stroke="#c89a5c" stroke-width="2.3" fill="none" stroke-linecap="round"/></g>
+  </g>
+</svg>

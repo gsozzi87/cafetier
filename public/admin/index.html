@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>CAFETIER Admin</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/admin/logo.svg" alt="CAFETIER" onerror="this.onerror=null;this.src='/admin/logo.png'">
+        <div class="brand-copy">
+          <h1>CAFETIER</h1>
+          <p>Culto por el caf&eacute;</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Administrador">
+        <div class="nav-section">Operaci&oacute;n</div>
+        <div class="nav-item active" data-view="dashboard"><span class="ni-ico">◧</span>Dashboard</div>
+        <div class="nav-item" data-view="sales"><span class="ni-ico">🧾</span>Ventas</div>
+        <div class="nav-item" data-view="clients"><span class="ni-ico">👥</span>Clientes</div>
+        <div class="nav-item" data-view="purchases"><span class="ni-ico">📦</span>Compras</div>
+        <div class="nav-item" data-view="roasting"><span class="ni-ico">🔥</span>Tostado</div>
+        <div class="nav-item" data-view="inventory"><span class="ni-ico">📋</span>Inventario</div>
+        <div class="nav-section">Finanzas</div>
+        <div class="nav-item" data-view="cashbook"><span class="ni-ico">📒</span>Libro de caja</div>
+        <div class="nav-item" data-view="capital"><span class="ni-ico">💰</span>Capital &amp; Utilidades</div>
+        <div class="nav-item" data-view="expenses"><span class="ni-ico">💸</span>Gastos</div>
+        <div class="nav-section">Sistema</div>
+        <div class="nav-item" data-view="machine"><span class="ni-ico">⚙️</span>M&aacute;quina</div>
+        <div class="nav-item" data-view="config"><span class="ni-ico">🔧</span>Configuraci&oacute;n</div>
+      </nav>
+      <div class="sidebar-foot">CAFETIER ERP · v4</div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="actions">
+          <button class="btn secondary sm" id="reloadBtn">Actualizar</button>
+          <span class="pill" id="statusPill">Iniciando</span>
+        </div>
+      </header>
+      <section class="content" id="content">
+        <div class="empty">Cargando...</div>
+      </section>
+    </main>
+  </div>
+  <div class="toast-wrap" id="toasts"></div>
+  <script src="/admin/app.js"></script>
+</body>
+</html>

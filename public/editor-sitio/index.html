@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Editor del sitio | CAFETIER</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/editor-sitio/styles.css">
+</head>
+<body>
+  <header class="editor-header">
+    <a class="editor-brand" href="/editor-sitio/">
+      <img src="/assets/cafetier-mark.svg" alt="">
+      <span><strong>CAFETIER</strong><small>Editor del sitio</small></span>
+    </a>
+    <div class="header-actions">
+      <span class="save-status" id="saveStatus">Cargando...</span>
+      <label class="page-picker">
+        <span>P&aacute;gina</span>
+        <select id="pageSelect" aria-label="Elegir p&aacute;gina"></select>
+      </label>
+      <a class="icon-button" href="/" target="_blank" title="Abrir sitio" aria-label="Abrir sitio">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+      </a>
+      <button class="primary-button" type="button" id="saveButton">Guardar cambios</button>
+    </div>
+  </header>
+
+  <div class="editor-shell">
+    <aside class="editor-sidebar">
+      <p>Contenido</p>
+      <nav id="editorNav" aria-label="Secciones del editor"></nav>
+      <div class="sidebar-note">
+        <strong>Publicaci&oacute;n inmediata</strong>
+        <span>Al guardar, la p&aacute;gina elegida usa los cambios en la siguiente carga.</span>
+      </div>
+    </aside>
+
+    <main class="editor-main">
+      <section class="editor-panel">
+        <div class="panel-heading">
+          <div><p id="panelEyebrow">Inicio</p><h1 id="panelTitle">Hero</h1></div>
+          <button class="text-button" type="button" id="resetButton">Restaurar valores de esta sesi&oacute;n</button>
+        </div>
+        <div id="editorContent" class="editor-content">
+          <div class="loading">Cargando editor...</div>
+        </div>
+      </section>
+
+      <aside class="preview-panel">
+        <div class="preview-heading">
+          <div><strong>Vista previa publicada</strong><span>Se actualiza despu&eacute;s de guardar</span></div>
+          <div class="preview-sizes" aria-label="Tama&ntilde;o de vista previa">
+            <button class="is-active" type="button" data-preview-size="desktop" aria-label="Vista de escritorio"><svg viewBox="0 0 24 24"><path d="M3 4h18v12H3V4Zm5 16h8m-4-4v4"/></svg></button>
+            <button type="button" data-preview-size="mobile" aria-label="Vista m&oacute;vil"><svg viewBox="0 0 24 24"><path d="M7 2h10v20H7V2Zm4 17h2"/></svg></button>
+          </div>
+        </div>
+        <div class="preview-frame-wrap" id="previewWrap">
+          <iframe id="sitePreview" src="/" title="Vista previa de la portada CAFETIER"></iframe>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="toast" id="editorToast" role="status" aria-live="polite"></div>
+  <script src="/site-content.js?v=20260623f"></script>
+  <script src="/editor-sitio/app.js?v=20260623f"></script>
+</body>
+</html>
