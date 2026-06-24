@@ -329,7 +329,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS origins (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS varieties (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS expense_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, is_direct_cost INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
-    CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cafe_name TEXT, contact_name TEXT, phone TEXT, contact_phone TEXT, email TEXT, address TEXT, city TEXT, postal_code TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cafe_name TEXT, contact_name TEXT, phone TEXT, contact_phone TEXT, email TEXT, address TEXT, neighborhood TEXT, municipality TEXT, city TEXT, state TEXT, country TEXT, postal_code TEXT, address_reference TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, origin_id INTEGER, variety_id INTEGER, roast_profile_id INTEGER, presentation TEXT, unit_weight_kg REAL DEFAULT 1, price REAL DEFAULT 0, active INTEGER DEFAULT 1, FOREIGN KEY (origin_id) REFERENCES origins(id), FOREIGN KEY (variety_id) REFERENCES varieties(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id));
 
     CREATE TABLE IF NOT EXISTS inventory_items (id INTEGER PRIMARY KEY AUTOINCREMENT, item_type TEXT NOT NULL CHECK(item_type IN ('green_coffee','roasted_coffee','packaged_coffee','supply')), item_name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'kg', min_stock REAL DEFAULT 0, origin_id INTEGER, variety_id INTEGER, lot_label TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -367,6 +367,11 @@ export function initDB() {
   ensureColumn("clients", "contact_name", "TEXT");
   ensureColumn("clients", "contact_phone", "TEXT");
   ensureColumn("clients", "postal_code", "TEXT");
+  ensureColumn("clients", "neighborhood", "TEXT");
+  ensureColumn("clients", "municipality", "TEXT");
+  ensureColumn("clients", "state", "TEXT");
+  ensureColumn("clients", "country", "TEXT");
+  ensureColumn("clients", "address_reference", "TEXT");
   ensureColumn("expenses", "from_cashbox", "INTEGER DEFAULT 1");
   ensureColumn("expenses", "from_utilities", "INTEGER DEFAULT 0");
   ensureColumn("expenses", "paid_from_account", "TEXT");

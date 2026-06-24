@@ -51,6 +51,48 @@ function purchaseOrderView(row: any) {
     capital_missing: row.status === "sin_fondos" ? r2(missing) : 0,
   };
 }
+function cashbookRows(start?: string | null, end?: string | null) {
+  const rows = qAll<any>(`
+    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type,
+      cc.partner_name AS person, COALESCE(cc.received_account, cc.partner_name) AS account, cc.description AS detail,
+      cc.amount AS amount, cc.amount AS signed_amount, cc.created_at AS created_at
+    FROM capital_contributions cc
+    UNION ALL
+    SELECT 'sales_payment' AS source, sp.id AS source_id, substr(sp.created_at,1,10) AS date, 'Cobro de venta' AS type,
+      COALESCE(sp.registered_by,'Sistema') AS person, COALESCE(sp.received_account,'Axel') AS account,
+      'Pago ' || COALESCE(so.order_no, '#' || sp.order_id) || COALESCE(' · ' || sp.notes, '') AS detail,
+      sp.amount AS amount, sp.amount AS signed_amount, sp.created_at AS created_at
+    FROM sales_payments sp
+    LEFT JOIN sales_orders so ON so.id=sp.order_id
+    UNION ALL
+    SELECT 'expense' AS source, e.id AS source_id, e.expense_date AS date, ec.name AS type,
+      e.paid_by AS person, COALESCE(e.paid_from_account, e.paid_by) AS account,
+      COALESCE(e.description, ec.name) || COALESCE(' · ' || e.supplier, '') AS detail,
+      e.amount AS amount, -e.amount AS signed_amount, e.created_at AS created_at
+    FROM expenses e
+    JOIN expense_categories ec ON ec.id=e.category_id
+    UNION ALL
+    SELECT 'withdrawal' AS source, w.id AS source_id, substr(w.created_at,1,10) AS date,
+      CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital' ELSE 'Dividendo' END AS type,
+      w.partner_name AS person, COALESCE(w.paid_from_account,'Caja chica') AS account,
+      COALESCE(w.notes,'') AS detail, w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at
+    FROM withdrawals w
+  `).map(r => ({
+    ...r,
+    id: `${r.source}:${r.source_id}`,
+    amount: r2(Number(r.amount || 0)),
+    signed_amount: r2(Number(r.signed_amount || 0)),
+    editable: true,
+    deletable: true,
+  }));
+  return rows
+    .filter(r => (!start || r.date >= start) && (!end || r.date <= end))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || Number(b.source_id) - Number(a.source_id));
+}
+function setIsoDate(current: string | null | undefined, date: string) {
+  const suffix = current && String(current).includes("T") ? String(current).slice(10) : "T12:00:00.000Z";
+  return `${date}${suffix}`;
+}
 
 const UPLOAD_DIR = process.env.UPLOAD_PATH || "/data/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -179,6 +221,63 @@ api.get("/libro-caja", c => {
   return c.json(ok({ month, ingresos, egresos, saldo: f.cash, total_ingresos: ingresos.reduce((s: number, r: any) => s + r.monto, 0), total_egresos: egresos.reduce((s: number, r: any) => s + r.monto, 0) }));
 });
 
+api.get("/cashbook", c => {
+  const month = c.req.query("month");
+  const start = c.req.query("start") || (month ? `${month}-01` : null);
+  const end = c.req.query("end") || (month ? `${month}-31` : null);
+  const movements = cashbookRows(start, end);
+  return c.json(ok({
+    start,
+    end,
+    movements,
+    total_in: r2(movements.filter(m => m.signed_amount > 0).reduce((s, m) => s + m.signed_amount, 0)),
+    total_out: r2(Math.abs(movements.filter(m => m.signed_amount < 0).reduce((s, m) => s + m.signed_amount, 0))),
+    net: r2(movements.reduce((s, m) => s + m.signed_amount, 0)),
+  }));
+});
+
+api.put("/cashbook/:source/:id", async c => {
+  const source = c.req.param("source");
+  const id = Number(c.req.param("id"));
+  const b = await body(c);
+  const amount = r2(num(b.amount));
+  req(amount > 0, "Monto inválido");
+  if (source === "capital_contribution") {
+    req(b.person || b.partner_name, "Socio obligatorio");
+    qRun("UPDATE capital_contributions SET partner_name=?,amount=?,description=?,contribution_date=?,received_account=? WHERE id=?", normPartner(b.person || b.partner_name), amount, b.detail || b.description || "", b.date || today(), normAccount(b.account || b.received_account || b.person), id);
+  } else if (source === "sales_payment") {
+    const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
+    req(cur, "Pago no encontrado");
+    qRun("UPDATE sales_payments SET amount=?,method=?,notes=?,registered_by=?,received_account=?,created_at=? WHERE id=?", amount, b.method || cur.method || "transferencia", b.detail || b.notes || null, b.person || cur.registered_by || "Sistema", normAccount(b.account || cur.received_account || "Axel"), setIsoDate(cur.created_at, b.date || today()), id);
+    recalcSO(Number(cur.order_id));
+  } else if (source === "expense") {
+    const cur = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
+    req(cur, "Gasto no encontrado");
+    qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,paid_from_account=? WHERE id=?", b.date || today(), b.category_id || cur.category_id, amount, b.detail || b.description || null, b.person || cur.paid_by || "Sistema", b.supplier || cur.supplier || null, b.notes || cur.notes || null, normAccount(b.account || cur.paid_from_account || cur.paid_by), id);
+  } else if (source === "withdrawal") {
+    const cur = qGet<any>("SELECT * FROM withdrawals WHERE id=?", id);
+    req(cur, "Retiro no encontrado");
+    qRun("UPDATE withdrawals SET partner_name=?,amount=?,month=?,paid_from_account=?,notes=?,created_at=? WHERE id=?", normPartner(b.person || cur.partner_name), amount, (b.date || today()).slice(0, 7), normAccount(b.account || cur.paid_from_account || "Axel"), b.detail || b.notes || null, setIsoDate(cur.created_at, b.date || today()), id);
+  } else {
+    return c.json(fail("Movimiento inválido"), 400);
+  }
+  return c.json(ok(true));
+});
+
+api.delete("/cashbook/:source/:id", c => {
+  const source = c.req.param("source");
+  const id = Number(c.req.param("id"));
+  if (source === "capital_contribution") qRun("DELETE FROM capital_contributions WHERE id=?", id);
+  else if (source === "sales_payment") {
+    const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
+    qRun("DELETE FROM sales_payments WHERE id=?", id);
+    if (cur?.order_id) recalcSO(Number(cur.order_id));
+  } else if (source === "expense") qRun("DELETE FROM expenses WHERE id=?", id);
+  else if (source === "withdrawal") qRun("DELETE FROM withdrawals WHERE id=?", id);
+  else return c.json(fail("Movimiento inválido"), 400);
+  return c.json(ok(true));
+});
+
 // ===== SETTINGS =====
 api.get("/settings", c => c.json(ok(getSettings())));
 api.put("/settings", async c => { const b = await body(c); for (const [k, v] of Object.entries(b)) qRun("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", k, String(v)); return c.json(ok(getSettings())); });
@@ -203,7 +302,7 @@ api.post("/clients", async c => {
   const b = await body(c);
   req(b.name, "Nombre obligatorio");
   const r = qRun(
-    "INSERT INTO clients(name,cafe_name,contact_name,phone,contact_phone,email,address,city,postal_code,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
+    "INSERT INTO clients(name,cafe_name,contact_name,phone,contact_phone,email,address,neighborhood,municipality,city,state,country,postal_code,address_reference,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
     b.name,
     b.cafe_name || null,
     b.contact_name || null,
@@ -211,8 +310,13 @@ api.post("/clients", async c => {
     b.contact_phone || null,
     b.email || null,
     b.address || null,
+    b.neighborhood || b.colonia || null,
+    b.municipality || b.alcaldia || null,
     b.city || null,
+    b.state || null,
+    b.country || "México",
     b.postal_code || null,
+    b.address_reference || null,
     b.notes || null,
     now()
   );
@@ -222,7 +326,7 @@ api.put("/clients/:id", async c => {
   const b = await body(c);
   req(b.name, "Nombre obligatorio");
   qRun(
-    "UPDATE clients SET name=?,cafe_name=?,contact_name=?,phone=?,contact_phone=?,email=?,address=?,city=?,postal_code=?,notes=? WHERE id=?",
+    "UPDATE clients SET name=?,cafe_name=?,contact_name=?,phone=?,contact_phone=?,email=?,address=?,neighborhood=?,municipality=?,city=?,state=?,country=?,postal_code=?,address_reference=?,notes=? WHERE id=?",
     b.name,
     b.cafe_name || null,
     b.contact_name || null,
@@ -230,8 +334,13 @@ api.put("/clients/:id", async c => {
     b.contact_phone || null,
     b.email || null,
     b.address || null,
+    b.neighborhood || b.colonia || null,
+    b.municipality || b.alcaldia || null,
     b.city || null,
+    b.state || null,
+    b.country || "México",
     b.postal_code || null,
+    b.address_reference || null,
     b.notes || null,
     c.req.param("id")
   );

@@ -11,6 +11,7 @@ const VIEWS = {
   salesDetail: "Detalle de venta",
   purchases: "Compras",
   purchaseDetail: "Detalle de compra",
+  cashbook: "Libro de caja",
   capital: "Capital & Utilidades",
   roasting: "Tostado",
   roastingDetail: "Detalle de sesión",
@@ -144,6 +145,7 @@ async function render() {
     if (state.view === "salesDetail") return await renderSalesDetail(state.params.id);
     if (state.view === "purchases") return await renderPurchases();
     if (state.view === "purchaseDetail") return await renderPurchaseDetail(state.params.id);
+    if (state.view === "cashbook") return await renderCashbook();
     if (state.view === "capital") return await renderCapital();
     if (state.view === "roasting") return await renderRoasting();
     if (state.view === "roastingDetail") return await renderRoastingDetail(state.params.id);
@@ -320,6 +322,35 @@ async function renderClients() {
               <td>${esc(c.phone || "")}${c.contact_phone ? `<div class="tiny muted">Enc. ${esc(c.contact_phone)}</div>` : ""}</td>
               <td>${esc([c.address, c.city, c.postal_code ? `CP ${c.postal_code}` : ""].filter(Boolean).join(" · "))}</td>
               <td><button class="btn red sm" onclick="App.deleteClient(${c.id})">Eliminar</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      ${rows.length ? "" : `<div class="empty">Sin clientes registrados.</div>`}
+    </div>
+  `;
+}
+
+async function renderClients() {
+  const master = await refreshMaster(true);
+  const rows = master.clients || [];
+  document.getElementById("content").innerHTML = `
+    <div class="row between" style="margin-bottom:12px">
+      <button class="btn primary" onclick="App.newClient()">Nuevo cliente</button>
+      <input class="search" style="max-width:280px" placeholder="Buscar cliente" oninput="App.filterTable(this,'clientsTable')" />
+    </div>
+    <div class="card">
+      <table class="table" id="clientsTable">
+        <thead><tr><th>Cliente</th><th>Cafetería</th><th>Encargado</th><th>Contacto</th><th>Dirección</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map(c => `
+            <tr>
+              <td><strong>${esc(c.name)}</strong><div class="tiny muted">${esc(c.email || "")}</div></td>
+              <td>${esc(c.cafe_name || "")}</td>
+              <td>${esc(c.contact_name || "")}</td>
+              <td>${esc(c.phone || "")}${c.contact_phone ? `<div class="tiny muted">Enc. ${esc(c.contact_phone)}</div>` : ""}</td>
+              <td>${esc([c.address, c.neighborhood ? `Col. ${c.neighborhood}` : "", c.municipality, c.city, c.state, c.postal_code ? `CP ${c.postal_code}` : ""].filter(Boolean).join(" · "))}</td>
+              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editClient(${c.id})">Editar</button><button class="btn red sm" onclick="App.deleteClient(${c.id})">Eliminar</button></div></td>
             </tr>
           `).join("")}
         </tbody>
@@ -511,6 +542,102 @@ async function renderPurchaseDetail(id) {
       </div>
     </div>
   `;
+}
+
+async function renderCashbook() {
+  const nowDate = new Date();
+  const start = state.params.start || `${nowDate.toISOString().slice(0, 7)}-01`;
+  const end = state.params.end || nowDate.toISOString().slice(0, 10);
+  const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+  document.getElementById("content").innerHTML = `
+    <div class="row between" style="margin-bottom:12px">
+      <div class="row wrap">
+        <div class="field inline-field"><label>Desde</label><input class="input" id="cashStart" type="date" value="${esc(start)}" /></div>
+        <div class="field inline-field"><label>Hasta</label><input class="input" id="cashEnd" type="date" value="${esc(end)}" /></div>
+        <button class="btn secondary" onclick="App.applyCashbookFilter()">Ver</button>
+      </div>
+      <span class="pill">${data.movements.length} movimientos</span>
+    </div>
+
+    <div class="grid cards" style="margin-bottom:12px">
+      <div class="card metric"><div class="label">Entradas</div><div class="value money">${money(data.total_in)}</div><small>Aportes + cobros</small></div>
+      <div class="card metric"><div class="label">Salidas</div><div class="value money">${money(data.total_out)}</div><small>Gastos + retiros</small></div>
+      <div class="card metric ${data.net >= 0 ? "accent" : ""}"><div class="label">Neto del periodo</div><div class="value money">${money(data.net)}</div><small>${esc(start)} a ${esc(end)}</small></div>
+      <div class="card metric"><div class="label">Rango</div><div class="value" style="font-size:20px">${esc(start)}</div><small>hasta ${esc(end)}</small></div>
+    </div>
+
+    <div class="card">
+      <table class="table" id="cashbookTable">
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Persona</th><th>Entrada</th><th>Salida</th><th></th></tr></thead>
+        <tbody>
+          ${data.movements.map(m => `
+            <tr>
+              <td><strong>${esc(m.date)}</strong><div class="tiny muted">${esc(m.source)} #${esc(m.source_id)}</div></td>
+              <td>${esc(m.type)}</td>
+              <td>${esc(m.detail || "")}</td>
+              <td>${esc(m.account || "")}</td>
+              <td>${esc(m.person || "")}</td>
+              <td class="money">${m.signed_amount > 0 ? money(m.amount) : ""}</td>
+              <td class="money">${m.signed_amount < 0 ? money(m.amount) : ""}</td>
+              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Editar</button><button class="btn red sm" onclick="App.deleteCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Borrar</button></div></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      ${data.movements.length ? "" : `<div class="empty">No hay movimientos en este rango.</div>`}
+    </div>
+  `;
+}
+
+function applyCashbookFilter() {
+  setView("cashbook", { start: val("cashStart"), end: val("cashEnd") });
+}
+
+async function editCashbookMovement(source, id) {
+  const start = state.params.start || `${new Date().toISOString().slice(0, 7)}-01`;
+  const end = state.params.end || new Date().toISOString().slice(0, 10);
+  const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+  const movement = data.movements.find(m => m.source === source && Number(m.source_id) === Number(id));
+  if (!movement) throw new Error("No pude encontrar el movimiento en el rango actual.");
+  const isPartnerRow = ["capital_contribution", "withdrawal"].includes(source);
+  const isExpense = source === "expense";
+  const expenseDetail = isExpense ? (await api("/expenses")).find(e => Number(e.id) === Number(id)) : null;
+  openModal("Editar movimiento de caja", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="cbDate" type="date" value="${esc(movement.date)}" /></div>
+      <div class="field"><label>Monto</label><input class="input" id="cbAmount" type="number" step="0.01" value="${esc(movement.amount)}" /></div>
+      <div class="field"><label>Cuenta</label><select class="select" id="cbAccount">${accountOptions(movement.account || "Axel")}</select></div>
+      <div class="field"><label>${isPartnerRow ? "Socio" : "Persona"}</label>${isPartnerRow ? `<select class="select" id="cbPerson">${partnerOptions(movement.person)}</select>` : `<input class="input" id="cbPerson" value="${esc(movement.person || "")}" />`}</div>
+      ${isExpense ? `<div class="field"><label>Categoría</label><select class="select" id="cbCategory">${expenseCategoryOptions(expenseDetail?.category_id)}</select></div><div class="field"><label>Proveedor</label><input class="input" id="cbSupplier" value="${esc(expenseDetail?.supplier || "")}" /></div>` : ""}
+    </div>
+    <div class="field"><label>Detalle</label><textarea class="textarea" id="cbDetail">${esc(movement.detail || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/cashbook/${source}/${id}`, {
+        method: "PUT",
+        body: {
+          date: val("cbDate"),
+          amount: Number(val("cbAmount")),
+          account: val("cbAccount"),
+          person: val("cbPerson"),
+          detail: val("cbDetail") || null,
+          category_id: isExpense ? Number(val("cbCategory")) : null,
+          supplier: isExpense ? val("cbSupplier") || null : null,
+        },
+      });
+      modal.remove();
+      toast("Movimiento actualizado.", "ok");
+      setView("cashbook", state.params);
+    }
+  }]);
+}
+
+function deleteCashbookMovement(source, id) {
+  if (!confirm("¿Borrar este movimiento de caja? Esta acción afecta los números del ERP.")) return;
+  api(`/cashbook/${source}/${id}`, { method: "DELETE" })
+    .then(() => { toast("Movimiento borrado.", "ok"); setView("cashbook", state.params); })
+    .catch(err => toast(err.message, "error"));
 }
 
 async function renderCapital() {
@@ -867,8 +994,8 @@ function parseListSetting(key, fallback = []) {
   const values = String(raw).split("|").map(x => x.trim()).filter(Boolean);
   return values.length ? values : fallback;
 }
-function partnerOptions() {
-  return (state.master.partners || []).map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+function partnerOptions(selected = "") {
+  return (state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${p.name === selected ? "selected" : ""}>${esc(p.name)}</option>`).join("");
 }
 function personOptions() {
   return parseListSetting("individual_people", ["Itza", "Axel"]).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
@@ -883,8 +1010,8 @@ function accountOptions(selected = "Axel") {
 function fundingSourceOptions() {
   return `<option value="business_account">Cuenta/dinero del negocio</option><option value="partner_contribution">Lo puso un socio y se le debe</option>`;
 }
-function expenseCategoryOptions() {
-  return (state.master.expenseCategories || []).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+function expenseCategoryOptions(selected = "") {
+  return (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${Number(c.id) === Number(selected) ? "selected" : ""}>${esc(c.name)}</option>`).join("");
 }
 function productQtyRows() {
   return (state.master.products || []).map(p => `
@@ -1696,6 +1823,72 @@ function newClient() {
   }]);
 }
 
+function clientFormPayload() {
+  return {
+    name: val("clName"),
+    cafe_name: val("clCafe") || null,
+    contact_name: val("clContact") || null,
+    phone: val("clPhone") || null,
+    contact_phone: val("clContactPhone") || null,
+    email: val("clEmail") || null,
+    address: val("clAddress") || null,
+    neighborhood: val("clNeighborhood") || null,
+    municipality: val("clMunicipality") || null,
+    city: val("clCity") || null,
+    state: val("clState") || null,
+    country: val("clCountry") || null,
+    postal_code: val("clPostal") || null,
+    address_reference: val("clAddressRef") || null,
+    notes: val("clNotes") || null,
+  };
+}
+
+function openClientModal(client = null) {
+  openModal(client ? "Editar cliente" : "Nuevo cliente", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="clName" value="${esc(client?.name || "")}" /></div>
+      <div class="field"><label>Nombre de la cafetería</label><input class="input" id="clCafe" value="${esc(client?.cafe_name || "")}" /></div>
+      <div class="field"><label>Encargado</label><input class="input" id="clContact" value="${esc(client?.contact_name || "")}" /></div>
+      <div class="field"><label>Teléfono</label><input class="input" id="clPhone" value="${esc(client?.phone || "")}" /></div>
+      <div class="field"><label>Teléfono encargado</label><input class="input" id="clContactPhone" value="${esc(client?.contact_phone || "")}" /></div>
+      <div class="field"><label>Email</label><input class="input" id="clEmail" value="${esc(client?.email || "")}" /></div>
+      <div class="field"><label>Código postal</label><input class="input" id="clPostal" value="${esc(client?.postal_code || "")}" /></div>
+      <div class="field"><label>Colonia</label><input class="input" id="clNeighborhood" value="${esc(client?.neighborhood || "")}" /></div>
+      <div class="field"><label>Alcaldía / municipio</label><input class="input" id="clMunicipality" value="${esc(client?.municipality || "")}" /></div>
+      <div class="field"><label>Ciudad</label><input class="input" id="clCity" value="${esc(client?.city || "")}" /></div>
+      <div class="field"><label>Estado</label><input class="input" id="clState" value="${esc(client?.state || "")}" /></div>
+      <div class="field"><label>País</label><input class="input" id="clCountry" value="${esc(client?.country || "México")}" /></div>
+    </div>
+    <div class="field"><label>Dirección completa / calle y número</label><input class="input" id="clAddress" value="${esc(client?.address || "")}" /></div>
+    <div class="field"><label>Referencia de dirección</label><input class="input" id="clAddressRef" value="${esc(client?.address_reference || "")}" /></div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="clNotes">${esc(client?.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar",
+    kind: "primary",
+    onClick: async modal => {
+      await api(client ? `/clients/${client.id}` : "/clients", {
+        method: client ? "PUT" : "POST",
+        body: clientFormPayload(),
+      });
+      modal.remove();
+      await refreshMaster(true);
+      toast("Cliente guardado.", "ok");
+      setView("clients");
+    }
+  }]);
+}
+
+function newClient() {
+  openClientModal(null);
+}
+
+async function editClient(id) {
+  const master = await refreshMaster(true);
+  const client = (master.clients || []).find(c => Number(c.id) === Number(id));
+  if (!client) throw new Error("Cliente no encontrado.");
+  openClientModal(client);
+}
+
 function deleteClient(id) {
   if (!confirm("¿Eliminar cliente?")) return;
   api(`/clients/${id}`, { method: "DELETE" })
@@ -1782,6 +1975,9 @@ const App = {
   newManualPurchase,
   openPurchase,
   receivePurchase,
+  applyCashbookFilter,
+  editCashbookMovement,
+  deleteCashbookMovement,
   newCapitalRequest,
   newContribution,
   newCapitalReturn,
@@ -1807,6 +2003,7 @@ const App = {
   addRoastOperator,
   removeRoastOperator,
   newClient,
+  editClient,
   deleteClient,
   newProduct,
   deleteProduct,
