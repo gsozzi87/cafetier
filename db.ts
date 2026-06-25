@@ -343,7 +343,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS purchase_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, estimated_shipping_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, actual_shipping_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS purchase_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_order_id INTEGER NOT NULL, inventory_item_id INTEGER NOT NULL, quantity_kg REAL NOT NULL, unit_cost REAL DEFAULT 0, total_cost REAL NOT NULL, shipping_cost REAL DEFAULT 0, supplier TEXT, lot_label TEXT, origin_id INTEGER, variety_id INTEGER, registered_by TEXT, funding_source TEXT, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE);
 
-    CREATE TABLE IF NOT EXISTS capital_contributions (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_name TEXT NOT NULL, amount REAL NOT NULL, description TEXT NOT NULL, contribution_date TEXT NOT NULL, capital_request_id INTEGER, received_account TEXT, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS capital_contributions (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_name TEXT NOT NULL, amount REAL NOT NULL, description TEXT NOT NULL, contribution_date TEXT NOT NULL, capital_request_id INTEGER, received_account TEXT, auto_generated INTEGER DEFAULT 0, source_type TEXT, source_id INTEGER, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS withdrawals (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL CHECK(kind IN ('capital_return','dividend')), partner_name TEXT NOT NULL, amount REAL NOT NULL, month TEXT, contribution_id INTEGER, dividend_order_id INTEGER, paid_from_account TEXT, notes TEXT, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS capital_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, request_no TEXT NOT NULL UNIQUE, amount_requested REAL NOT NULL, amount_funded REAL DEFAULT 0, status TEXT DEFAULT 'open', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS dividend_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, dividend_no TEXT NOT NULL UNIQUE, month TEXT NOT NULL, total_amount REAL NOT NULL, status TEXT DEFAULT 'open', notes TEXT, created_at TEXT NOT NULL, paid_at TEXT);
@@ -383,11 +383,15 @@ export function initDB() {
   ensureColumn("purchase_entries", "paid_from_account", "TEXT");
   ensureColumn("capital_contributions", "capital_request_id", "INTEGER");
   ensureColumn("capital_contributions", "received_account", "TEXT");
+  ensureColumn("capital_contributions", "auto_generated", "INTEGER DEFAULT 0");
+  ensureColumn("capital_contributions", "source_type", "TEXT");
+  ensureColumn("capital_contributions", "source_id", "INTEGER");
   ensureColumn("withdrawals", "dividend_order_id", "INTEGER");
   ensureColumn("withdrawals", "paid_from_account", "TEXT");
   qRun("UPDATE sales_payments SET received_account=COALESCE(received_account, registered_by, 'Axel')");
   qRun("UPDATE expenses SET paid_from_account=COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END)");
   qRun("UPDATE capital_contributions SET received_account=COALESCE(received_account, partner_name)");
+  qRun("UPDATE capital_contributions SET auto_generated=1 WHERE description LIKE 'Gasto pagado por %' OR description LIKE 'Máquina pagada por %' OR description LIKE 'Compra % pagada por %'");
   qRun("UPDATE withdrawals SET paid_from_account=COALESCE(paid_from_account, 'Caja chica')");
   qRun("UPDATE capital_contributions SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE withdrawals SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");

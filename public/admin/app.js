@@ -29,6 +29,27 @@ function kg(n) { return `${numFmt.format(Number(n || 0))} kg`; }
 function pct(n) { return `${numFmt.format(Number(n || 0))}%`; }
 function round2(n) { return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100; }
 function esc(v) { return String(v ?? "").replace(/[&<>"]/g, m => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[m])); }
+const CASHBOOK_SOURCE_LABELS = {
+  expense: "gasto",
+  sales_payment: "cobro",
+  capital_contribution: "aporte",
+  withdrawal: "retiro",
+};
+function cashbookSourceLabel(source) { return CASHBOOK_SOURCE_LABELS[source] || source; }
+function cleanFundingDescription(row) {
+  return String(row?.description || "")
+    .replace(/^Gasto pagado por [^:]+:\s*/i, "")
+    .replace(/^Maquina pagada por [^:]+:\s*/i, "")
+    .replace(/^Máquina pagada por [^:]+:\s*/i, "")
+    .replace(/^Compra\s+/i, "Compra ");
+}
+function expenseSourceHtml(e) {
+  const account = e.paid_from_account || (Number(e.from_cashbox || 0) ? "Caja chica" : e.paid_by) || "";
+  const paidBy = e.paid_by || "";
+  const mode = Number(e.from_cashbox || 0) ? "Dinero del negocio" : "Reembolsable al socio";
+  const detail = paidBy && paidBy !== account ? `${mode} · pagó ${paidBy}` : mode;
+  return `<strong>${esc(account)}</strong><div class="tiny muted">${esc(detail)}</div>`;
+}
 function val(id) { return document.getElementById(id)?.value; }
 function setStatus(text) { document.getElementById("statusPill").textContent = text; }
 function statusBadge(status) { return `<span class="badge ${status}">${esc(status)}</span>`; }
@@ -572,7 +593,7 @@ async function renderCashbook() {
         <tbody>
           ${data.movements.map(m => `
             <tr>
-              <td><strong>${esc(m.date)}</strong><div class="tiny muted">${esc(m.source)} #${esc(m.source_id)}</div></td>
+              <td><strong>${esc(m.date)}</strong><div class="tiny muted">${esc(cashbookSourceLabel(m.source))} #${esc(m.source_id)}</div></td>
               <td>${esc(m.type)}</td>
               <td>${esc(m.detail || "")}</td>
               <td>${esc(m.account || "")}</td>
@@ -641,10 +662,11 @@ function deleteCashbookMovement(source, id) {
 }
 
 async function renderCapital() {
-  const [summary, requests, contributions, dividends, withdrawals, assets] = await Promise.all([
+  const [summary, requests, contributions, reimbursements, dividends, withdrawals, assets] = await Promise.all([
     api("/capital/summary"),
     api("/capital-requests"),
     api("/capital-contributions"),
+    api("/capital-reimbursements"),
     api("/dividend-orders"),
     api("/withdrawals"),
     api("/partner-assets"),
@@ -700,6 +722,16 @@ async function renderCapital() {
               <div class="small muted">${money(r.amount_requested)} solicitado · ${money(r.amount_funded)} fondeado</div>
               <div class="small muted">${esc(r.notes || "")}</div>
             </div>`).join("") : `<div class="empty">No hay órdenes de capital.</div>`}
+        </div>
+
+        <div class="card">
+          <div class="row between"><h3>Gastos pagados por socios</h3><span class="pill">${reimbursements.length}</span></div>
+          ${reimbursements.length ? reimbursements.map(r => `
+            <div class="item">
+              <div class="row between"><strong>${esc(r.partner_name)}</strong><span class="money">${money(r.amount)}</span></div>
+              <div class="small muted">${esc(r.contribution_date)} · pendiente de reembolso</div>
+              <div class="small muted">${esc(cleanFundingDescription(r))}</div>
+            </div>`).join("") : `<div class="empty">No hay gastos propios de socios pendientes.</div>`}
         </div>
 
         <div class="card">
@@ -881,9 +913,9 @@ async function renderExpenses() {
               <td>${esc(e.expense_date)}</td>
               <td><strong>${esc(e.description || e.category_name)}</strong><div class="tiny muted">${esc(e.supplier || "")}</div></td>
               <td>${esc(e.category_name)}</td>
-              <td>${esc(e.paid_from_account || e.paid_by)}<div class="tiny muted">${esc(e.paid_by || "")}</div></td>
+              <td>${expenseSourceHtml(e)}</td>
               <td class="money">${money(e.amount)}</td>
-              <td><button class="btn red sm" onclick="App.deleteExpense(${e.id})">Eliminar</button></td>
+              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editExpense(${e.id})">Editar</button><button class="btn red sm" onclick="App.deleteExpense(${e.id})">Eliminar</button></div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -997,8 +1029,8 @@ function parseListSetting(key, fallback = []) {
 function partnerOptions(selected = "") {
   return (state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${p.name === selected ? "selected" : ""}>${esc(p.name)}</option>`).join("");
 }
-function personOptions() {
-  return parseListSetting("individual_people", ["Itza", "Axel"]).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+function personOptions(selected = "") {
+  return parseListSetting("individual_people", ["Itza", "Axel"]).map(name => `<option value="${esc(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`).join("");
 }
 function roastOperatorOptions() {
   return parseListSetting("roast_operators", ["Axel"]).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
@@ -1007,8 +1039,8 @@ function accountOptions(selected = "Axel") {
   const accounts = ["Axel", "Itza", "Caja chica"];
   return accounts.map(name => `<option value="${esc(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`).join("");
 }
-function fundingSourceOptions() {
-  return `<option value="business_account">Cuenta/dinero del negocio</option><option value="partner_contribution">Lo puso un socio y se le debe</option>`;
+function fundingSourceOptions(selected = "") {
+  return `<option value="business_account" ${selected === "business_account" ? "selected" : ""}>Cuenta/dinero del negocio</option><option value="partner_contribution" ${selected === "partner_contribution" ? "selected" : ""}>Lo puso un socio y se le debe</option>`;
 }
 function expenseCategoryOptions(selected = "") {
   return (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${Number(c.id) === Number(selected) ? "selected" : ""}>${esc(c.name)}</option>`).join("");
@@ -1696,6 +1728,53 @@ function newExpense() {
   }]);
 }
 
+async function editExpense(id) {
+  const row = (await api("/expenses")).find(e => Number(e.id) === Number(id));
+  if (!row) throw new Error("No pude encontrar ese gasto.");
+  const funding = Number(row.from_cashbox || 0) ? "business_account" : "partner_contribution";
+  openModal("Editar gasto", `
+    <div class="notice warn">Si cambiás la fuente de pago, el pendiente de reembolso se ajusta automáticamente.</div>
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="expDate" type="date" value="${esc(row.expense_date || new Date().toISOString().slice(0,10))}" /></div>
+      <div class="field"><label>Categoría</label><select class="select" id="expCat">${expenseCategoryOptions(row.category_id)}</select></div>
+      <div class="field"><label>Monto</label><input class="input" id="expAmount" type="number" step="0.01" value="${esc(row.amount)}" /></div>
+      <div class="field"><label>Pagado por</label><select class="select" id="expPaidBy">${personOptions(row.paid_by)}</select></div>
+      <div class="field"><label>Fuente de pago</label><select class="select" id="expFunding">${fundingSourceOptions(funding)}</select></div>
+      <div class="field"><label>Cuenta / socio</label><select class="select" id="expAccount">${accountOptions(row.paid_from_account || row.paid_by || "Axel")}</select></div>
+      <div class="field"><label>¿Sale de utilidades?</label><select class="select" id="expUtilities"><option value="1" ${Number(row.from_utilities || 0) ? "selected" : ""}>Sí</option><option value="0" ${Number(row.from_utilities || 0) ? "" : "selected"}>No</option></select></div>
+      <div class="field"><label>¿Sale de caja chica?</label><select class="select" id="expCashbox"><option value="1" ${Number(row.from_cashbox || 0) ? "selected" : ""}>Sí</option><option value="0" ${Number(row.from_cashbox || 0) ? "" : "selected"}>No</option></select></div>
+      <div class="field"><label>Proveedor</label><input class="input" id="expSupplier" value="${esc(row.supplier || "")}" /></div>
+    </div>
+    <div class="field"><label>Descripción</label><input class="input" id="expDesc" value="${esc(row.description || "")}" /></div>
+    <div class="field"><label>Notas</label><textarea class="textarea" id="expNotes">${esc(row.notes || "")}</textarea></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/expenses/${id}`, {
+        method: "PUT",
+        body: {
+          expense_date: val("expDate"),
+          category_id: Number(val("expCat")),
+          amount: Number(val("expAmount")),
+          paid_by: val("expPaidBy"),
+          funding_source: val("expFunding"),
+          paid_from_account: val("expAccount"),
+          partner_name: val("expAccount"),
+          from_utilities: Number(val("expUtilities")),
+          from_cashbox: Number(val("expCashbox")),
+          supplier: val("expSupplier") || null,
+          description: val("expDesc") || null,
+          notes: val("expNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Gasto actualizado.", "ok");
+      setView("expenses");
+    }
+  }]);
+}
+
 function deleteExpense(id) {
   if (!confirm("¿Eliminar este gasto?")) return;
   api(`/expenses/${id}`, { method: "DELETE" })
@@ -1996,6 +2075,7 @@ const App = {
   newInventoryMovement,
   deleteInventoryItem,
   newExpense,
+  editExpense,
   deleteExpense,
   newMachineLog,
   deleteMachineLog,

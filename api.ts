@@ -25,9 +25,9 @@ function expenseFunding(b: any) {
   const paidFromAccount = normAccount(b.paid_from_account || b.account || (fromCashbox ? paidBy : partner || paidBy));
   return { fromCashbox, fromUtilities, paidBy: partner || paidBy, partner: fromCashbox ? "" : partner, paidFromAccount };
 }
-function registerDirectFunding(partner: string, amount: number, date: string, description: string, receivedAccount?: string | null, capitalRequestId?: number | null) {
+function registerDirectFunding(partner: string, amount: number, date: string, description: string, receivedAccount?: string | null, capitalRequestId?: number | null, sourceType?: string | null, sourceId?: number | null) {
   if (!partner) return;
-  const res = qRun("INSERT INTO capital_contributions(partner_name,amount,description,contribution_date,capital_request_id,received_account,created_at) VALUES (?,?,?,?,?,?,?)", partner, r2(amount), description, date, capitalRequestId || null, normAccount(receivedAccount || partner), now());
+  const res = qRun("INSERT INTO capital_contributions(partner_name,amount,description,contribution_date,capital_request_id,received_account,auto_generated,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", partner, r2(amount), description, date, capitalRequestId || null, normAccount(receivedAccount || partner), 1, sourceType || null, sourceId || null, now());
   if (capitalRequestId) refreshCapitalRequest(capitalRequestId);
   return Number(res.lastInsertRowid);
 }
@@ -51,12 +51,17 @@ function purchaseOrderView(row: any) {
     capital_missing: row.status === "sin_fondos" ? r2(missing) : 0,
   };
 }
+function autoCapitalSql(alias = "cc") {
+  const p = alias ? `${alias}.` : "";
+  return `(COALESCE(${p}auto_generated,0)=1 OR ${p}description LIKE 'Gasto pagado por %' OR ${p}description LIKE 'Máquina pagada por %' OR ${p}description LIKE 'Compra % pagada por %')`;
+}
 function cashbookRows(start?: string | null, end?: string | null) {
   const rows = qAll<any>(`
     SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type,
       cc.partner_name AS person, COALESCE(cc.received_account, cc.partner_name) AS account, cc.description AS detail,
       cc.amount AS amount, cc.amount AS signed_amount, cc.created_at AS created_at
     FROM capital_contributions cc
+    WHERE NOT ${autoCapitalSql("cc")}
     UNION ALL
     SELECT 'sales_payment' AS source, sp.id AS source_id, substr(sp.created_at,1,10) AS date, 'Cobro de venta' AS type,
       COALESCE(sp.registered_by,'Sistema') AS person, COALESCE(sp.received_account,'Axel') AS account,
@@ -92,6 +97,55 @@ function cashbookRows(start?: string | null, end?: string | null) {
 function setIsoDate(current: string | null | undefined, date: string) {
   const suffix = current && String(current).includes("T") ? String(current).slice(10) : "T12:00:00.000Z";
   return `${date}${suffix}`;
+}
+function expenseContributionDescription(row: any, partner = normPartner(row?.paid_by)) {
+  return `Gasto pagado por ${partner}: ${row?.description || "sin descripción"}`;
+}
+function expenseAutoContribution(row: any) {
+  const partner = normPartner(row?.paid_by);
+  if (!row || !["Itza", "Axel"].includes(partner)) return null;
+  return qGet<any>(
+    `SELECT * FROM capital_contributions
+     WHERE (source_type='expense' AND source_id=?)
+        OR (${autoCapitalSql("")} AND partner_name=? AND amount=? AND contribution_date=? AND description LIKE ?)
+     ORDER BY id DESC LIMIT 1`,
+    row.id,
+    partner,
+    r2(Number(row.amount || 0)),
+    row.expense_date,
+    `Gasto pagado por ${partner}:%`
+  );
+}
+function syncExpenseFundingContribution(expenseId: number) {
+  const row = qGet<any>("SELECT * FROM expenses WHERE id=?", expenseId);
+  if (!row) return;
+  const partner = normPartner(row.paid_by);
+  const existing = expenseAutoContribution(row);
+  const shouldReimburse = Number(row.from_cashbox || 0) === 0 && ["Itza", "Axel"].includes(partner);
+  if (!shouldReimburse) {
+    if (existing) qRun("DELETE FROM capital_contributions WHERE id=?", existing.id);
+    return;
+  }
+  const description = expenseContributionDescription(row, partner);
+  if (existing) {
+    qRun("UPDATE capital_contributions SET partner_name=?,amount=?,description=?,contribution_date=?,received_account=?,auto_generated=1,source_type='expense',source_id=? WHERE id=?", partner, r2(Number(row.amount || 0)), description, row.expense_date, partner, row.id, existing.id);
+  } else {
+    registerDirectFunding(partner, Number(row.amount || 0), row.expense_date, description, partner, null, "expense", row.id);
+  }
+}
+function deleteExpenseFundingContribution(row: any) {
+  if (!row) return;
+  const partner = normPartner(row.paid_by);
+  qRun(
+    `DELETE FROM capital_contributions
+     WHERE (source_type='expense' AND source_id=?)
+        OR (${autoCapitalSql("")} AND partner_name=? AND amount=? AND contribution_date=? AND description LIKE ?)`,
+    row.id,
+    partner,
+    r2(Number(row.amount || 0)),
+    row.expense_date,
+    `Gasto pagado por ${partner}:%`
+  );
 }
 
 const UPLOAD_DIR = process.env.UPLOAD_PATH || "/data/uploads";
@@ -254,6 +308,7 @@ api.put("/cashbook/:source/:id", async c => {
     const cur = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
     req(cur, "Gasto no encontrado");
     qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,paid_from_account=? WHERE id=?", b.date || today(), b.category_id || cur.category_id, amount, b.detail || b.description || null, b.person || cur.paid_by || "Sistema", b.supplier || cur.supplier || null, b.notes || cur.notes || null, normAccount(b.account || cur.paid_from_account || cur.paid_by), id);
+    syncExpenseFundingContribution(id);
   } else if (source === "withdrawal") {
     const cur = qGet<any>("SELECT * FROM withdrawals WHERE id=?", id);
     req(cur, "Retiro no encontrado");
@@ -272,7 +327,11 @@ api.delete("/cashbook/:source/:id", c => {
     const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
     qRun("DELETE FROM sales_payments WHERE id=?", id);
     if (cur?.order_id) recalcSO(Number(cur.order_id));
-  } else if (source === "expense") qRun("DELETE FROM expenses WHERE id=?", id);
+  } else if (source === "expense") {
+    const cur = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
+    deleteExpenseFundingContribution(cur);
+    qRun("DELETE FROM expenses WHERE id=?", id);
+  }
   else if (source === "withdrawal") qRun("DELETE FROM withdrawals WHERE id=?", id);
   else return c.json(fail("Movimiento inválido"), 400);
   return c.json(ok(true));
@@ -591,7 +650,8 @@ api.put("/partner-assets/:id", async c => {
 });
 api.delete("/partner-assets/:id", c => { qRun("UPDATE partner_assets SET status='retired' WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
-api.get("/capital-contributions", c => c.json(ok(qAll("SELECT * FROM capital_contributions ORDER BY id DESC"))));
+api.get("/capital-contributions", c => c.json(ok(qAll(`SELECT * FROM capital_contributions WHERE NOT ${autoCapitalSql("")} ORDER BY id DESC`))));
+api.get("/capital-reimbursements", c => c.json(ok(qAll(`SELECT * FROM capital_contributions WHERE ${autoCapitalSql("")} ORDER BY contribution_date DESC, id DESC`))));
 api.post("/capital-contributions", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido"); req(b.description, "Descripción obligatoria");
   const requestId = b.capital_request_id ? Number(b.capital_request_id) : null;
@@ -642,7 +702,6 @@ api.post("/expenses", async c => {
     req(available >= amount, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
   }
   const create = tx(() => {
-    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${b.description || "sin descripción"}`, funding.partner);
     const r = qRun(
       "INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?,?)",
       date,
@@ -657,7 +716,9 @@ api.post("/expenses", async c => {
       funding.paidFromAccount,
       now()
     );
-    return Number(r.lastInsertRowid);
+    const id = Number(r.lastInsertRowid);
+    syncExpenseFundingContribution(id);
+    return id;
   });
   const id = create();
   return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", id)));
@@ -666,9 +727,15 @@ api.put("/expenses/:id", async c => {
   const b = await body(c);
   const funding = expenseFunding(b);
   qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=?,paid_from_account=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, funding.paidBy, b.supplier, b.notes, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount, c.req.param("id"));
+  syncExpenseFundingContribution(Number(c.req.param("id")));
   return c.json(ok(true));
 });
-api.delete("/expenses/:id", c => { qRun("DELETE FROM expenses WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
+api.delete("/expenses/:id", c => {
+  const row = qGet<any>("SELECT * FROM expenses WHERE id=?", c.req.param("id"));
+  deleteExpenseFundingContribution(row);
+  qRun("DELETE FROM expenses WHERE id=?", c.req.param("id"));
+  return c.json(ok(true));
+});
 
 // ===== ROASTING =====
 api.get("/roasting-sessions", c => c.json(ok(qAll("SELECT rs.*, COALESCE((SELECT COUNT(*) FROM roasting_batches WHERE session_id=rs.id),0) AS batch_count, COALESCE((SELECT SUM(green_kg) FROM roasting_batches WHERE session_id=rs.id),0) AS total_green, COALESCE((SELECT SUM(roasted_kg) FROM roasting_batches WHERE session_id=rs.id),0) AS total_roasted, COALESCE((SELECT SUM(machine_minutes) FROM roasting_batches WHERE session_id=rs.id),0) AS total_minutes FROM roasting_sessions rs ORDER BY rs.session_date DESC"))));
