@@ -690,7 +690,22 @@ api.post("/withdrawals/dividend", async c => {
 api.delete("/withdrawals/:id", c => { qRun("DELETE FROM withdrawals WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== EXPENSES =====
-api.get("/expenses", c => { const m = c.req.query("month"); const sql = m ? "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE substr(e.expense_date,1,7)=? ORDER BY e.id DESC" : "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id ORDER BY e.id DESC"; return c.json(ok(m ? qAll(sql, m) : qAll(sql))); });
+api.get("/expenses", c => {
+  const month = c.req.query("month");
+  const start = c.req.query("start");
+  const end = c.req.query("end");
+  const where: string[] = [];
+  const params: any[] = [];
+  if (start || end) {
+    if (start) { where.push("e.expense_date>=?"); params.push(start); }
+    if (end) { where.push("e.expense_date<=?"); params.push(end); }
+  } else if (month) {
+    where.push("substr(e.expense_date,1,7)=?");
+    params.push(month);
+  }
+  const sql = `SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY e.expense_date DESC, e.id DESC`;
+  return c.json(ok(qAll(sql, ...params)));
+});
 api.post("/expenses", async c => {
   const b = await body(c); req(b.category_id, "Categoría obligatoria"); req(num(b.amount)>0, "Monto inválido");
   const funding = expenseFunding(b);

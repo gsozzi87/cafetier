@@ -36,6 +36,8 @@ const CASHBOOK_SOURCE_LABELS = {
   withdrawal: "retiro",
 };
 function cashbookSourceLabel(source) { return CASHBOOK_SOURCE_LABELS[source] || source; }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function currentMonthStart() { return `${new Date().toISOString().slice(0, 7)}-01`; }
 function cleanFundingDescription(row) {
   return String(row?.description || "")
     .replace(/^Gasto pagado por [^:]+:\s*/i, "")
@@ -566,25 +568,29 @@ async function renderPurchaseDetail(id) {
 }
 
 async function renderCashbook() {
-  const nowDate = new Date();
-  const start = state.params.start || `${nowDate.toISOString().slice(0, 7)}-01`;
-  const end = state.params.end || nowDate.toISOString().slice(0, 10);
-  const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+  const isAll = state.params.all === "1" || (!state.params.start && !state.params.end);
+  const start = isAll ? "" : (state.params.start || currentMonthStart());
+  const end = isAll ? "" : (state.params.end || todayStr());
+  const query = isAll ? "" : `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+  const rangeLabel = isAll ? "Todo el historial" : `${start} a ${end}`;
+  const data = await api(`/cashbook${query}`);
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
         <div class="field inline-field"><label>Desde</label><input class="input" id="cashStart" type="date" value="${esc(start)}" /></div>
         <div class="field inline-field"><label>Hasta</label><input class="input" id="cashEnd" type="date" value="${esc(end)}" /></div>
         <button class="btn secondary" onclick="App.applyCashbookFilter()">Ver</button>
+        <button class="btn ghost" onclick="App.showAllCashbook()">Todo el historial</button>
+        <button class="btn ghost" onclick="App.showCurrentMonthCashbook()">Mes actual</button>
       </div>
-      <span class="pill">${data.movements.length} movimientos</span>
+      <span class="pill">${data.movements.length} movimientos · ${esc(rangeLabel)}</span>
     </div>
 
     <div class="grid cards" style="margin-bottom:12px">
       <div class="card metric"><div class="label">Entradas</div><div class="value money">${money(data.total_in)}</div><small>Aportes + cobros</small></div>
       <div class="card metric"><div class="label">Salidas</div><div class="value money">${money(data.total_out)}</div><small>Gastos + retiros</small></div>
-      <div class="card metric ${data.net >= 0 ? "accent" : ""}"><div class="label">Neto del periodo</div><div class="value money">${money(data.net)}</div><small>${esc(start)} a ${esc(end)}</small></div>
-      <div class="card metric"><div class="label">Rango</div><div class="value" style="font-size:20px">${esc(start)}</div><small>hasta ${esc(end)}</small></div>
+      <div class="card metric ${data.net >= 0 ? "accent" : ""}"><div class="label">Neto</div><div class="value money">${money(data.net)}</div><small>${esc(rangeLabel)}</small></div>
+      <div class="card metric"><div class="label">Rango</div><div class="value" style="font-size:20px">${isAll ? "Todo" : esc(start)}</div><small>${isAll ? "desde el primer movimiento" : `hasta ${esc(end)}`}</small></div>
     </div>
 
     <div class="card">
@@ -610,13 +616,25 @@ async function renderCashbook() {
 }
 
 function applyCashbookFilter() {
-  setView("cashbook", { start: val("cashStart"), end: val("cashEnd") });
+  const start = val("cashStart");
+  const end = val("cashEnd");
+  setView("cashbook", start || end ? { start, end, all: "0" } : { all: "1" });
+}
+
+function showAllCashbook() {
+  setView("cashbook", { all: "1" });
+}
+
+function showCurrentMonthCashbook() {
+  setView("cashbook", { start: currentMonthStart(), end: todayStr(), all: "0" });
 }
 
 async function editCashbookMovement(source, id) {
-  const start = state.params.start || `${new Date().toISOString().slice(0, 7)}-01`;
-  const end = state.params.end || new Date().toISOString().slice(0, 10);
-  const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+  const isAll = state.params.all === "1" || (!state.params.start && !state.params.end);
+  const start = isAll ? "" : (state.params.start || currentMonthStart());
+  const end = isAll ? "" : (state.params.end || todayStr());
+  const query = isAll ? "" : `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+  const data = await api(`/cashbook${query}`);
   const movement = data.movements.find(m => m.source === source && Number(m.source_id) === Number(id));
   if (!movement) throw new Error("No pude encontrar el movimiento en el rango actual.");
   const isPartnerRow = ["capital_contribution", "withdrawal"].includes(source);
@@ -895,14 +913,23 @@ async function renderInventory() {
 }
 
 async function renderExpenses() {
-  const month = new Date().toISOString().slice(0, 7);
-  const rows = await api(`/expenses?month=${month}`);
+  const isAll = state.params.all === "1" || (!state.params.start && !state.params.end);
+  const start = isAll ? "" : (state.params.start || currentMonthStart());
+  const end = isAll ? "" : (state.params.end || todayStr());
+  const query = isAll ? "" : `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+  const rangeLabel = isAll ? "Todo el historial" : `${start} a ${end}`;
+  const rows = await api(`/expenses${query}`);
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
         <button class="btn primary" onclick="App.newExpense()">Nuevo gasto</button>
+        <div class="field inline-field"><label>Desde</label><input class="input" id="expenseStart" type="date" value="${esc(start)}" /></div>
+        <div class="field inline-field"><label>Hasta</label><input class="input" id="expenseEnd" type="date" value="${esc(end)}" /></div>
+        <button class="btn secondary" onclick="App.applyExpenseFilter()">Ver</button>
+        <button class="btn ghost" onclick="App.showAllExpenses()">Todo el historial</button>
+        <button class="btn ghost" onclick="App.showCurrentMonthExpenses()">Mes actual</button>
       </div>
-      <span class="pill">${month}</span>
+      <span class="pill">${rows.length} gastos · ${esc(rangeLabel)}</span>
     </div>
     <div class="card">
       <table class="table">
@@ -919,9 +946,23 @@ async function renderExpenses() {
             </tr>`).join("")}
         </tbody>
       </table>
-      ${rows.length ? "" : `<div class="empty">Sin gastos este mes.</div>`}
+      ${rows.length ? "" : `<div class="empty">${isAll ? "No hay gastos cargados todavía." : "Sin gastos en este rango."}</div>`}
     </div>
   `;
+}
+
+function applyExpenseFilter() {
+  const start = val("expenseStart");
+  const end = val("expenseEnd");
+  setView("expenses", start || end ? { start, end, all: "0" } : { all: "1" });
+}
+
+function showAllExpenses() {
+  setView("expenses", { all: "1" });
+}
+
+function showCurrentMonthExpenses() {
+  setView("expenses", { start: currentMonthStart(), end: todayStr(), all: "0" });
 }
 
 async function renderMachine() {
@@ -2055,6 +2096,8 @@ const App = {
   openPurchase,
   receivePurchase,
   applyCashbookFilter,
+  showAllCashbook,
+  showCurrentMonthCashbook,
   editCashbookMovement,
   deleteCashbookMovement,
   newCapitalRequest,
@@ -2075,6 +2118,9 @@ const App = {
   newInventoryMovement,
   deleteInventoryItem,
   newExpense,
+  applyExpenseFilter,
+  showAllExpenses,
+  showCurrentMonthExpenses,
   editExpense,
   deleteExpense,
   newMachineLog,
