@@ -25,9 +25,9 @@ function expenseFunding(b: any) {
   const paidFromAccount = normAccount(b.paid_from_account || b.account || (fromCashbox ? paidBy : partner || paidBy));
   return { fromCashbox, fromUtilities, paidBy: partner || paidBy, partner: fromCashbox ? "" : partner, paidFromAccount };
 }
-function registerDirectFunding(partner: string, amount: number, date: string, description: string, receivedAccount?: string | null, capitalRequestId?: number | null) {
+function registerDirectFunding(partner: string, amount: number, date: string, description: string, receivedAccount?: string | null, capitalRequestId?: number | null, refType?: string | null, refId?: number | null) {
   if (!partner) return;
-  const res = qRun("INSERT INTO capital_contributions(partner_name,amount,description,contribution_date,capital_request_id,received_account,created_at) VALUES (?,?,?,?,?,?,?)", partner, r2(amount), description, date, capitalRequestId || null, normAccount(receivedAccount || partner), now());
+  const res = qRun("INSERT INTO capital_contributions(partner_name,amount,description,contribution_date,capital_request_id,received_account,ref_type,ref_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", partner, r2(amount), description, date, capitalRequestId || null, normAccount(receivedAccount || partner), refType || null, refId || null, now());
   if (capitalRequestId) refreshCapitalRequest(capitalRequestId);
   return Number(res.lastInsertRowid);
 }
@@ -37,6 +37,23 @@ function refreshCapitalRequest(id: number) {
   if (!reqRow) return;
   const status = funded >= Number(reqRow.amount_requested || 0) ? "funded" : funded > 0 ? "partially_funded" : "open";
   qRun("UPDATE capital_requests SET amount_funded=?, status=?, updated_at=? WHERE id=?", r2(funded), status, now(), id);
+}
+
+// Delete an expense and the mirror capital contribution it generated when a
+// partner paid it (so the books stay balanced). New rows are linked by ref;
+// older rows are matched conservatively (only when exactly one matches).
+function deleteExpenseWithMirror(id: number) {
+  const exp = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
+  const del = tx(() => {
+    qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", id);
+    if (exp && Number(exp.from_cashbox) === 0 && exp.paid_from_account) {
+      const desc = `Gasto pagado por ${exp.paid_from_account}: ${exp.description || "sin descripción"}`;
+      const matches = qAll<any>("SELECT id FROM capital_contributions WHERE ref_id IS NULL AND partner_name=? AND amount=? AND description=?", normPartner(exp.paid_from_account), r2(Number(exp.amount)), desc);
+      if (matches.length === 1) qRun("DELETE FROM capital_contributions WHERE id=?", matches[0].id);
+    }
+    qRun("DELETE FROM expenses WHERE id=?", id);
+  });
+  del();
 }
 function purchaseOrderView(row: any) {
   if (!row) return row;
@@ -274,7 +291,7 @@ api.delete("/cashbook/:source/:id", c => {
     const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
     qRun("DELETE FROM sales_payments WHERE id=?", id);
     if (cur?.order_id) recalcSO(Number(cur.order_id));
-  } else if (source === "expense") qRun("DELETE FROM expenses WHERE id=?", id);
+  } else if (source === "expense") deleteExpenseWithMirror(id);
   else if (source === "withdrawal") qRun("DELETE FROM withdrawals WHERE id=?", id);
   else return c.json(fail("Movimiento inválido"), 400);
   return c.json(ok(true));
@@ -705,7 +722,6 @@ api.post("/expenses", async c => {
     req(available >= amount, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
   }
   const create = tx(() => {
-    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${b.description || "sin descripción"}`, funding.partner);
     const r = qRun(
       "INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?,?)",
       date,
@@ -720,7 +736,11 @@ api.post("/expenses", async c => {
       funding.paidFromAccount,
       now()
     );
-    return Number(r.lastInsertRowid);
+    const expenseId = Number(r.lastInsertRowid);
+    // Link the mirror capital contribution to this expense so deleting the
+    // expense also removes it (keeps the books balanced).
+    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${b.description || "sin descripción"}`, funding.partner, null, "expense", expenseId);
+    return expenseId;
   });
   const id = create();
   return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", id)));
@@ -731,7 +751,7 @@ api.put("/expenses/:id", async c => {
   qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=?,paid_from_account=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, funding.paidBy, b.supplier, b.notes, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount, c.req.param("id"));
   return c.json(ok(true));
 });
-api.delete("/expenses/:id", c => { qRun("DELETE FROM expenses WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
+api.delete("/expenses/:id", c => { deleteExpenseWithMirror(Number(c.req.param("id"))); return c.json(ok(true)); });
 
 // ===== ROASTING =====
 api.get("/roasting-sessions", c => c.json(ok(qAll("SELECT rs.*, COALESCE((SELECT COUNT(*) FROM roasting_batches WHERE session_id=rs.id),0) AS batch_count, COALESCE((SELECT SUM(green_kg) FROM roasting_batches WHERE session_id=rs.id),0) AS total_green, COALESCE((SELECT SUM(roasted_kg) FROM roasting_batches WHERE session_id=rs.id),0) AS total_roasted, COALESCE((SELECT SUM(machine_minutes) FROM roasting_batches WHERE session_id=rs.id),0) AS total_minutes FROM roasting_sessions rs ORDER BY rs.session_date DESC"))));

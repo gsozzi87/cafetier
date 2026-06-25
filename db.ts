@@ -462,6 +462,8 @@ export function initDB() {
   ensureColumn("purchase_entries", "paid_from_account", "TEXT");
   ensureColumn("capital_contributions", "capital_request_id", "INTEGER");
   ensureColumn("capital_contributions", "received_account", "TEXT");
+  ensureColumn("capital_contributions", "ref_type", "TEXT");
+  ensureColumn("capital_contributions", "ref_id", "INTEGER");
   ensureColumn("withdrawals", "dividend_order_id", "INTEGER");
   ensureColumn("withdrawals", "paid_from_account", "TEXT");
   qRun("UPDATE sales_payments SET received_account=COALESCE(received_account, registered_by, 'Axel')");
