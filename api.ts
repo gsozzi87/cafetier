@@ -53,7 +53,8 @@ function purchaseOrderView(row: any) {
 }
 function cashbookRows(start?: string | null, end?: string | null) {
   const rows = qAll<any>(`
-    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type,
+    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date,
+      CASE WHEN cc.description LIKE '%pagado por%' OR cc.description LIKE '%pagada por%' THEN 'Gasto cubierto por socio' ELSE 'Aporte de capital' END AS type,
       cc.partner_name AS person, COALESCE(cc.received_account, cc.partner_name) AS account, cc.description AS detail,
       cc.amount AS amount, cc.amount AS signed_amount, cc.created_at AS created_at
     FROM capital_contributions cc

@@ -561,6 +561,7 @@ async function renderCashbook() {
         <div class="field inline-field"><label>Desde</label><input class="input" id="cashStart" type="date" value="${esc(start)}" /></div>
         <div class="field inline-field"><label>Hasta</label><input class="input" id="cashEnd" type="date" value="${esc(end)}" /></div>
         <button class="btn secondary" onclick="App.applyCashbookFilter()">Ver</button>
+        <button class="btn ghost" onclick="App.cashbookAll()">Desde el inicio</button>
       </div>
       <span class="pill">${data.movements.length} movimientos</span>
     </div>
@@ -596,6 +597,10 @@ async function renderCashbook() {
 
 function applyCashbookFilter() {
   setView("cashbook", { start: val("cashStart"), end: val("cashEnd") });
+}
+
+function cashbookAll() {
+  setView("cashbook", { start: "2000-01-01", end: new Date().toISOString().slice(0, 10) });
 }
 
 async function editCashbookMovement(source, id) {
@@ -656,6 +661,13 @@ async function renderCapital() {
     api("/partner-assets"),
   ]);
 
+  // Los aportes "espejo" de gastos pagados por un socio no son inyecciones de
+  // capital reales; se separan para que la lista no se vea duplicada.
+  const isCoverage = c => /pagad[oa] por/i.test(c.description || "");
+  const realContribs = contributions.filter(c => !isCoverage(c));
+  const coveredContribs = contributions.filter(isCoverage);
+  const coveredTotal = coveredContribs.reduce((s, c) => s + Number(c.amount || 0), 0);
+
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
@@ -709,13 +721,14 @@ async function renderCapital() {
         </div>
 
         <div class="card">
-          <div class="row between"><h3>Aportes de capital</h3><span class="pill">${contributions.length}</span></div>
-          ${contributions.length ? contributions.map(c => `
+          <div class="row between"><h3>Aportes de capital</h3><span class="pill">${realContribs.length}</span></div>
+          ${realContribs.length ? realContribs.map(c => `
             <div class="item">
               <div class="row between"><strong>${esc(c.partner_name)}</strong><span class="money">${money(c.amount)}</span></div>
               <div class="small muted">${esc(c.contribution_date)} ${c.request_no ? "· " + esc(c.request_no) : ""}</div>
               <div class="small muted">${esc(c.description)}</div>
-            </div>`).join("") : `<div class="empty">Sin aportes.</div>`}
+            </div>`).join("") : `<div class="empty">Sin aportes de capital reales.</div>`}
+          ${coveredContribs.length ? `<div class="small muted" style="margin-top:8px">+ ${coveredContribs.length} gastos cubiertos por socios (${money(coveredTotal)}) — se ven en Gastos y Libro de caja.</div>` : ""}
         </div>
       </div>
 
@@ -875,14 +888,19 @@ async function renderInventory() {
 }
 
 async function renderExpenses() {
-  const month = new Date().toISOString().slice(0, 7);
-  const rows = await api(`/expenses?month=${month}`);
+  const showAll = !!state.params.allExpenses;
+  const month = state.params.expMonth || new Date().toISOString().slice(0, 7);
+  const rows = await api(showAll ? "/expenses" : `/expenses?month=${month}`);
+  const total = rows.reduce((s, e) => s + Number(e.amount || 0), 0);
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
         <button class="btn primary" onclick="App.newExpense()">Nuevo gasto</button>
+        <div class="field inline-field"><label>Mes</label><input class="input" id="expMonth" type="month" value="${esc(month)}" ${showAll ? "disabled" : ""} /></div>
+        <button class="btn secondary" onclick="App.applyExpenseMonth()">Ver mes</button>
+        <button class="btn ${showAll ? "primary" : "ghost"}" onclick="App.toggleAllExpenses()">${showAll ? "✓ Desde el inicio" : "Ver todo"}</button>
       </div>
-      <span class="pill">${month}</span>
+      <span class="pill">${showAll ? "Desde el inicio" : month} · ${rows.length} · ${money(total)}</span>
     </div>
     <div class="card">
       <table class="table">
@@ -899,10 +917,13 @@ async function renderExpenses() {
             </tr>`).join("")}
         </tbody>
       </table>
-      ${rows.length ? "" : `<div class="empty">Sin gastos este mes.</div>`}
+      ${rows.length ? "" : `<div class="empty">${showAll ? "Sin gastos registrados." : "Sin gastos este mes."}</div>`}
     </div>
   `;
 }
+
+function applyExpenseMonth() { setView("expenses", { expMonth: val("expMonth"), allExpenses: false }); }
+function toggleAllExpenses() { setView("expenses", { allExpenses: !state.params.allExpenses, expMonth: state.params.expMonth }); }
 
 async function renderMachine() {
   const rows = await api("/machine-logs");
@@ -2262,8 +2283,11 @@ const App = {
   deletePurchase,
   receivePurchase,
   applyCashbookFilter,
+  cashbookAll,
   editCashbookMovement,
   deleteCashbookMovement,
+  applyExpenseMonth,
+  toggleAllExpenses,
   newCapitalRequest,
   newContribution,
   newCapitalReturn,
