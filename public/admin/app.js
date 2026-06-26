@@ -711,18 +711,10 @@ async function renderCapital() {
     api("/partner-assets"),
   ]);
 
-  // Los aportes "espejo" de gastos pagados por un socio no son inyecciones de
-  // capital reales; se separan para que la lista no se vea duplicada.
-  const isCoverage = c => /pagad[oa] por/i.test(c.description || "");
-  const realContribs = contributions.filter(c => !isCoverage(c));
-  const coveredContribs = contributions.filter(isCoverage);
-  const coveredTotal = coveredContribs.reduce((s, c) => s + Number(c.amount || 0), 0);
-
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
-        <button class="btn primary" onclick="App.newContribution()">Registrar aporte</button>
-        <button class="btn secondary" onclick="App.newCapitalReturn()">Devolver capital</button>
+        <button class="btn primary" onclick="App.newCapitalReturn()">Devolver capital</button>
         <button class="btn green" onclick="App.newDividendOrder()">Orden de dividendos fin de mes</button>
       </div>
     </div>
@@ -759,14 +751,14 @@ async function renderCapital() {
         </div>
 
         <div class="card">
-          <div class="row between"><h3>Aportes de capital</h3><span class="pill">${realContribs.length}</span></div>
-          ${realContribs.length ? realContribs.map(c => `
+          <div class="row between"><h3>Aportes de capital por socio</h3><span class="pill">${contributions.length}</span></div>
+          <div class="small muted" style="margin-bottom:6px">Se generan solos cuando un gasto o compra sale de la cuenta de un socio. Para corregir uno, editá el gasto/compra de origen.</div>
+          ${contributions.length ? contributions.map(c => `
             <div class="item">
-              <div class="row between"><strong>${esc(c.partner_name)}</strong><div class="line-actions"><span class="money">${money(c.amount)}</span>${editIcon(`App.editContribution(${c.id})`)}${delIcon(`App.deleteContribution(${c.id})`)}</div></div>
-              <div class="small muted">${esc(c.contribution_date)} ${c.request_no ? "· " + esc(c.request_no) : ""}</div>
+              <div class="row between"><strong>${esc(c.partner_name)}</strong><span class="money">${money(c.amount)}</span></div>
+              <div class="small muted">${esc((c.contribution_date || "").slice(0, 10))}</div>
               <div class="small muted">${esc(c.description)}</div>
-            </div>`).join("") : `<div class="empty">Sin aportes de capital reales.</div>`}
-          ${coveredContribs.length ? `<div class="small muted" style="margin-top:8px">+ ${coveredContribs.length} gastos cubiertos por socios (${money(coveredTotal)}) — se ven en Gastos y Libro de caja.</div>` : ""}
+            </div>`).join("") : `<div class="empty">Aún no hay aportes. Se generan al pagar un gasto o compra desde la cuenta de un socio.</div>`}
         </div>
       </div>
 
@@ -1665,8 +1657,8 @@ function newCapitalReturn() {
     <div class="form-grid">
       <div class="field"><label>Socio</label><select class="select" id="capRetPartner">${partnerOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="capRetAmount" type="number" step="0.01" /></div>
-      <div class="field"><label>Mes</label><input class="input" id="capRetMonth" type="month" value="${new Date().toISOString().slice(0,7)}" /></div>
-      <div class="field"><label>Sale de cuenta</label><select class="select" id="capRetAccount">${accountOptions("Axel")}</select></div>
+      <div class="field"><label>Fecha</label><input class="input" id="capRetDate" type="date" value="${todayStr()}" /></div>
+      <div class="field"><label>Sale de cuenta</label><select class="select" id="capRetAccount">${accountOptions("Dinero Cafetier")}</select></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="capRetNotes" /></div>
   `, [{
@@ -1678,7 +1670,7 @@ function newCapitalReturn() {
         body: {
           partner_name: val("capRetPartner"),
           amount: Number(val("capRetAmount")),
-          month: val("capRetMonth"),
+          date: val("capRetDate"),
           paid_from_account: val("capRetAccount"),
           notes: val("capRetNotes") || null,
         },
