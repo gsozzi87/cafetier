@@ -43,11 +43,11 @@ export function normPartner(name: string | null | undefined) {
 
 export function normAccount(name: string | null | undefined) {
   const raw = String(name || "").trim();
-  if (!raw) return "Caja chica";
+  if (!raw) return "Dinero Cafetier";
   const partner = normPartner(raw);
   if (partner === "Itza" || partner === "Axel") return partner;
   const k = raw.toLowerCase();
-  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja"].includes(k)) return "Caja chica";
+  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja", "dinero cafetier", "caja cafetier"].includes(k)) return "Dinero Cafetier";
   return raw;
 }
 
@@ -110,7 +110,7 @@ export function finance() {
 }
 
 export function accountBalances() {
-  const balances: Record<string, number> = { Axel: 0, Itza: 0, "Caja chica": 0 };
+  const balances: Record<string, number> = { Axel: 0, Itza: 0, "Dinero Cafetier": 0 };
   const add = (account: string | null | undefined, amount: number) => {
     const key = normAccount(account);
     balances[key] = r2((balances[key] || 0) + Number(amount || 0));
@@ -118,8 +118,8 @@ export function accountBalances() {
 
   for (const r of qAll<any>("SELECT COALESCE(received_account, partner_name) AS account, amount FROM capital_contributions")) add(r.account, r.amount);
   for (const r of qAll<any>("SELECT COALESCE(received_account, registered_by, 'Axel') AS account, amount FROM sales_payments")) add(r.account, r.amount);
-  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END) AS account, amount FROM expenses")) add(r.account, -Number(r.amount || 0));
-  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, 'Caja chica') AS account, amount FROM withdrawals")) add(r.account, -Number(r.amount || 0));
+  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Dinero Cafetier' ELSE paid_by END) AS account, amount FROM expenses")) add(r.account, -Number(r.amount || 0));
+  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, 'Dinero Cafetier') AS account, amount FROM withdrawals")) add(r.account, -Number(r.amount || 0));
 
   for (const key of Object.keys(balances)) balances[key] = r2(balances[key]);
   return balances;
@@ -338,16 +338,16 @@ function migrateStatusSchema() {
   db.exec("PRAGMA foreign_keys = ON");
 }
 
-export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: number, reason: string, by?: string | null) {
+export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: number, reason: string, by?: string | null, allowNegative = false, movedAt?: string | null) {
   const cur = Number(qVal("SELECT COALESCE(quantity,0) AS v FROM inventory_items WHERE id=?", itemId) ?? 0);
   let next = cur;
   if (dir === "in") next = cur + qty;
   else if (dir === "out") {
-    if (cur < qty) throw new Error(`Inventario insuficiente (disponible: ${cur.toFixed(1)}, solicitado: ${qty.toFixed(1)})`);
+    if (!allowNegative && cur < qty) throw new Error(`Inventario insuficiente (disponible: ${cur.toFixed(1)}, solicitado: ${qty.toFixed(1)})`);
     next = cur - qty;
   } else next = qty;
   qRun("UPDATE inventory_items SET quantity=? WHERE id=?", r2(next), itemId);
-  qRun("INSERT INTO inventory_movements (item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, dir, r2(qty), reason, by ?? "Sistema", now());
+  qRun("INSERT INTO inventory_movements (item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, dir, r2(qty), reason, by ?? "Sistema", movedAt || now());
 }
 
 export function recalcSO(id: number) {
@@ -380,21 +380,26 @@ export function recalcPO(poId: number) {
   return qGet("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function createPO(input: { sourceType: string; sourceId?: number | null; description: string; requestedKg: number; estimatedCost?: number; estimatedShippingCost?: number; supplier?: string | null; notes?: string | null }) {
+export function createPO(input: { sourceType: string; sourceId?: number | null; description: string; requestedKg: number; estimatedCost?: number; estimatedShippingCost?: number; supplier?: string | null; notes?: string | null; createdAt?: string }) {
   const f = finance();
   const est = r2(input.estimatedCost ?? 0);
   const ship = r2(input.estimatedShippingCost ?? 0);
   const status = est + ship > f.cash ? "sin_fondos" : "pendiente";
-  const res = qRun("INSERT INTO purchase_orders (po_no,source_type,source_id,status,description,requested_kg,estimated_cost,estimated_shipping_cost,actual_cost,actual_shipping_cost,received_kg,supplier,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,0,0,?,?,?,?)", docNo("OC"), input.sourceType, input.sourceId ?? null, status, input.description, r2(input.requestedKg), est, ship, input.supplier ?? null, input.notes ?? null, now(), now());
+  const res = qRun("INSERT INTO purchase_orders (po_no,source_type,source_id,status,description,requested_kg,estimated_cost,estimated_shipping_cost,actual_cost,actual_shipping_cost,received_kg,supplier,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,0,0,?,?,?,?)", docNo("OC"), input.sourceType, input.sourceId ?? null, status, input.description, r2(input.requestedKg), est, ship, input.supplier ?? null, input.notes ?? null, input.createdAt || now(), now());
   const poId = Number(res.lastInsertRowid);
   if (input.sourceType === "sales_order" && input.sourceId) recalcSO(input.sourceId);
   return qGet<any>("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0, paidFromAccount?: string | null) {
-  const cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name=? LIMIT 1", catName);
+export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0, paidFromAccount?: string | null, expenseDate?: string | null) {
+  let cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name=? LIMIT 1", catName);
+  const normalizedCat = String(catName || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (!cat && normalizedCat.startsWith("env")) cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE lower(name) LIKE 'env%' LIMIT 1");
   if (!cat) return null;
-  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?,?)", today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, normAccount(paidFromAccount || paidBy), now());
+  const inferredDate = refType.startsWith("purchase")
+    ? qVal<string>("SELECT substr(created_at,1,10) AS v FROM purchase_entries WHERE purchase_order_id=? ORDER BY id DESC LIMIT 1", refId)
+    : null;
+  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?,?)", expenseDate || inferredDate || today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, normAccount(paidFromAccount || paidBy), now());
   return Number(res.lastInsertRowid);
 }
 
@@ -417,7 +422,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS sales_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT NOT NULL UNIQUE, order_type TEXT NOT NULL CHECK(order_type IN ('mostrador','mayoreo')), client_id INTEGER, status TEXT DEFAULT 'abierto' CHECK(status IN ('abierto','esperando_compra','en_produccion','listo','envio_parcial','completado','cancelado')), delivery_date TEXT, total_weight_kg REAL DEFAULT 0, price_per_kg REAL DEFAULT 0, total_amount REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (client_id) REFERENCES clients(id));
     CREATE TABLE IF NOT EXISTS sales_order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, product_id INTEGER, description TEXT NOT NULL, presentation TEXT, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'pz', unit_weight_kg REAL DEFAULT 0, unit_price REAL DEFAULT 0, subtotal REAL DEFAULT 0, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS sales_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT, notes TEXT, registered_by TEXT, received_account TEXT DEFAULT 'Axel', created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
-    CREATE TABLE IF NOT EXISTS sales_shipments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, weight_kg REAL NOT NULL, destination_address TEXT, carrier TEXT, tracking_number TEXT, shipping_cost REAL DEFAULT 0, registered_by TEXT, notes TEXT, expense_id INTEGER, created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS sales_shipments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, weight_kg REAL NOT NULL, destination_address TEXT, carrier TEXT, tracking_number TEXT, shipping_cost REAL DEFAULT 0, registered_by TEXT, notes TEXT, expense_id INTEGER, funding_source TEXT, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
 
     CREATE TABLE IF NOT EXISTS purchase_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, estimated_shipping_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, actual_shipping_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS purchase_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_order_id INTEGER NOT NULL, inventory_item_id INTEGER NOT NULL, quantity_kg REAL NOT NULL, unit_cost REAL DEFAULT 0, total_cost REAL NOT NULL, shipping_cost REAL DEFAULT 0, supplier TEXT, lot_label TEXT, origin_id INTEGER, variety_id INTEGER, registered_by TEXT, funding_source TEXT, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE);
@@ -454,6 +459,8 @@ export function initDB() {
   ensureColumn("expenses", "from_cashbox", "INTEGER DEFAULT 1");
   ensureColumn("expenses", "from_utilities", "INTEGER DEFAULT 0");
   ensureColumn("expenses", "paid_from_account", "TEXT");
+  ensureColumn("sales_shipments", "funding_source", "TEXT");
+  ensureColumn("sales_shipments", "paid_from_account", "TEXT");
   ensureColumn("sales_payments", "received_account", "TEXT DEFAULT 'Axel'");
   ensureColumn("purchase_orders", "estimated_shipping_cost", "REAL DEFAULT 0");
   ensureColumn("purchase_orders", "actual_shipping_cost", "REAL DEFAULT 0");
@@ -467,9 +474,18 @@ export function initDB() {
   ensureColumn("withdrawals", "dividend_order_id", "INTEGER");
   ensureColumn("withdrawals", "paid_from_account", "TEXT");
   qRun("UPDATE sales_payments SET received_account=COALESCE(received_account, registered_by, 'Axel')");
-  qRun("UPDATE expenses SET paid_from_account=COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END)");
+  qRun("UPDATE sales_shipments SET funding_source=COALESCE(funding_source, 'business_account')");
+  qRun("UPDATE sales_shipments SET paid_from_account=COALESCE(paid_from_account, 'Dinero Cafetier')");
+  qRun("UPDATE expenses SET paid_from_account=COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Dinero Cafetier' ELSE paid_by END)");
   qRun("UPDATE capital_contributions SET received_account=COALESCE(received_account, partner_name)");
-  qRun("UPDATE withdrawals SET paid_from_account=COALESCE(paid_from_account, 'Caja chica')");
+  qRun("UPDATE withdrawals SET paid_from_account=COALESCE(paid_from_account, 'Dinero Cafetier')");
+  // Renombrar la cuenta "Caja chica" a "Dinero Cafetier" en datos existentes.
+  qRun("UPDATE expenses SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  qRun("UPDATE withdrawals SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  qRun("UPDATE capital_contributions SET received_account='Dinero Cafetier' WHERE received_account='Caja chica'");
+  qRun("UPDATE purchase_entries SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  qRun("UPDATE sales_payments SET received_account='Dinero Cafetier' WHERE received_account='Caja chica'");
+  qRun("UPDATE sales_shipments SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
   qRun("UPDATE capital_contributions SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE withdrawals SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");
