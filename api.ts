@@ -42,17 +42,18 @@ function refreshCapitalRequest(id: number) {
 // Delete an expense and the mirror capital contribution it generated when a
 // partner paid it (so the books stay balanced). New rows are linked by ref;
 // older rows are matched conservatively (only when exactly one matches).
-function deleteExpenseWithMirror(id: number) {
+function deleteExpenseAndMirrorRows(id: number) {
   const exp = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
-  const del = tx(() => {
-    qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", id);
-    if (exp && Number(exp.from_cashbox) === 0 && exp.paid_from_account) {
-      const desc = `Gasto pagado por ${exp.paid_from_account}: ${exp.description || "sin descripción"}`;
-      const matches = qAll<any>("SELECT id FROM capital_contributions WHERE ref_id IS NULL AND partner_name=? AND amount=? AND description=?", normPartner(exp.paid_from_account), r2(Number(exp.amount)), desc);
-      if (matches.length === 1) qRun("DELETE FROM capital_contributions WHERE id=?", matches[0].id);
-    }
-    qRun("DELETE FROM expenses WHERE id=?", id);
-  });
+  qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", id);
+  if (exp && Number(exp.from_cashbox) === 0 && exp.paid_from_account) {
+    const desc = `Gasto pagado por ${exp.paid_from_account}: ${exp.description || "sin descripción"}`;
+    const matches = qAll<any>("SELECT id FROM capital_contributions WHERE ref_id IS NULL AND partner_name=? AND amount=? AND description=?", normPartner(exp.paid_from_account), r2(Number(exp.amount)), desc);
+    if (matches.length === 1) qRun("DELETE FROM capital_contributions WHERE id=?", matches[0].id);
+  }
+  qRun("DELETE FROM expenses WHERE id=?", id);
+}
+function deleteExpenseWithMirror(id: number) {
+  const del = tx(() => deleteExpenseAndMirrorRows(id));
   del();
 }
 function purchaseOrderView(row: any) {
@@ -470,7 +471,7 @@ api.delete("/sales-orders/:id", c => {
     // Reverse shipments: restore roasted stock and remove the shipping expense each one generated.
     for (const s of qAll<any>("SELECT * FROM sales_shipments WHERE order_id=?", id)) {
       if (ri?.id && Number(s.weight_kg) > 0) invMove(ri.id, "in", Number(s.weight_kg), `Reverso envío (borrado ${order.order_no})`, "Sistema");
-      if (s.expense_id) qRun("DELETE FROM expenses WHERE id=?", s.expense_id);
+      if (s.expense_id) deleteExpenseAndMirrorRows(Number(s.expense_id));
     }
     // Reverse the roasted stock a counter sale deducted on creation.
     if (order.order_type === "mostrador" && ri?.id && Number(order.total_weight_kg) > 0) {
@@ -492,20 +493,37 @@ api.delete("/sales-payments/:id", c => { const p = qGet<any>("SELECT * FROM sale
 
 // Shipments (auto expense)
 api.post("/sales-orders/:id/shipments", async c => {
-  const orderId = Number(c.req.param("id")); const b = await body(c);
-  req(num(b.weight_kg)>0, "Peso inválido");
+  const orderId = Number(c.req.param("id"));
+  const b = await body(c);
+  req(num(b.weight_kg) > 0, "Peso invalido");
+  const shippingCost = r2(num(b.shipping_cost));
+  const fundingSource = String(b.funding_source || "business_account");
+  const partner = normPartner(b.partner_name || b.reimbursable_partner || (fundingSource === "partner_contribution" ? b.paid_from_account : ""));
+  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Caja chica"));
+  const fromCashbox = fundingSource === "partner_contribution" ? 0 : paidFromAccount === "Caja chica" ? 1 : boolFlag(b.from_cashbox, 1);
+  const paidBy = fundingSource === "partner_contribution" ? partner : paidFromAccount;
+  if (shippingCost > 0 && fundingSource === "partner_contribution") req(["Itza", "Axel"].includes(partner), "Elegi que socio pago el envio");
+  if (shippingCost > 0 && fromCashbox && paidFromAccount === "Caja chica") {
+    const balances = accountBalances();
+    const available = Number(balances["Caja chica"] || 0);
+    req(available >= shippingCost, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
+  }
+
   const send = tx(() => {
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
-    req(ri?.id, "No existe inventario de café tostado");
-    invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envío pedido #${orderId}`, b.registered_by||"Sistema");
+    req(ri?.id, "No existe inventario de cafe tostado");
+    invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envio pedido #${orderId}`, b.registered_by || "Sistema");
     let expId: number | null = null;
-    if (num(b.shipping_cost) > 0) {
-      const f = finance(); req(f.cash >= num(b.shipping_cost), "Sin fondos para el envío");
-      expId = autoExpense("Envíos", num(b.shipping_cost), `Envío pedido #${orderId}`, b.registered_by||"Sistema", "shipment", orderId);
+    if (shippingCost > 0) {
+      expId = autoExpense("Envios", shippingCost, `Envio pedido #${orderId}`, paidBy || b.registered_by || "Sistema", "shipment", orderId, fromCashbox, 0, paidFromAccount);
+      if (fundingSource === "partner_contribution" && expId) {
+        registerDirectFunding(partner, shippingCost, today(), `Gasto pagado por ${partner}: Envio pedido #${orderId}`, partner, null, "expense", expId);
+      }
     }
-    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address||null, b.carrier||null, b.tracking_number||null, r2(num(b.shipping_cost)), b.registered_by||"Sistema", b.notes||null, expId, now());
+    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address || null, b.carrier || null, b.tracking_number || null, shippingCost, b.registered_by || "Sistema", b.notes || null, expId, fundingSource, paidFromAccount, now());
   });
-  send(); return c.json(ok(recalcSO(orderId)));
+  send();
+  return c.json(ok(recalcSO(orderId)));
 });
 api.delete("/sales-shipments/:id", c => {
   const row = qGet<any>("SELECT * FROM sales_shipments WHERE id=?", c.req.param("id"));
@@ -513,7 +531,7 @@ api.delete("/sales-shipments/:id", c => {
     const rev = tx(() => {
       const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
       if (ri?.id) invMove(ri.id, "in", row.weight_kg, `Reverso envío ${row.id}`, "Sistema");
-      if (row.expense_id) qRun("DELETE FROM expenses WHERE id=?", row.expense_id);
+      if (row.expense_id) deleteExpenseAndMirrorRows(Number(row.expense_id));
       qRun("DELETE FROM sales_shipments WHERE id=?", row.id);
     });
     rev(); recalcSO(row.order_id);

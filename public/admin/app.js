@@ -35,6 +35,11 @@ function statusBadge(status) { return `<span class="badge ${status}">${esc(statu
 function titleize(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
 function isWholesale(type) { return ["mayoreo", "wholesale"].includes(String(type || "")); }
 function isClosedStatus(status) { return ["completado", "cancelado", "completed", "cancelled"].includes(String(status || "")); }
+function shipmentFundingLabel(s) {
+  if (!Number(s.shipping_cost || 0)) return "";
+  const account = s.paid_from_account || "Caja chica";
+  return account === "Caja chica" ? "Caja chica" : `Pagado por ${account}`;
+}
 function editIcon(call, title = "Editar") { return `<button class="icon-btn edit" title="${title}" aria-label="${title}" onclick="${call}">✎</button>`; }
 function delIcon(call, title = "Eliminar") { return `<button class="icon-btn del" title="${title}" aria-label="${title}" onclick="${call}">🗑</button>`; }
 
@@ -417,7 +422,7 @@ async function renderSalesDetail(id) {
           ${shipments.length ? shipments.map(s => `
             <div class="item">
               <div class="row between"><strong>${kg(s.weight_kg)}</strong><div class="line-actions"><span class="pill">${esc(s.carrier || "Sin paquetería")}</span><button class="btn red sm" onclick="App.deleteShipment(${s.id},${order.id})">Eliminar</button></div></div>
-              <div class="small muted">${esc((s.created_at || "").slice(0, 10))} ${s.destination_address ? "· " + esc(s.destination_address) : ""} ${s.shipping_cost ? "· " + money(s.shipping_cost) : ""}</div>
+              <div class="small muted">${esc((s.created_at || "").slice(0, 10))} ${s.destination_address ? "· " + esc(s.destination_address) : ""} ${s.shipping_cost ? "· " + money(s.shipping_cost) : ""} ${shipmentFundingLabel(s) ? "· " + esc(shipmentFundingLabel(s)) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin envíos.</div>`}
         </div>` : ""}
       </div>
@@ -1183,6 +1188,7 @@ function deletePayment(paymentId, orderId) {
 function addShipment(orderId) {
   openModal("Ejecutar venta / registrar envío", `
     <div class="form-grid">
+      <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Caja chica">Caja chica</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
       <div class="field"><label>Kg enviados</label><input class="input" id="shipKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Paquetería</label><input class="input" id="shipCarrier" /></div>
@@ -1203,6 +1209,10 @@ function addShipment(orderId) {
           tracking_number: val("shipTracking") || null,
           destination_address: val("shipAddress") || null,
           registered_by: val("shipBy"),
+          funding_source: val("shipPaidFrom") === "Caja chica" ? "business_account" : "partner_contribution",
+          paid_from_account: val("shipPaidFrom"),
+          partner_name: val("shipPaidFrom") === "Caja chica" ? null : val("shipPaidFrom"),
+          from_cashbox: val("shipPaidFrom") === "Caja chica" ? 1 : 0,
         },
       });
       modal.remove();
