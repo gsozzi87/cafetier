@@ -468,6 +468,7 @@ async function renderSalesDetail(id) {
             <div class="item">
               <div class="row between"><strong>${kg(s.weight_kg)}</strong><div class="line-actions"><span class="pill">${esc(s.carrier || "Sin paquetería")}</span>${editIcon(`App.editShipment(${s.id},${order.id})`)}<button class="btn red sm" onclick="App.deleteShipment(${s.id},${order.id})">Eliminar</button></div></div>
               <div class="small muted">${esc((s.created_at || "").slice(0, 10))} ${s.destination_address ? "· " + esc(s.destination_address) : ""} ${s.shipping_cost ? "· " + money(s.shipping_cost) : ""} ${shipmentFundingLabel(s) ? "· " + esc(shipmentFundingLabel(s)) : ""}</div>
+              ${(s.packaging && s.packaging.length) ? `<div class="small muted">📦 ${s.packaging.map(p => esc(p.item_name) + " ×" + esc(p.quantity)).join(" · ")}</div>` : ""}
             </div>`).join("") : `<div class="empty">Sin envíos.</div>`}
         </div>` : ""}
       </div>
@@ -1063,6 +1064,43 @@ function supplierOptions(selected = "") {
 function carrierOptions(selected = "") {
   return `<option value="">— Paquetería —</option>${(state.master.carriers || []).map(c => `<option value="${esc(c.name)}" ${c.name === selected ? "selected" : ""}>${esc(c.name)}</option>`).join("")}`;
 }
+// Packaging picker: lets you tag which catalog supplies (boxes/bags/etc) a shipment consumed.
+function packagingCatalogItems() {
+  return (state.master.inventoryCatalog || []).filter(it => it.item_type === "supply");
+}
+function packagingItemOptions(selected = "") {
+  return packagingCatalogItems().map(it => `<option value="${esc(it.name)}" ${it.name === selected ? "selected" : ""}>${esc(it.name)}${it.category ? " · " + esc(it.category) : ""}</option>`).join("");
+}
+function pkgRowHtml(name = "", qty = "") {
+  return `<div class="pkg-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+    <select class="select pkg-item" style="flex:2">${packagingItemOptions(name)}</select>
+    <input class="input pkg-qty" type="number" step="0.01" min="0" placeholder="Cant." value="${qty !== "" && qty != null ? esc(qty) : ""}" style="flex:1" />
+    <button type="button" class="btn ghost sm" onclick="this.closest('.pkg-row').remove()">✕</button>
+  </div>`;
+}
+function packagingPicker(containerId, lines = []) {
+  if (!packagingCatalogItems().length) {
+    return `<div class="field"><label>Empaques usados</label><div class="notice warn">Definí cajas/bolsas/empaques en Configuración → Items del inventario para poder descontarlas.</div></div>`;
+  }
+  const rows = (lines || []).map(l => pkgRowHtml(l.item_name, l.quantity)).join("");
+  return `<div class="field"><label>Empaques usados (se descuentan del inventario)</label>
+    <div id="${containerId}">${rows}</div>
+    <button type="button" class="btn ghost sm" onclick="App.addPkgRow('${containerId}')">+ Empaque</button>
+    <small class="muted" style="display:block;margin-top:4px">No bloquea: si no tenés stock, el inventario queda en negativo.</small>
+  </div>`;
+}
+function addPkgRow(containerId) {
+  document.getElementById(containerId)?.insertAdjacentHTML("beforeend", pkgRowHtml());
+}
+function readPkgRows(containerId) {
+  const out = [];
+  document.getElementById(containerId)?.querySelectorAll(".pkg-row").forEach(row => {
+    const name = row.querySelector(".pkg-item")?.value;
+    const qty = Number(row.querySelector(".pkg-qty")?.value || 0);
+    if (name && qty > 0) out.push({ item_name: name, quantity: qty });
+  });
+  return out;
+}
 function parseListSetting(key, fallback = []) {
   const raw = (state.master.settings || {})[key] || "";
   const values = String(raw).split("|").map(x => x.trim()).filter(Boolean);
@@ -1263,6 +1301,7 @@ async function addShipment(orderId) {
     </div>
     <div class="field"><label>Dirección destino</label><input class="input" id="shipAddress" /></div>
     <div class="field"><label>Registrado por</label><select class="select" id="shipBy">${personOptions()}</select></div>
+    ${packagingPicker("shipPkgRows", [{}])}
   `, [{
     label: "Guardar",
     kind: "primary",
@@ -1281,6 +1320,7 @@ async function addShipment(orderId) {
           paid_from_account: val("shipPaidFrom"),
           partner_name: val("shipPaidFrom") === "Dinero Cafetier" ? null : val("shipPaidFrom"),
           from_cashbox: val("shipPaidFrom") === "Dinero Cafetier" ? 1 : 0,
+          packaging: readPkgRows("shipPkgRows"),
         },
       });
       modal.remove();
@@ -1306,6 +1346,7 @@ async function editShipment(shipmentId, orderId) {
     </div>
     <div class="field"><label>Dirección destino</label><input class="input" id="eshipAddress" value="${esc(s.destination_address || "")}" /></div>
     <div class="field"><label>Registrado por</label><select class="select" id="eshipBy">${personOptions()}</select></div>
+    ${packagingPicker("eshipPkgRows", (s.packaging && s.packaging.length) ? s.packaging : [{}])}
   `, [{
     label: "Guardar cambios",
     kind: "primary",
@@ -1324,6 +1365,7 @@ async function editShipment(shipmentId, orderId) {
           paid_from_account: val("eshipPaidFrom"),
           partner_name: val("eshipPaidFrom") === "Dinero Cafetier" ? null : val("eshipPaidFrom"),
           from_cashbox: val("eshipPaidFrom") === "Dinero Cafetier" ? 1 : 0,
+          packaging: readPkgRows("eshipPkgRows"),
         },
       });
       modal.remove();
@@ -2515,6 +2557,7 @@ const App = {
   addShipment,
   editShipment,
   deleteShipment,
+  addPkgRow,
   newManualPurchase,
   openPurchase,
   editPurchase,

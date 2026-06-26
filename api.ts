@@ -432,7 +432,7 @@ api.get("/sales-orders/:id", c => {
     order,
     items: qAll("SELECT * FROM sales_order_items WHERE order_id=? ORDER BY id", id),
     payments: qAll("SELECT * FROM sales_payments WHERE order_id=? ORDER BY id DESC", id),
-    shipments: qAll("SELECT * FROM sales_shipments WHERE order_id=? ORDER BY id DESC", id),
+    shipments: qAll<any>("SELECT * FROM sales_shipments WHERE order_id=? ORDER BY id DESC", id).map(s => ({ ...s, packaging: qAll("SELECT * FROM sales_shipment_packaging WHERE shipment_id=? ORDER BY id", s.id) })),
     purchaseOrders: qAll("SELECT * FROM purchase_orders WHERE source_type='sales_order' AND source_id=? ORDER BY id DESC", id),
     batches: qAll("SELECT rb.*, rs.session_date, rp.name AS roast_name FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id LEFT JOIN roast_profiles rp ON rp.id=rb.roast_profile_id WHERE rb.sales_order_id=? ORDER BY rb.id DESC", id),
   }));
@@ -501,6 +501,7 @@ api.delete("/sales-orders/:id", c => {
     // Reverse shipments: restore roasted stock and remove the shipping expense each one generated.
     for (const s of qAll<any>("SELECT * FROM sales_shipments WHERE order_id=?", id)) {
       if (ri?.id && Number(s.weight_kg) > 0) invMove(ri.id, "in", Number(s.weight_kg), `Reverso envío (borrado ${order.order_no})`, "Sistema");
+      reverseShipmentPackaging(Number(s.id), "Sistema");
       if (s.expense_id) deleteExpenseAndMirrorRows(Number(s.expense_id));
     }
     // Reverse the roasted stock a counter sale deducted on creation.
@@ -540,6 +541,28 @@ api.put("/sales-payments/:id", async c => {
 });
 api.delete("/sales-payments/:id", c => { const p = qGet<any>("SELECT * FROM sales_payments WHERE id=?", c.req.param("id")); if (p) { qRun("DELETE FROM sales_payments WHERE id=?", p.id); recalcSO(p.order_id); } return c.json(ok(true)); });
 
+// Packaging (boxes/bags/supplies) consumed by a shipment. Non-blocking: stock may go negative.
+function applyShipmentPackaging(shipmentId: number, orderId: number, lines: any[], by: string, movedAt: string) {
+  for (const line of lines || []) {
+    const name = String(line?.item_name || "").trim();
+    const qty = r2(num(line?.quantity));
+    if (!name || qty <= 0) continue;
+    const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE active=1 AND name=?", name);
+    const itemType = normInvType(cat?.item_type || "supply");
+    const unit = line?.unit || cat?.unit || "pz";
+    const itemId = ensureInvItem({ item_type: itemType, item_name: name, unit });
+    invMove(itemId, "out", qty, `Empaque envío #${orderId}`, by, true, movedAt); // allowNegative
+    qRun("INSERT INTO sales_shipment_packaging(shipment_id,item_name,item_type,quantity,unit,created_at) VALUES (?,?,?,?,?,?)", shipmentId, name, itemType, qty, unit, movedAt);
+  }
+}
+function reverseShipmentPackaging(shipmentId: number, by: string, movedAt?: string | null) {
+  for (const p of qAll<any>("SELECT * FROM sales_shipment_packaging WHERE shipment_id=?", shipmentId)) {
+    const itemId = ensureInvItem({ item_type: normInvType(p.item_type || "supply"), item_name: p.item_name, unit: p.unit || "pz" });
+    invMove(itemId, "in", r2(num(p.quantity)), "Reverso empaque envío", by, false, movedAt);
+  }
+  qRun("DELETE FROM sales_shipment_packaging WHERE shipment_id=?", shipmentId);
+}
+
 // Shipments (auto expense)
 api.post("/sales-orders/:id/shipments", async c => {
   const orderId = Number(c.req.param("id"));
@@ -567,7 +590,8 @@ api.post("/sales-orders/:id/shipments", async c => {
         registerDirectFunding(partner, shippingCost, shipmentDate, `Gasto pagado por ${partner}: Envio pedido #${orderId}`, partner, null, "expense", expId);
       }
     }
-    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address || null, b.carrier || null, b.tracking_number || null, shippingCost, b.registered_by || "Sistema", b.notes || null, expId, fundingSource, paidFromAccount, shipmentCreatedAt);
+    const shipRes = qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address || null, b.carrier || null, b.tracking_number || null, shippingCost, b.registered_by || "Sistema", b.notes || null, expId, fundingSource, paidFromAccount, shipmentCreatedAt);
+    applyShipmentPackaging(Number(shipRes.lastInsertRowid), orderId, b.packaging, b.registered_by || "Sistema", shipmentCreatedAt);
   });
   send();
   return c.json(ok(recalcSO(orderId)));
@@ -611,6 +635,10 @@ api.put("/sales-shipments/:id", async c => {
     }
 
     qRun("UPDATE sales_shipments SET weight_kg=?,destination_address=?,carrier=?,tracking_number=?,shipping_cost=?,registered_by=?,notes=?,expense_id=?,funding_source=?,paid_from_account=?,created_at=? WHERE id=?", weight, b.destination_address ?? row.destination_address ?? null, b.carrier ?? row.carrier ?? null, b.tracking_number ?? row.tracking_number ?? null, shippingCost, b.registered_by || row.registered_by || "Sistema", b.notes ?? row.notes ?? null, expId, fundingSource, paidFromAccount, shipmentCreatedAt, id);
+    if (Array.isArray(b.packaging)) {
+      reverseShipmentPackaging(id, b.registered_by || row.registered_by || "Sistema", shipmentCreatedAt);
+      applyShipmentPackaging(id, Number(row.order_id), b.packaging, b.registered_by || row.registered_by || "Sistema", shipmentCreatedAt);
+    }
   });
   edit();
   return c.json(ok(recalcSO(Number(row.order_id))));
@@ -621,6 +649,7 @@ api.delete("/sales-shipments/:id", c => {
     const rev = tx(() => {
       const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
       if (ri?.id) invMove(ri.id, "in", row.weight_kg, `Reverso envío ${row.id}`, "Sistema");
+      reverseShipmentPackaging(Number(row.id), "Sistema");
       if (row.expense_id) deleteExpenseAndMirrorRows(Number(row.expense_id));
       qRun("DELETE FROM sales_shipments WHERE id=?", row.id);
     });
