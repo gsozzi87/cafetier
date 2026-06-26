@@ -307,7 +307,7 @@ api.get("/settings", c => c.json(ok(getSettings())));
 api.put("/settings", async c => { const b = await body(c); for (const [k, v] of Object.entries(b)) qRun("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", k, String(v)); return c.json(ok(getSettings())); });
 
 // ===== CATALOGS =====
-for (const table of ["roast_profiles", "origins", "varieties", "expense_categories", "suppliers", "carriers"]) {
+for (const table of ["roast_profiles", "origins", "varieties", "expense_categories", "carriers"]) {
   api.get(`/${table}`, c => c.json(ok(qAll(`SELECT * FROM ${table} WHERE active=1 ORDER BY name`))));
   api.post(`/${table}`, async c => {
     const b = await body(c); req(b.name, "Nombre obligatorio");
@@ -319,6 +319,24 @@ for (const table of ["roast_profiles", "origins", "varieties", "expense_categori
   api.put(`/${table}/:id`, async c => { const b = await body(c); qRun(`UPDATE ${table} SET name=? WHERE id=?`, b.name, c.req.param("id")); return c.json(ok(true)); });
   api.delete(`/${table}/:id`, c => { qRun(`UPDATE ${table} SET active=0 WHERE id=?`, c.req.param("id")); return c.json(ok(true)); });
 }
+
+// Suppliers carry contact details (contacto, teléfono, email, dirección, notas) and are fully editable.
+api.get("/suppliers", c => c.json(ok(qAll("SELECT * FROM suppliers WHERE active=1 ORDER BY name"))));
+api.post("/suppliers", async c => {
+  const b = await body(c); req(b.name, "Nombre obligatorio");
+  try {
+    const r = qRun("INSERT INTO suppliers(name,contact_name,phone,email,address,notes,active) VALUES (?,?,?,?,?,?,1)", b.name, b.contact_name || null, b.phone || null, b.email || null, b.address || null, b.notes || null);
+    return c.json(ok(qGet("SELECT * FROM suppliers WHERE id=?", Number(r.lastInsertRowid))));
+  } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un proveedor con ese nombre")); throw e; }
+});
+api.put("/suppliers/:id", async c => {
+  const b = await body(c); req(b.name, "Nombre obligatorio");
+  try {
+    qRun("UPDATE suppliers SET name=?,contact_name=?,phone=?,email=?,address=?,notes=? WHERE id=?", b.name, b.contact_name || null, b.phone || null, b.email || null, b.address || null, b.notes || null, c.req.param("id"));
+    return c.json(ok(qGet("SELECT * FROM suppliers WHERE id=?", c.req.param("id"))));
+  } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un proveedor con ese nombre")); throw e; }
+});
+api.delete("/suppliers/:id", c => { qRun("UPDATE suppliers SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== CLIENTS =====
 api.get("/clients", c => c.json(ok(qAll("SELECT * FROM clients WHERE active=1 ORDER BY name"))));
@@ -412,6 +430,8 @@ api.post("/inventory", async c => {
 api.put("/inventory/:id", async c => { const b = await body(c); qRun("UPDATE inventory_items SET item_name=?,quantity=?,unit=?,min_stock=?,origin_id=?,variety_id=?,lot_label=? WHERE id=?", b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null, c.req.param("id")); return c.json(ok(true)); });
 api.post("/inventory/:id/movements", async c => { const b = await body(c); req(["in","out","adjust"].includes(b.direction), "Dirección inválida"); const m = tx(() => { invMove(Number(c.req.param("id")), b.direction, num(b.quantity), b.reason || "Manual", b.registered_by); }); m(); return c.json(ok(true)); });
 api.get("/inventory/:id/movements", c => c.json(ok(qAll("SELECT * FROM inventory_movements WHERE item_id=? ORDER BY id DESC", c.req.param("id")))));
+// Global movements ledger for the whole warehouse, ordered by date (oldest first).
+api.get("/inventory-movements", c => c.json(ok(qAll("SELECT m.*, i.item_name, i.item_type, i.unit FROM inventory_movements m JOIN inventory_items i ON i.id=m.item_id ORDER BY m.created_at ASC, m.id ASC"))));
 api.delete("/inventory/:id", c => {
   const id = Number(c.req.param("id"));
   const inBatches = Number(qVal("SELECT COUNT(*) AS v FROM roasting_batches WHERE green_inventory_item_id=?", id) ?? 0);
