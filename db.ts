@@ -462,6 +462,11 @@ export function initDB() {
   ensureColumn("clients", "state", "TEXT");
   ensureColumn("clients", "country", "TEXT");
   ensureColumn("clients", "address_reference", "TEXT");
+  ensureColumn("suppliers", "contact_name", "TEXT");
+  ensureColumn("suppliers", "phone", "TEXT");
+  ensureColumn("suppliers", "email", "TEXT");
+  ensureColumn("suppliers", "address", "TEXT");
+  ensureColumn("suppliers", "notes", "TEXT");
   ensureColumn("expenses", "from_cashbox", "INTEGER DEFAULT 1");
   ensureColumn("expenses", "from_utilities", "INTEGER DEFAULT 0");
   ensureColumn("expenses", "paid_from_account", "TEXT");

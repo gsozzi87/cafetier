@@ -317,14 +317,15 @@ async function renderSales() {
     <div class="card">
       <table class="table" id="salesTable">
         <thead>
-          <tr><th>Pedido</th><th>Tipo</th><th>Cliente</th><th>Estado</th><th>Kg</th><th>Total</th><th>Pagado</th><th>Enviado</th><th></th></tr>
+          <tr><th>Fecha</th><th>Folio</th><th>Tipo</th><th>Cliente / Proveedor</th><th>Estado</th><th>Kg</th><th>Total</th><th>Pagado</th><th>Enviado</th><th></th></tr>
         </thead>
         <tbody>
           ${rows.map(order => {
             const t = salesTotals(order);
             return `
               <tr>
-                <td><strong>${esc(order.order_no)}</strong><div class="tiny muted">${esc(order.delivery_date || "")}</div></td>
+                <td>${esc((order.created_at || "").slice(0, 10))}${order.delivery_date ? `<div class="tiny muted">entrega ${esc(order.delivery_date)}</div>` : ""}</td>
+                <td><strong>${esc(order.order_no)}</strong></td>
                 <td>${esc(order.order_type)}</td>
                 <td>${esc(order.client_name || "Mostrador")}</td>
                 <td>${statusBadge(order.status)}</td>
@@ -516,12 +517,14 @@ async function renderPurchases() {
 
     <div class="card">
       <table class="table" id="poTable">
-        <thead><tr><th>OC</th><th>Descripción</th><th>Estado</th><th>Kg</th><th>Mercancía est.</th><th>Envío est.</th><th>Falta capital</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Kg</th><th>Mercancía est.</th><th>Envío est.</th><th>Falta capital</th><th></th></tr></thead>
         <tbody>
           ${rows.map(po => `
             <tr>
+              <td>${esc((po.created_at || "").slice(0, 10))}</td>
               <td><strong>${esc(po.po_no)}</strong></td>
               <td>${esc(po.description)}</td>
+              <td>${esc(po.supplier || "—")}</td>
               <td>${statusBadge(po.status)}</td>
               <td>${kg(po.requested_green_kg)}</td>
               <td class="money">${money(po.estimated_cost)}</td>
@@ -883,7 +886,21 @@ ${esc(b.ai_review)}</div>` : ``}
 const INV_TYPE_LABELS = { green_coffee: "Café verde", roasted_coffee: "Café tostado", packaged_coffee: "Café empaquetado", supply: "Insumos y empaques" };
 const INV_TYPE_ORDER = ["green_coffee", "roasted_coffee", "packaged_coffee", "supply"];
 
+function inventoryTabs(tab) {
+  return `
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="btn ${tab === "stock" ? "primary" : "ghost"} sm" onclick="App.setView('inventory',{invTab:'stock'})">Existencias actuales</button>
+      <button class="btn ${tab === "history" ? "primary" : "ghost"} sm" onclick="App.setView('inventory',{invTab:'history'})">Historial de movimientos</button>
+    </div>`;
+}
+const inventoryHeader = `
+  <div class="row between" style="margin-bottom:12px">
+    <div class="row wrap"><button class="btn primary" onclick="App.newInventoryItem()">Nuevo ítem</button></div>
+  </div>`;
+
 async function renderInventory() {
+  const tab = state.params.invTab === "history" ? "history" : "stock";
+  if (tab === "history") return renderInventoryHistory();
   const rows = await api("/inventory");
   const catByName = {};
   (state.master.inventoryCatalog || []).forEach(c => { catByName[c.name] = c; });
@@ -912,7 +929,7 @@ async function renderInventory() {
               <td>${esc(i.lot_label || "-")}</td>
               <td><strong ${neg ? `style="color:var(--red)"` : ""}>${numFmt.format(i.quantity)}</strong> ${esc(i.unit)} ${low && !neg ? `<span class="badge sin_fondos" title="Por debajo del mínimo">bajo</span>` : ""} ${neg ? `<span class="badge" style="background:var(--red-soft);color:var(--red)" title="Stock negativo: falta cargar entradas">negativo</span>` : ""}</td>
               <td>${numFmt.format(i.min_stock)} ${esc(i.unit)}</td>
-              <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${safeName}')">Entrada / salida</button><button class="btn ghost sm" onclick="App.openInventoryHistory(${i.id},'${safeName}')">Historial</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
+              <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${safeName}')">Entrada / salida</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
             </tr>`;
           }).join("")}
         </tbody>
@@ -920,34 +937,38 @@ async function renderInventory() {
     </div>`;
 
   document.getElementById("content").innerHTML = `
-    <div class="row between" style="margin-bottom:12px">
-      <div class="row wrap"><button class="btn primary" onclick="App.newInventoryItem()">Nuevo ítem</button></div>
-    </div>
-    <div class="notice ok" style="margin-bottom:14px">Esto es <strong>lo que tenés ahora</strong> (existencias actuales). Para ver las entradas y salidas de un ítem, tocá <strong>Historial</strong>.</div>
+    ${inventoryHeader}
+    ${inventoryTabs("stock")}
+    <div class="notice ok" style="margin-bottom:14px">Esto es <strong>lo que tenés ahora</strong> (existencias actuales). Para ver entradas y salidas por fecha, abrí la pestaña <strong>Historial de movimientos</strong>.</div>
     ${groups.length ? groups.map(section).join("") : `<div class="card"><div class="empty">Inventario vacío. Cargá ítems con "Nuevo ítem".</div></div>`}
   `;
 }
 
-async function openInventoryHistory(itemId, itemName) {
-  const movements = await api(`/inventory/${itemId}/movements`);
+async function renderInventoryHistory() {
+  const moves = await api("/inventory-movements");
   const dirLabel = { in: "Entrada", out: "Salida", adjust: "Ajuste" };
   const sign = { in: "+", out: "−", adjust: "=" };
-  openModal(`Historial · ${itemName}`, `
-    <p class="muted" style="margin-top:0">El <strong>historial</strong> son las entradas y salidas. No es el stock actual: el stock lo ves en la tabla de inventario.</p>
-    ${movements.length ? `
+  document.getElementById("content").innerHTML = `
+    ${inventoryHeader}
+    ${inventoryTabs("history")}
+    <div class="notice ok" style="margin-bottom:14px">Historial de <strong>toda la bodega</strong> por fecha: entradas y salidas de todos los ítems. No es el stock actual (ese está en "Existencias actuales").</div>
+    <div class="card">
       <table class="table">
-        <thead><tr><th>Fecha</th><th>Movimiento</th><th>Cantidad</th><th>Razón</th><th>Por</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Ítem</th><th>Movimiento</th><th>Cantidad</th><th>Razón</th><th>Por</th></tr></thead>
         <tbody>
-          ${movements.map(m => `<tr>
+          ${moves.map(m => `<tr>
             <td>${esc((m.created_at || "").slice(0, 10))}</td>
+            <td><strong>${esc(m.item_name)}</strong></td>
             <td>${dirLabel[m.direction] || esc(m.direction)}</td>
-            <td>${sign[m.direction] || ""}${numFmt.format(m.quantity)}</td>
+            <td>${sign[m.direction] || ""}${numFmt.format(m.quantity)} ${esc(m.unit || "")}</td>
             <td>${esc(m.reason || "")}</td>
             <td>${esc(m.registered_by || "")}</td>
           </tr>`).join("")}
         </tbody>
-      </table>` : `<div class="empty">Sin movimientos todavía.</div>`}
-  `);
+      </table>
+      ${moves.length ? "" : `<div class="empty">Todavía no hay movimientos en la bodega.</div>`}
+    </div>
+  `;
 }
 
 async function renderExpenses() {
@@ -1058,6 +1079,12 @@ async function renderConfig() {
         </div>
 
         <div class="card">
+          <div class="row between"><h3>Proveedores</h3><button class="btn secondary sm" onclick="App.newSupplier()">+ Proveedor</button></div>
+          <div class="small muted" style="margin-bottom:6px">Con contacto, teléfono y dirección. Se pueden elegir al comprar café, etiquetas o cualquier ítem.</div>
+          ${(master.suppliers || []).length ? (master.suppliers || []).map(s => `<div class="item"><div class="row between"><strong>${esc(s.name)}</strong><div class="line-actions">${editIcon(`App.editSupplier(${s.id})`)}${delIcon(`App.deleteSupplier(${s.id})`)}</div></div><div class="small muted">${[s.contact_name, s.phone, s.email].filter(Boolean).map(esc).join(" · ") || "Sin contacto"}${s.address ? `<div class="tiny muted">${esc(s.address)}</div>` : ""}</div></div>`).join("") : `<div class="empty">Sin proveedores. Agregá uno con "+ Proveedor".</div>`}
+        </div>
+
+        <div class="card">
           <div class="row between"><h3>Productos</h3><button class="btn secondary sm" onclick="App.newProduct()">+ Producto</button></div>
           ${master.products.map(p => `<div class="item"><div class="row between"><strong>${esc(p.name)}</strong><button class="btn red sm" onclick="App.deleteProduct(${p.id})">Eliminar</button></div><div class="small muted">${esc(p.presentation || "")} · ${kg(p.unit_weight_kg)} · ${money(p.price)}</div></div>`).join("") || `<div class="empty">Sin productos.</div>`}
         </div>
@@ -1066,7 +1093,6 @@ async function renderConfig() {
           <h3>Catálogos</h3>
           <div class="list">
             ${[
-              ["suppliers","Proveedores", master.suppliers],
               ["carriers","Paqueterías", master.carriers],
               ["roast_profiles","Perfiles de tueste", master.roastProfiles],
               ["origins","Orígenes", master.origins],
@@ -2560,6 +2586,43 @@ function newCatalogItem(table, label) {
   }]);
 }
 
+function supplierModal(s) {
+  const isEdit = !!s;
+  return openModal(isEdit ? "Editar proveedor" : "Nuevo proveedor", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="supName" value="${esc(s?.name || "")}" /></div>
+      <div class="field"><label>Contacto</label><input class="input" id="supContact" value="${esc(s?.contact_name || "")}" /></div>
+      <div class="field"><label>Teléfono</label><input class="input" id="supPhone" value="${esc(s?.phone || "")}" /></div>
+      <div class="field"><label>Email</label><input class="input" id="supEmail" value="${esc(s?.email || "")}" /></div>
+    </div>
+    <div class="field"><label>Dirección</label><input class="input" id="supAddress" value="${esc(s?.address || "")}" /></div>
+    <div class="field"><label>Notas</label><input class="input" id="supNotes" value="${esc(s?.notes || "")}" /></div>
+  `, [{
+    label: isEdit ? "Guardar cambios" : "Guardar",
+    kind: "primary",
+    onClick: async modal => {
+      const payload = { name: val("supName"), contact_name: val("supContact"), phone: val("supPhone"), email: val("supEmail"), address: val("supAddress"), notes: val("supNotes") };
+      await api(isEdit ? `/suppliers/${s.id}` : "/suppliers", { method: isEdit ? "PUT" : "POST", body: payload });
+      modal.remove();
+      await refreshMaster(true);
+      toast("Proveedor guardado.", "ok");
+      setView("config");
+    }
+  }]);
+}
+function newSupplier() { supplierModal(null); }
+function editSupplier(id) {
+  const s = (state.master.suppliers || []).find(x => Number(x.id) === Number(id));
+  if (!s) { toast("Proveedor no encontrado.", "error"); return; }
+  supplierModal(s);
+}
+function deleteSupplier(id) {
+  if (!confirm("¿Eliminar este proveedor?")) return;
+  api(`/suppliers/${id}`, { method: "DELETE" })
+    .then(async () => { await refreshMaster(true); toast("Proveedor eliminado.", "ok"); setView("config"); })
+    .catch(err => toast(err.message, "error"));
+}
+
 function openResetModal() {
   openModal("Reiniciar datos", `
     <div class="notice error">Vas a borrar datos de forma permanente. Hacelo solo si estás seguro.</div>
@@ -2637,7 +2700,6 @@ const App = {
   editInventoryCatalogItem,
   deleteInventoryCatalogItem,
   newInventoryMovement,
-  openInventoryHistory,
   editInventoryItem,
   deleteInventoryItem,
   newExpense,
@@ -2656,6 +2718,9 @@ const App = {
   newProduct,
   deleteProduct,
   newCatalogItem,
+  newSupplier,
+  editSupplier,
+  deleteSupplier,
 };
 window.App = App;
 
