@@ -426,6 +426,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS sales_order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, product_id INTEGER, description TEXT NOT NULL, presentation TEXT, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'pz', unit_weight_kg REAL DEFAULT 0, unit_price REAL DEFAULT 0, subtotal REAL DEFAULT 0, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS sales_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT, notes TEXT, registered_by TEXT, received_account TEXT DEFAULT 'Axel', created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS sales_shipments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, weight_kg REAL NOT NULL, destination_address TEXT, carrier TEXT, tracking_number TEXT, shipping_cost REAL DEFAULT 0, registered_by TEXT, notes TEXT, expense_id INTEGER, funding_source TEXT, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS sales_shipment_packaging (id INTEGER PRIMARY KEY AUTOINCREMENT, shipment_id INTEGER NOT NULL, item_name TEXT NOT NULL, item_type TEXT NOT NULL DEFAULT 'supply', quantity REAL NOT NULL, unit TEXT DEFAULT 'pz', created_at TEXT NOT NULL, FOREIGN KEY (shipment_id) REFERENCES sales_shipments(id) ON DELETE CASCADE);
 
     CREATE TABLE IF NOT EXISTS purchase_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, estimated_shipping_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, actual_shipping_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS purchase_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_order_id INTEGER NOT NULL, inventory_item_id INTEGER NOT NULL, quantity_kg REAL NOT NULL, unit_cost REAL DEFAULT 0, total_cost REAL NOT NULL, shipping_cost REAL DEFAULT 0, supplier TEXT, lot_label TEXT, origin_id INTEGER, variety_id INTEGER, registered_by TEXT, funding_source TEXT, paid_from_account TEXT, created_at TEXT NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE);
@@ -538,7 +539,7 @@ export function greenNeededForRoasted(roastedKg: number, loss = estimatedLoss())
 // before parents so foreign keys stay satisfied without disabling them.
 export function resetData(scope: "operativo" | "todo" = "operativo") {
   const tables = [
-    "sales_payments", "sales_shipments", "sales_order_items",
+    "sales_payments", "sales_shipment_packaging", "sales_shipments", "sales_order_items",
     "batch_photos", "roasting_batches", "roasting_sessions",
     "purchase_entries", "purchase_orders",
     "inventory_movements", "inventory_items",
