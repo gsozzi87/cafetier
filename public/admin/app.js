@@ -7,7 +7,8 @@ const state = {
 const VIEWS = {
   dashboard: "Dashboard",
   sales: "Ventas",
-  clients: "Clientes",
+  maestros: "Datos maestros",
+  clients: "Datos maestros",
   salesDetail: "Detalle de venta",
   purchases: "Compras",
   purchaseDetail: "Detalle de compra",
@@ -184,7 +185,7 @@ async function render() {
     if (!state.master) await refreshMaster();
     if (state.view === "dashboard") return await renderDashboard();
     if (state.view === "sales") return await renderSales();
-    if (state.view === "clients") return await renderClients();
+    if (state.view === "maestros" || state.view === "clients") return await renderMaestros();
     if (state.view === "salesDetail") return await renderSalesDetail(state.params.id);
     if (state.view === "purchases") return await renderPurchases();
     if (state.view === "purchaseDetail") return await renderPurchaseDetail(state.params.id);
@@ -344,41 +345,13 @@ async function renderSales() {
   `;
 }
 
-async function renderClients() {
-  const master = await refreshMaster(true);
-  const rows = master.clients || [];
-  document.getElementById("content").innerHTML = `
-    <div class="row between" style="margin-bottom:12px">
-      <button class="btn primary" onclick="App.newClient()">Nuevo cliente</button>
-      <input class="search" style="max-width:280px" placeholder="Buscar cliente" oninput="App.filterTable(this,'clientsTable')" />
-    </div>
-    <div class="card">
-      <table class="table" id="clientsTable">
-        <thead>
-          <tr><th>Cliente</th><th>Cafetería</th><th>Encargado</th><th>Contacto</th><th>Dirección</th><th></th></tr>
-        </thead>
-        <tbody>
-          ${rows.map(c => `
-            <tr>
-              <td><strong>${esc(c.name)}</strong><div class="tiny muted">${esc(c.email || "")}</div></td>
-              <td>${esc(c.cafe_name || "")}</td>
-              <td>${esc(c.contact_name || "")}</td>
-              <td>${esc(c.phone || "")}${c.contact_phone ? `<div class="tiny muted">Enc. ${esc(c.contact_phone)}</div>` : ""}</td>
-              <td>${esc([c.address, c.city, c.postal_code ? `CP ${c.postal_code}` : ""].filter(Boolean).join(" · "))}</td>
-              <td><button class="btn red sm" onclick="App.deleteClient(${c.id})">Eliminar</button></td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-      ${rows.length ? "" : `<div class="empty">Sin clientes registrados.</div>`}
-    </div>
-  `;
+function tabBar(view, paramKey, current, tabs) {
+  return `<div class="tabbar">${tabs.map(([k, l]) => `<button class="btn ${current === k ? "primary" : "ghost"} sm" onclick="App.setView('${view}',{${paramKey}:'${k}'})">${l}</button>`).join("")}</div>`;
 }
 
-async function renderClients() {
-  const master = await refreshMaster(true);
+function clientsCard(master) {
   const rows = master.clients || [];
-  document.getElementById("content").innerHTML = `
+  return `
     <div class="row between" style="margin-bottom:12px">
       <button class="btn primary" onclick="App.newClient()">Nuevo cliente</button>
       <input class="search" style="max-width:280px" placeholder="Buscar cliente" oninput="App.filterTable(this,'clientsTable')" />
@@ -394,14 +367,74 @@ async function renderClients() {
               <td>${esc(c.contact_name || "")}</td>
               <td>${esc(c.phone || "")}${c.contact_phone ? `<div class="tiny muted">Enc. ${esc(c.contact_phone)}</div>` : ""}</td>
               <td>${esc([c.address, c.neighborhood ? `Col. ${c.neighborhood}` : "", c.municipality, c.city, c.state, c.postal_code ? `CP ${c.postal_code}` : ""].filter(Boolean).join(" · "))}</td>
-              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editClient(${c.id})">Editar</button><button class="btn red sm" onclick="App.deleteClient(${c.id})">Eliminar</button></div></td>
+              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editClient(${c.id})">Editar</button>${delIcon(`App.deleteClient(${c.id})`)}</div></td>
             </tr>
           `).join("")}
         </tbody>
       </table>
       ${rows.length ? "" : `<div class="empty">Sin clientes registrados.</div>`}
-    </div>
-  `;
+    </div>`;
+}
+
+function productsCard(master) {
+  return `
+    <div class="card">
+      <div class="row between"><h3>Productos</h3><button class="btn secondary sm" onclick="App.newProduct()">+ Producto</button></div>
+      <div class="small muted" style="margin-bottom:6px">Aparecen al vender (mostrador y mayoreo). El precio acá es el de lista; se puede editar en cada venta sin cambiar el de lista.</div>
+      ${(master.products || []).length ? (master.products || []).map(p => `<div class="item"><div class="row between"><strong>${esc(p.name)}</strong><button class="btn red sm" onclick="App.deleteProduct(${p.id})">Eliminar</button></div><div class="small muted">${esc(p.presentation || "")} · ${kg(p.unit_weight_kg)} · ${money(p.price)}</div></div>`).join("") : `<div class="empty">Sin productos.</div>`}
+    </div>`;
+}
+
+function itemsCard(master) {
+  return `
+    <div class="card">
+      <div class="row between"><h3>Ítems del inventario</h3><button class="btn secondary sm" onclick="App.newInventoryCatalogItem()">+ Ítem</button></div>
+      <div class="small muted" style="margin-bottom:6px">Definí acá todo lo que manejás (café, cajas, bolsas, marketing, insumos…). Solo estos se pueden cargar al inventario o comprar.</div>
+      ${(master.inventoryCatalog || []).length ? (master.inventoryCatalog || []).map(it => `<div class="item"><div class="row between"><strong>${esc(it.name)}</strong><div class="line-actions"><span class="pill">${esc(it.category || it.item_type)}</span>${editIcon(`App.editInventoryCatalogItem(${it.id})`)}${delIcon(`App.deleteInventoryCatalogItem(${it.id})`)}</div></div><div class="small muted">${esc(it.unit || "")}${it.supplier ? " · " + esc(it.supplier) : ""}${Number(it.min_stock) > 0 ? " · mín " + numFmt.format(it.min_stock) : ""}</div></div>`).join("") : `<div class="empty">Sin ítems definidos.</div>`}
+    </div>`;
+}
+
+function catalogsCards(master) {
+  return `
+    <div class="split">
+      <div class="stack">
+        <div class="card">
+          <div class="row between"><h3>Proveedores</h3><button class="btn secondary sm" onclick="App.newSupplier()">+ Proveedor</button></div>
+          <div class="small muted" style="margin-bottom:6px">Con contacto, teléfono y dirección. Se eligen al comprar café, etiquetas o cualquier ítem.</div>
+          ${(master.suppliers || []).length ? (master.suppliers || []).map(s => `<div class="item"><div class="row between"><strong>${esc(s.name)}</strong><div class="line-actions">${editIcon(`App.editSupplier(${s.id})`)}${delIcon(`App.deleteSupplier(${s.id})`)}</div></div><div class="small muted">${[s.contact_name, s.phone, s.email].filter(Boolean).map(esc).join(" · ") || "Sin contacto"}${s.address ? `<div class="tiny muted">${esc(s.address)}</div>` : ""}</div></div>`).join("") : `<div class="empty">Sin proveedores.</div>`}
+        </div>
+      </div>
+      <div class="stack">
+        <div class="card">
+          <h3>Otros catálogos</h3>
+          <div class="list">
+            ${[
+              ["carriers", "Paqueterías", master.carriers],
+              ["roast_profiles", "Perfiles de tueste", master.roastProfiles],
+              ["origins", "Orígenes", master.origins],
+              ["varieties", "Variedades", master.varieties],
+              ["expense_categories", "Categorías de gasto", master.expenseCategories],
+            ].map(([table, label, rows]) => `
+              <div class="item">
+                <div class="row between"><strong>${label}</strong><button class="btn ghost sm" onclick="App.newCatalogItem('${table}','${label}')">+ Agregar</button></div>
+                <div class="small muted">${(rows || []).map(r => esc(r.name)).join(" · ") || "Sin datos"}</div>
+              </div>`).join("")}
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function renderMaestros() {
+  const master = await refreshMaster(true);
+  const tab = ["clientes", "productos", "items", "catalogos"].includes(state.params.mdTab) ? state.params.mdTab : "clientes";
+  const tabs = tabBar("maestros", "mdTab", tab, [["clientes", "Clientes"], ["productos", "Productos"], ["items", "Ítems"], ["catalogos", "Catálogos"]]);
+  let body = "";
+  if (tab === "clientes") body = clientsCard(master);
+  else if (tab === "productos") body = productsCard(master);
+  else if (tab === "items") body = itemsCard(master);
+  else body = catalogsCards(master);
+  document.getElementById("content").innerHTML = `${tabs}${body}`;
 }
 
 async function renderSalesDetail(id) {
@@ -887,11 +920,7 @@ const INV_TYPE_LABELS = { green_coffee: "Café verde", roasted_coffee: "Café to
 const INV_TYPE_ORDER = ["green_coffee", "roasted_coffee", "packaged_coffee", "supply"];
 
 function inventoryTabs(tab) {
-  return `
-    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <button class="btn ${tab === "stock" ? "primary" : "ghost"} sm" onclick="App.setView('inventory',{invTab:'stock'})">Existencias actuales</button>
-      <button class="btn ${tab === "history" ? "primary" : "ghost"} sm" onclick="App.setView('inventory',{invTab:'history'})">Historial de movimientos</button>
-    </div>`;
+  return tabBar("inventory", "invTab", tab, [["stock", "Existencias actuales"], ["history", "Historial de movimientos"]]);
 }
 const inventoryHeader = `
   <div class="row between" style="margin-bottom:12px">
@@ -1073,37 +1102,9 @@ async function renderConfig() {
 
       <div class="stack">
         <div class="card">
-          <div class="row between"><h3>Items del inventario</h3><button class="btn secondary sm" onclick="App.newInventoryCatalogItem()">+ Item</button></div>
-          <div class="small muted" style="margin-bottom:6px">Definí acá todo lo que manejás (café, cajas, bolsas, marketing, insumos…). Solo estos se pueden cargar al inventario.</div>
-          ${(master.inventoryCatalog || []).length ? (master.inventoryCatalog || []).map(it => `<div class="item"><div class="row between"><strong>${esc(it.name)}</strong><div class="line-actions"><span class="pill">${esc(it.category || it.item_type)}</span>${editIcon(`App.editInventoryCatalogItem(${it.id})`)}${delIcon(`App.deleteInventoryCatalogItem(${it.id})`)}</div></div><div class="small muted">${esc(it.unit || "")}${it.supplier ? " · " + esc(it.supplier) : ""}${Number(it.min_stock) > 0 ? " · mín " + numFmt.format(it.min_stock) : ""}</div></div>`).join("") : `<div class="empty">Sin ítems definidos.</div>`}
-        </div>
-
-        <div class="card">
-          <div class="row between"><h3>Proveedores</h3><button class="btn secondary sm" onclick="App.newSupplier()">+ Proveedor</button></div>
-          <div class="small muted" style="margin-bottom:6px">Con contacto, teléfono y dirección. Se pueden elegir al comprar café, etiquetas o cualquier ítem.</div>
-          ${(master.suppliers || []).length ? (master.suppliers || []).map(s => `<div class="item"><div class="row between"><strong>${esc(s.name)}</strong><div class="line-actions">${editIcon(`App.editSupplier(${s.id})`)}${delIcon(`App.deleteSupplier(${s.id})`)}</div></div><div class="small muted">${[s.contact_name, s.phone, s.email].filter(Boolean).map(esc).join(" · ") || "Sin contacto"}${s.address ? `<div class="tiny muted">${esc(s.address)}</div>` : ""}</div></div>`).join("") : `<div class="empty">Sin proveedores. Agregá uno con "+ Proveedor".</div>`}
-        </div>
-
-        <div class="card">
-          <div class="row between"><h3>Productos</h3><button class="btn secondary sm" onclick="App.newProduct()">+ Producto</button></div>
-          ${master.products.map(p => `<div class="item"><div class="row between"><strong>${esc(p.name)}</strong><button class="btn red sm" onclick="App.deleteProduct(${p.id})">Eliminar</button></div><div class="small muted">${esc(p.presentation || "")} · ${kg(p.unit_weight_kg)} · ${money(p.price)}</div></div>`).join("") || `<div class="empty">Sin productos.</div>`}
-        </div>
-
-        <div class="card">
-          <h3>Catálogos</h3>
-          <div class="list">
-            ${[
-              ["carriers","Paqueterías", master.carriers],
-              ["roast_profiles","Perfiles de tueste", master.roastProfiles],
-              ["origins","Orígenes", master.origins],
-              ["varieties","Variedades", master.varieties],
-              ["expense_categories","Categorías de gasto", master.expenseCategories],
-            ].map(([table, label, rows]) => `
-              <div class="item">
-                <div class="row between"><strong>${label}</strong><button class="btn ghost sm" onclick="App.newCatalogItem('${table}','${label}')">+ Agregar</button></div>
-                <div class="small muted">${rows.map(r => esc(r.name)).join(" · ") || "Sin datos"}</div>
-              </div>`).join("")}
-          </div>
+          <h3>Datos maestros</h3>
+          <p class="small muted">Clientes, productos, ítems del inventario y catálogos se administran en su propio apartado.</p>
+          <div class="footer-actions"><button class="btn secondary" onclick="App.setView('maestros',{mdTab:'clientes'})">Ir a Datos maestros</button></div>
         </div>
 
         <div class="card danger-zone">
@@ -1203,6 +1204,34 @@ function productQtyRows() {
       <td><input class="input" style="max-width:90px" type="number" min="0" step="1" data-product-id="${p.id}" data-product-qty /></td>
     </tr>`).join("");
 }
+// Wholesale lines: price is prefilled from the product but editable per sale (does not change the product price).
+function productLineRows() {
+  return (state.master.products || []).map(p => `
+    <tr>
+      <td><strong>${esc(p.name)}</strong><div class="tiny muted">${esc(p.presentation || "")}</div></td>
+      <td>${kg(p.unit_weight_kg)}</td>
+      <td><input class="input" style="max-width:120px" type="number" min="0" step="0.01" value="${esc(p.price)}" data-line-price data-product-id="${p.id}" /></td>
+      <td><input class="input" style="max-width:90px" type="number" min="0" step="1" value="0" data-line-qty data-product-id="${p.id}" /></td>
+    </tr>`).join("");
+}
+function readProductLines() {
+  const lines = [];
+  document.querySelectorAll("[data-line-qty]").forEach(qtyEl => {
+    const qty = Number(qtyEl.value || 0);
+    if (qty <= 0) return;
+    const prod = (state.master.products || []).find(p => p.id === Number(qtyEl.dataset.productId));
+    if (!prod) return;
+    const priceEl = document.querySelector(`[data-line-price][data-product-id="${prod.id}"]`);
+    const price = Number(priceEl?.value ?? prod.price);
+    lines.push({ product_id: prod.id, description: prod.name, presentation: prod.presentation, quantity: qty, unit: "unit", unit_weight_kg: Number(prod.unit_weight_kg), unit_price: price });
+  });
+  return lines;
+}
+function catalogItemOptions(selected = "") {
+  const items = state.master.inventoryCatalog || [];
+  if (!items.length) return `<option value="">(definí ítems en Datos maestros → Ítems)</option>`;
+  return items.map(it => `<option value="${esc(it.name)}" ${it.name === selected ? "selected" : ""}>${esc(it.name)}${it.category ? " · " + esc(it.category) : ""}</option>`).join("");
+}
 
 async function newRetailSale() {
   openModal("Nueva venta de mostrador", `
@@ -1257,30 +1286,49 @@ async function newRetailSale() {
 }
 
 async function newWholesaleSale() {
+  const hasProducts = (state.master.products || []).length > 0;
   openModal("Nuevo pedido mayoreo", `
     <div class="form-grid">
       <div class="field"><label>Cliente</label><select class="select" id="whClient">${clientOptions()}</select></div>
       <div class="field"><label>Entrega</label><input class="input" id="whDelivery" type="date" /></div>
-      <div class="field"><label>Kg a entregar</label><input class="input" id="whKg" type="number" step="0.01" /></div>
-      <div class="field"><label>Precio por kg</label><input class="input" id="whPriceKg" type="number" step="0.01" /></div>
     </div>
+    ${hasProducts ? `
+    <div class="field"><label>Productos</label>
+      <div class="small muted" style="margin-bottom:6px">El precio viene del producto pero podés editarlo en esta venta (no cambia el precio del producto).</div>
+      <table class="table">
+        <thead><tr><th>Producto</th><th>Peso</th><th>Precio</th><th>Cant.</th></tr></thead>
+        <tbody>${productLineRows()}</tbody>
+      </table>
+    </div>` : `<div class="notice warn">No tenés productos cargados. Definilos en Datos maestros → Productos, o cargá la venta a granel abajo.</div>`}
+    <details ${hasProducts ? "" : "open"} style="margin-top:6px"><summary class="small muted" style="cursor:pointer">O cargar a granel (sin productos)</summary>
+      <div class="form-grid" style="margin-top:8px">
+        <div class="field"><label>Kg a entregar</label><input class="input" id="whKg" type="number" step="0.01" /></div>
+        <div class="field"><label>Precio por kg</label><input class="input" id="whPriceKg" type="number" step="0.01" /></div>
+      </div>
+    </details>
     <div class="field"><label>Notas</label><textarea class="textarea" id="whNotes"></textarea></div>
   `, [{
     label: "Crear pedido",
     kind: "primary",
     onClick: async modal => {
-      await api("/sales-orders", {
-        method: "POST",
-        body: {
-          order_type: "mayoreo",
-          client_id: Number(val("whClient")),
-          delivery_date: val("whDelivery") || null,
-          total_weight_kg: Number(val("whKg")),
-          price_per_kg: Number(val("whPriceKg")),
-          total_amount: Number(val("whKg")) * Number(val("whPriceKg")),
-          notes: val("whNotes") || null,
-        },
-      });
+      const lines = readProductLines();
+      const bulkKg = Number(val("whKg") || 0);
+      const bulkPrice = Number(val("whPriceKg") || 0);
+      if (!lines.length && !(bulkKg > 0)) throw new Error("Elegí productos o cargá los kg a granel.");
+      const payload = {
+        order_type: "mayoreo",
+        client_id: Number(val("whClient")),
+        delivery_date: val("whDelivery") || null,
+        notes: val("whNotes") || null,
+      };
+      if (lines.length) {
+        payload.items = lines;
+      } else {
+        payload.total_weight_kg = bulkKg;
+        payload.price_per_kg = bulkPrice;
+        payload.total_amount = bulkKg * bulkPrice;
+      }
+      await api("/sales-orders", { method: "POST", body: payload });
       modal.remove();
       toast("Pedido creado. Si falta café verde, se generó la OC automáticamente.", "ok");
       setView("sales");
@@ -1499,21 +1547,23 @@ function deleteSale(id) {
 
 function newManualPurchase() {
   const modal = openModal("Nueva orden de compra", `
+    <div class="notice ok">Solo podés comprar ítems definidos en Datos maestros → Ítems (café, cajas, bolsas, insumos…).</div>
     <div class="form-grid">
-      <div class="field"><label>Descripción</label><input class="input" id="poDesc" /></div>
+      <div class="field"><label>Ítem a comprar</label><select class="select" id="poDesc">${catalogItemOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="poDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Proveedor</label><select class="select" id="poSupplier">${supplierOptions()}</select></div>
-      <div class="field"><label>Kg requeridos</label><input class="input" id="poKg" type="number" step="0.01" /></div>
-      <div class="field"><label>Costo estimado por kg</label><input class="input" id="poCostKg" type="number" step="0.01" /></div>
+      <div class="field"><label>Cantidad</label><input class="input" id="poKg" type="number" step="0.01" /></div>
+      <div class="field"><label>Costo unitario estimado</label><input class="input" id="poCostKg" type="number" step="0.01" /></div>
       <div class="field"><label>Mercancía estimada total</label><input class="input" id="poCost" type="number" step="0.01" /></div>
       <div class="field"><label>Envío estimado compra</label><input class="input" id="poShip" type="number" step="0.01" value="0" /></div>
     </div>
-    <div class="notice warn">Si al crear o ejecutar la compra no alcanza la caja disponible, el sistema debe disparar una orden de ingreso de capital.</div>
+    <div class="notice warn">Si al crear o ejecutar la compra no alcanza la caja disponible, el sistema dispara una orden de ingreso de capital.</div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="poNotes"></textarea></div>
   `, [{
     label: "Crear OC",
     kind: "primary",
     onClick: async modal => {
+      if (!val("poDesc")) throw new Error("Elegí un ítem del catálogo.");
       await api("/purchase-orders", {
         method: "POST",
         body: {
@@ -1549,11 +1599,11 @@ async function receivePurchase(poId) {
   const estCost = round2(Number(po.estimated_cost || 0));
   const unitCost = reqKg > 0 ? round2(estCost / reqKg) : 0;
   const estShip = round2(Number(po.estimated_shipping_cost || 0));
-  const modal = openModal("Ejecutar compra / recibir café", `
-    <div class="notice ok">Todo viene de la orden <strong>${esc(po.po_no)}</strong>. Confirmá de dónde salió el dinero, quién registra y la fecha.</div>
+  const modal = openModal("Ejecutar compra / recibir", `
+    <div class="notice ok">Recibís <strong>${esc(po.description || "ítem")}</strong> de la orden <strong>${esc(po.po_no)}</strong>. Confirmá de dónde salió el dinero, quién registra y la fecha.</div>
     <div class="form-grid">
-      <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" value="${esc(reqKg)}" /></div>
-      <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" value="${esc(unitCost)}" /></div>
+      <div class="field"><label>Cantidad recibida</label><input class="input" id="rcvKg" type="number" step="0.01" value="${esc(reqKg)}" /></div>
+      <div class="field"><label>Costo unitario</label><input class="input" id="rcvUnitCost" type="number" step="0.01" value="${esc(unitCost)}" /></div>
       <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" value="${esc(estCost)}" readonly /></div>
       <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="${esc(estShip)}" /></div>
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="rcvSource">${moneySourceOptions()}</select></div>
@@ -1612,12 +1662,14 @@ async function receivePurchase(poId) {
 
 async function editPurchase(id) {
   const { purchaseOrder: po } = await api(`/purchase-orders/${id}`);
+  const names = (state.master.inventoryCatalog || []).map(i => i.name);
+  const descOptions = (po.description && !names.includes(po.description) ? `<option value="${esc(po.description)}" selected>${esc(po.description)}</option>` : "") + catalogItemOptions(po.description || "");
   openModal("Editar orden de compra", `
     <div class="form-grid">
-      <div class="field"><label>Descripción</label><input class="input" id="epDesc" value="${esc(po.description || "")}" /></div>
+      <div class="field"><label>Ítem a comprar</label><select class="select" id="epDesc">${descOptions}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="epDate" type="date" value="${esc((po.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Proveedor</label><input class="input" id="epSupplier" value="${esc(po.supplier || "")}" /></div>
-      <div class="field"><label>Kg requeridos</label><input class="input" id="epKg" type="number" step="0.01" value="${esc(po.requested_green_kg || 0)}" /></div>
+      <div class="field"><label>Proveedor</label><select class="select" id="epSupplier">${supplierOptions(po.supplier || "")}</select></div>
+      <div class="field"><label>Cantidad</label><input class="input" id="epKg" type="number" step="0.01" value="${esc(po.requested_green_kg || 0)}" /></div>
       <div class="field"><label>Mercancía estimada total</label><input class="input" id="epCost" type="number" step="0.01" value="${esc(po.estimated_cost || 0)}" /></div>
       <div class="field"><label>Envío estimado compra</label><input class="input" id="epShip" type="number" step="0.01" value="${esc(po.estimated_shipping_cost || 0)}" /></div>
     </div>

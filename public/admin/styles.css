@@ -237,4 +237,43 @@ body{background:radial-gradient(1100px 560px at 72% -12%, #fdfaf3, var(--bg))}
 /* ---- Encabezados de tabla ordenables ---- */
 #content table.table thead th{cursor:pointer;user-select:none}
 #content table.table thead th:hover{color:var(--accent)}
+
+/* ============================================================
+   CAFETIER · Pulido UI v5
+   ============================================================ */
+/* Segmented tab bar (Datos maestros, Inventario) */
+.tabbar{display:inline-flex;gap:4px;padding:4px;background:#f1e9da;border:1px solid var(--line);border-radius:13px;margin-bottom:16px;flex-wrap:wrap}
+.tabbar .btn{box-shadow:none;border:1px solid transparent;background:transparent;color:var(--muted);font-weight:700}
+.tabbar .btn:hover{transform:none;background:rgba(255,255,255,.55);color:var(--text)}
+.tabbar .btn.primary{background:#fff;color:var(--accent);border-color:var(--line);box-shadow:0 1px 3px rgba(40,28,10,.08);filter:none}
+
+/* Denser, calmer action buttons inside tables */
+.table .btn.sm,.line-actions .btn.sm{padding:5px 9px;font-size:11px;box-shadow:none}
+.table .btn.ghost.sm:hover{background:var(--accent-soft)}
+
+/* Card header rhythm */
+.card h3{display:flex;align-items:center;gap:8px}
+.card>.row.between:first-child{margin-bottom:4px}
+
+/* Empty states a touch nicer */
+.empty{border:1px dashed var(--line);border-radius:12px;background:#fdfbf6}
+
+/* Notices: give the plain variant a soft background */
+.notice{background:#faf6ee;border-color:var(--line);color:var(--text)}
+.notice.ok{background:var(--green-soft);color:#1c6b3c;border-color:#bfe2c8}
+.notice.warn{background:var(--orange-soft);color:#9a5a22;border-color:#f0d8b7}
+.notice.error{background:var(--red-soft);color:var(--red);border-color:#efc0c0}
+
+/* Inputs slightly taller for comfort */
+.input,.select{padding:9px 11px}
+
+/* Sticky table header gets a clearer divider */
+.table th{border-bottom:2px solid var(--line)}
+
+/* Status pill in topbar */
+#statusPill{background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:5px 11px;font-size:11px;font-weight:700}
+
+/* Modal form spacing */
+.modal-body .field+.field,.modal-body .form-grid+.field,.modal-body .field+.form-grid{margin-top:12px}
+.modal-body .notice{margin-bottom:12px}
 .sort-ind{font-size:10px;opacity:.7;margin-left:3px}

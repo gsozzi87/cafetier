@@ -69,6 +69,15 @@ function purchaseOrderView(row: any) {
     capital_missing: row.status === "sin_fondos" ? r2(missing) : 0,
   };
 }
+// Maps a catalog item to a sensible expense category when receiving a non-coffee purchase.
+function purchaseExpenseCategory(cat: any) {
+  if (!cat) return "Otros";
+  if (cat.item_type === "green_coffee") return "Café verde";
+  const c = String(cat.category || "").toLowerCase();
+  if (c.includes("empaque") || c.includes("caja") || c.includes("bolsa") || c.includes("etiqueta")) return "Empaques";
+  if (c.includes("marketing")) return "Marketing";
+  return "Otros";
+}
 function cashbookRows(start?: string | null, end?: string | null) {
   const rows = qAll<any>(`
     SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type,
@@ -476,6 +485,12 @@ api.post("/sales-orders", async c => {
       for (const i of items) { totalKg += num(i.quantity) * num(i.unit_weight_kg); totalAmount += num(i.quantity) * num(i.unit_price); }
       totalKg = r2(totalKg); totalAmount = r2(totalAmount);
       ppk = totalKg > 0 ? r2(totalAmount / totalKg) : 0;
+    } else if (items.length) {
+      // Wholesale by product lines: kg and total come from the lines (price editable per line).
+      totalKg = 0; totalAmount = 0;
+      for (const i of items) { totalKg += num(i.quantity) * num(i.unit_weight_kg); totalAmount += num(i.quantity) * num(i.unit_price); }
+      totalKg = r2(totalKg); totalAmount = r2(totalAmount);
+      ppk = totalKg > 0 ? r2(totalAmount / totalKg) : num(b.price_per_kg);
     } else {
       totalAmount = totalAmount || r2(totalKg * ppk);
     }
@@ -683,7 +698,9 @@ api.post("/purchase-orders", async c => {
   const b = await body(c);
   const requestedKg = num(b.requested_kg || b.requested_green_kg);
   req(b.description, "Descripcion obligatoria");
-  req(requestedKg > 0, "Kg requeridos");
+  // Only catalog items can be purchased.
+  req(qGet("SELECT id FROM inventory_catalog WHERE active=1 AND name=?", b.description), "Solo podés comprar ítems definidos en Datos maestros → Ítems.");
+  req(requestedKg > 0, "Cantidad requerida");
   const purchaseDate = b.purchase_date || b.date || today();
   return c.json(ok(purchaseOrderView(createPO({
     sourceType: "manual",
@@ -726,12 +743,23 @@ api.post("/purchase-orders/:id/receive", async c => {
       req(["Itza", "Axel"].includes(partner), "Elegí qué socio puso el dinero");
       registerDirectFunding(partner, landed, entryDate, `Compra ${po.po_no} pagada por ${partner}`, partner, null, "purchase_order", poId);
     }
-    const lotLabel = b.lot_label || `${entryDate}-${po.po_no}`;
-    const itemName = b.item_name || [b.origin_name, b.variety_name, `Lote ${lotLabel}`].filter(Boolean).join(" · ") || `Café verde ${lotLabel}`;
-    const itemId = ensureInvItem({ item_type: "green_coffee", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
-    invMove(itemId, "in", qty, `Recepción ${po.po_no}`, b.registered_by||"Sistema");
+    // Resolve what is being received from the catalog (the PO description is the item).
+    const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE active=1 AND name=?", b.item_name || po.description);
+    const itemType = cat?.item_type || "green_coffee";
+    let itemId: number;
+    let lotLabel: string | null = null;
+    if (itemType === "green_coffee") {
+      lotLabel = b.lot_label || `${entryDate}-${po.po_no}`;
+      const itemName = b.item_name && cat ? cat.name : ([b.origin_name, b.variety_name, `Lote ${lotLabel}`].filter(Boolean).join(" · ") || `Café verde ${lotLabel}`);
+      itemId = ensureInvItem({ item_type: "green_coffee", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
+    } else {
+      // Supplies / packaging / roasted: go straight into their catalog item, no lot.
+      itemId = ensureInvItem({ item_type: itemType, item_name: cat.name, unit: cat.unit || "pz" });
+    }
+    invMove(itemId, "in", qty, `Recepción ${po.po_no}`, b.registered_by||"Sistema", true, entryCreatedAt);
     qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", fundingSource, paidFromAccount, entryCreatedAt);
-    autoExpense("Café verde", cost, `Compra verde ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_order", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
+    const expenseCat = itemType === "green_coffee" ? "Café verde" : purchaseExpenseCategory(cat);
+    autoExpense(expenseCat, cost, `Compra ${cat?.name || "verde"} ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_order", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
     if (ship > 0) autoExpense("Envíos", ship, `Envío compra ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_shipping", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
     recalcPO(poId);
     const actualShipping = Number(qVal("SELECT COALESCE(SUM(shipping_cost),0) AS v FROM purchase_entries WHERE purchase_order_id=?", poId) ?? 0);
