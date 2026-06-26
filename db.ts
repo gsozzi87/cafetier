@@ -43,11 +43,11 @@ export function normPartner(name: string | null | undefined) {
 
 export function normAccount(name: string | null | undefined) {
   const raw = String(name || "").trim();
-  if (!raw) return "Caja chica";
+  if (!raw) return "Dinero Cafetier";
   const partner = normPartner(raw);
   if (partner === "Itza" || partner === "Axel") return partner;
   const k = raw.toLowerCase();
-  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja"].includes(k)) return "Caja chica";
+  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja", "dinero cafetier", "caja cafetier"].includes(k)) return "Dinero Cafetier";
   return raw;
 }
 
@@ -110,7 +110,7 @@ export function finance() {
 }
 
 export function accountBalances() {
-  const balances: Record<string, number> = { Axel: 0, Itza: 0, "Caja chica": 0 };
+  const balances: Record<string, number> = { Axel: 0, Itza: 0, "Dinero Cafetier": 0 };
   const add = (account: string | null | undefined, amount: number) => {
     const key = normAccount(account);
     balances[key] = r2((balances[key] || 0) + Number(amount || 0));
@@ -118,8 +118,8 @@ export function accountBalances() {
 
   for (const r of qAll<any>("SELECT COALESCE(received_account, partner_name) AS account, amount FROM capital_contributions")) add(r.account, r.amount);
   for (const r of qAll<any>("SELECT COALESCE(received_account, registered_by, 'Axel') AS account, amount FROM sales_payments")) add(r.account, r.amount);
-  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END) AS account, amount FROM expenses")) add(r.account, -Number(r.amount || 0));
-  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, 'Caja chica') AS account, amount FROM withdrawals")) add(r.account, -Number(r.amount || 0));
+  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Dinero Cafetier' ELSE paid_by END) AS account, amount FROM expenses")) add(r.account, -Number(r.amount || 0));
+  for (const r of qAll<any>("SELECT COALESCE(paid_from_account, 'Dinero Cafetier') AS account, amount FROM withdrawals")) add(r.account, -Number(r.amount || 0));
 
   for (const key of Object.keys(balances)) balances[key] = r2(balances[key]);
   return balances;
@@ -475,10 +475,17 @@ export function initDB() {
   ensureColumn("withdrawals", "paid_from_account", "TEXT");
   qRun("UPDATE sales_payments SET received_account=COALESCE(received_account, registered_by, 'Axel')");
   qRun("UPDATE sales_shipments SET funding_source=COALESCE(funding_source, 'business_account')");
-  qRun("UPDATE sales_shipments SET paid_from_account=COALESCE(paid_from_account, 'Caja chica')");
-  qRun("UPDATE expenses SET paid_from_account=COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Caja chica' ELSE paid_by END)");
+  qRun("UPDATE sales_shipments SET paid_from_account=COALESCE(paid_from_account, 'Dinero Cafetier')");
+  qRun("UPDATE expenses SET paid_from_account=COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Dinero Cafetier' ELSE paid_by END)");
   qRun("UPDATE capital_contributions SET received_account=COALESCE(received_account, partner_name)");
-  qRun("UPDATE withdrawals SET paid_from_account=COALESCE(paid_from_account, 'Caja chica')");
+  qRun("UPDATE withdrawals SET paid_from_account=COALESCE(paid_from_account, 'Dinero Cafetier')");
+  // Renombrar la cuenta "Caja chica" a "Dinero Cafetier" en datos existentes.
+  qRun("UPDATE expenses SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  qRun("UPDATE withdrawals SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  qRun("UPDATE capital_contributions SET received_account='Dinero Cafetier' WHERE received_account='Caja chica'");
+  qRun("UPDATE purchase_entries SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  qRun("UPDATE sales_payments SET received_account='Dinero Cafetier' WHERE received_account='Caja chica'");
+  qRun("UPDATE sales_shipments SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
   qRun("UPDATE capital_contributions SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE withdrawals SET partner_name='Itza' WHERE lower(partner_name) IN ('itzamara','itza','gaston','gastón','itza + gaston','itza + gastón','itza y gaston','itza y gastón','itza/gaston','itza/gastón')");
   qRun("UPDATE partners SET share_pct=50 WHERE name IN ('Itza','Axel')");

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { accountBalances, autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, resetData, thisMonth, today, tx } from "./db";
+import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, resetData, thisMonth, today, tx } from "./db";
 
 const api = new Hono();
 const ok = (d: any = null) => ({ success: true, data: d });
@@ -20,7 +20,7 @@ function expenseFunding(b: any) {
   const explicitPartner = normPartner(b.partner_name || b.reimbursable_partner || legacyPartner || "");
   const fromCashbox = isPartnerContribution ? 0 : b.from_cashbox === undefined ? (explicitPartner ? 0 : 1) : boolFlag(b.from_cashbox, 1);
   const fromUtilities = boolFlag(b.from_utilities, 0);
-  const paidBy = explicitPartner || b.paid_by || (fromCashbox ? "Caja chica" : "Itza");
+  const paidBy = explicitPartner || b.paid_by || (fromCashbox ? "Dinero Cafetier" : "Itza");
   const partner = ["Itza", "Axel"].includes(normPartner(paidBy)) ? normPartner(paidBy) : "";
   const paidFromAccount = normAccount(b.paid_from_account || b.account || (fromCashbox ? paidBy : partner || paidBy));
   return { fromCashbox, fromUtilities, paidBy: partner || paidBy, partner: fromCashbox ? "" : partner, paidFromAccount };
@@ -93,7 +93,7 @@ function cashbookRows(start?: string | null, end?: string | null) {
     UNION ALL
     SELECT 'withdrawal' AS source, w.id AS source_id, substr(w.created_at,1,10) AS date,
       CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital' ELSE 'Dividendo' END AS type,
-      w.partner_name AS person, COALESCE(w.paid_from_account,'Caja chica') AS account,
+      w.partner_name AS person, COALESCE(w.paid_from_account,'Dinero Cafetier') AS account,
       COALESCE(w.notes,'') AS detail, w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at
     FROM withdrawals w
   `).map(r => ({
@@ -520,15 +520,11 @@ api.post("/sales-orders/:id/shipments", async c => {
   const shipmentCreatedAt = setIsoDate(now(), shipmentDate);
   const fundingSource = String(b.funding_source || "business_account");
   const partner = normPartner(b.partner_name || b.reimbursable_partner || (fundingSource === "partner_contribution" ? b.paid_from_account : ""));
-  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Caja chica"));
-  const fromCashbox = fundingSource === "partner_contribution" ? 0 : paidFromAccount === "Caja chica" ? 1 : boolFlag(b.from_cashbox, 1);
+  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Dinero Cafetier"));
+  const fromCashbox = fundingSource === "partner_contribution" ? 0 : paidFromAccount === "Dinero Cafetier" ? 1 : boolFlag(b.from_cashbox, 1);
   const paidBy = fundingSource === "partner_contribution" ? partner : paidFromAccount;
   if (shippingCost > 0 && fundingSource === "partner_contribution") req(["Itza", "Axel"].includes(partner), "Elegi que socio pago el envio");
-  if (shippingCost > 0 && fromCashbox && paidFromAccount === "Caja chica") {
-    const balances = accountBalances();
-    const available = Number(balances["Caja chica"] || 0);
-    req(available >= shippingCost, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
-  }
+  // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
 
   const send = tx(() => {
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
@@ -558,15 +554,11 @@ api.put("/sales-shipments/:id", async c => {
   const shipmentCreatedAt = setIsoDate(row.created_at, shipmentDate);
   const fundingSource = String(b.funding_source || row.funding_source || "business_account");
   const partner = normPartner(b.partner_name || b.reimbursable_partner || (fundingSource === "partner_contribution" ? (b.paid_from_account || row.paid_from_account) : ""));
-  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : row.paid_from_account || "Caja chica"));
-  const fromCashbox = fundingSource === "partner_contribution" ? 0 : paidFromAccount === "Caja chica" ? 1 : boolFlag(b.from_cashbox, 1);
+  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : row.paid_from_account || "Dinero Cafetier"));
+  const fromCashbox = fundingSource === "partner_contribution" ? 0 : paidFromAccount === "Dinero Cafetier" ? 1 : boolFlag(b.from_cashbox, 1);
   const paidBy = fundingSource === "partner_contribution" ? partner : paidFromAccount;
   if (shippingCost > 0 && fundingSource === "partner_contribution") req(["Itza", "Axel"].includes(partner), "Elegi que socio pago el envio");
-  if (shippingCost > 0 && fromCashbox && paidFromAccount === "Caja chica") {
-    const balances = accountBalances();
-    const available = Number(balances["Caja chica"] || 0);
-    req(available >= shippingCost, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
-  }
+  // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
 
   const edit = tx(() => {
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
@@ -648,11 +640,7 @@ api.post("/purchase-orders/:id/receive", async c => {
   const fundingSource = String(b.funding_source || "business_account");
   const partner = normPartner(b.partner_name || b.paid_by || b.paid_from_account || "");
   const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Axel"));
-  if (fundingSource !== "partner_contribution") {
-    const balances = accountBalances();
-    const accountBalance = Number(balances[paidFromAccount] || 0);
-    if (paidFromAccount === "Caja chica" && accountBalance < landed) return c.json(fail(`Sin fondos en ${paidFromAccount}. Disponible: $${accountBalance.toFixed(2)}, necesario: $${landed.toFixed(2)}`), 400);
-  }
+  // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
 
   const receive = tx(() => {
     if (fundingSource === "partner_contribution") {
@@ -794,11 +782,8 @@ api.delete("/capital-contributions/:id", c => { qRun("DELETE FROM capital_contri
 api.get("/withdrawals", c => c.json(ok(qAll("SELECT * FROM withdrawals ORDER BY id DESC"))));
 api.post("/withdrawals/capital-return", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido");
-  const f = finance(); req(f.cash >= num(b.amount), "Sin fondos");
   const pn = normPartner(b.partner_name);
-  const contrib = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions WHERE partner_name=?", pn) ?? 0);
-  const recovered = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='capital_return' AND partner_name=?", pn) ?? 0);
-  req(contrib - recovered >= num(b.amount), "Excede el capital pendiente");
+  // Sin bloqueos por fondos ni por capital pendiente: se permite dejar saldos en negativo.
   qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('capital_return',?,?,?,?,?,?)", pn, r2(num(b.amount)), b.month||thisMonth(), normAccount(b.paid_from_account || "Axel"), b.notes||"Retorno de capital", now());
   return c.json(ok(true));
 });
@@ -825,11 +810,7 @@ api.post("/expenses", async c => {
   const funding = expenseFunding(b);
   const amount = r2(num(b.amount));
   const date = b.expense_date || today();
-  if (funding.fromCashbox && funding.paidFromAccount === "Caja chica") {
-    const balances = accountBalances();
-    const available = Number(balances["Caja chica"] || 0);
-    req(available >= amount, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
-  }
+  // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
   const create = tx(() => {
     const r = qRun(
       "INSERT INTO expenses(expense_date,category_id,amount,description,paid_by,supplier,notes,auto_generated,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,0,?,?,?,?)",
@@ -989,12 +970,12 @@ api.post("/machine-logs", async c => {
   const cost = r2(num(b.cost));
   const funding = expenseFunding(b);
   const create = tx(() => {
-    if (cost > 0 && funding.fromCashbox && funding.paidFromAccount === "Caja chica") { const balances = accountBalances(); req(Number(balances["Caja chica"] || 0) >= cost, "Sin fondos en caja chica"); }
+    // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
     if (cost > 0) registerDirectFunding(funding.partner, cost, b.log_date, `Máquina pagada por ${funding.partner}: ${b.description}`, funding.partner);
     const r = qRun("INSERT INTO machine_logs(log_date,log_type,description,cost,registered_by,expense_id,created_at) VALUES (?,?,?,?,?,NULL,?)", b.log_date, b.log_type, b.description, cost, b.registered_by||null, now());
     const logId = Number(r.lastInsertRowid);
     if (cost > 0) {
-      const expId = autoExpense("Mantenimiento", cost, `Máquina · ${b.log_type} · ${b.description}`, funding.paidBy || b.registered_by || "Caja chica", "machine_log", logId, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount);
+      const expId = autoExpense("Mantenimiento", cost, `Máquina · ${b.log_type} · ${b.description}`, funding.paidBy || b.registered_by || "Dinero Cafetier", "machine_log", logId, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount);
       qRun("UPDATE machine_logs SET expense_id=? WHERE id=?", expId, logId);
     }
     return qGet("SELECT * FROM machine_logs WHERE id=?", logId);

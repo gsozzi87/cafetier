@@ -38,8 +38,8 @@ function isWholesale(type) { return ["mayoreo", "wholesale"].includes(String(typ
 function isClosedStatus(status) { return ["completado", "cancelado", "completed", "cancelled"].includes(String(status || "")); }
 function shipmentFundingLabel(s) {
   if (!Number(s.shipping_cost || 0)) return "";
-  const account = s.paid_from_account || "Caja chica";
-  return account === "Caja chica" ? "Caja chica" : `Pagado por ${account}`;
+  const account = s.paid_from_account || "Dinero Cafetier";
+  return account === "Dinero Cafetier" ? "Dinero Cafetier" : `Pagado por ${account}`;
 }
 function editIcon(call, title = "Editar") { return `<button class="icon-btn edit" title="${title}" aria-label="${title}" onclick="${call}">✎</button>`; }
 function delIcon(call, title = "Eliminar") { return `<button class="icon-btn del" title="${title}" aria-label="${title}" onclick="${call}">🗑</button>`; }
@@ -1059,7 +1059,7 @@ function roastOperatorOptions() {
   return parseListSetting("roast_operators", ["Axel"]).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
 }
 function accountOptions(selected = "Axel") {
-  const accounts = ["Axel", "Itza", "Caja chica"];
+  const accounts = ["Axel", "Itza", "Dinero Cafetier"];
   return accounts.map(name => `<option value="${esc(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`).join("");
 }
 function fundingSourceOptions() {
@@ -1236,7 +1236,7 @@ async function addShipment(orderId) {
   openModal("Registrar envío", `
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="shipDate" type="date" value="${todayStr()}" /></div>
-      <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Caja chica">Caja chica</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
+      <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="shipKg" type="number" step="0.01" value="${pending ? esc(pending) : ""}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Paquetería</label><input class="input" id="shipCarrier" /></div>
@@ -1258,10 +1258,10 @@ async function addShipment(orderId) {
           tracking_number: val("shipTracking") || null,
           destination_address: val("shipAddress") || null,
           registered_by: val("shipBy"),
-          funding_source: val("shipPaidFrom") === "Caja chica" ? "business_account" : "partner_contribution",
+          funding_source: val("shipPaidFrom") === "Dinero Cafetier" ? "business_account" : "partner_contribution",
           paid_from_account: val("shipPaidFrom"),
-          partner_name: val("shipPaidFrom") === "Caja chica" ? null : val("shipPaidFrom"),
-          from_cashbox: val("shipPaidFrom") === "Caja chica" ? 1 : 0,
+          partner_name: val("shipPaidFrom") === "Dinero Cafetier" ? null : val("shipPaidFrom"),
+          from_cashbox: val("shipPaidFrom") === "Dinero Cafetier" ? 1 : 0,
         },
       });
       modal.remove();
@@ -1275,11 +1275,11 @@ async function editShipment(shipmentId, orderId) {
   const { shipments } = await api(`/sales-orders/${orderId}`);
   const s = shipments.find(x => Number(x.id) === Number(shipmentId));
   if (!s) throw new Error("No pude encontrar ese envío.");
-  const paidFrom = s.funding_source === "partner_contribution" ? (s.paid_from_account || "Itza") : (s.paid_from_account || "Caja chica");
+  const paidFrom = s.funding_source === "partner_contribution" ? (s.paid_from_account || "Itza") : (s.paid_from_account || "Dinero Cafetier");
   openModal("Editar envío", `
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="eshipDate" type="date" value="${esc((s.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Caja chica" ${paidFrom === "Caja chica" ? "selected" : ""}>Caja chica</option><option value="Axel" ${paidFrom === "Axel" ? "selected" : ""}>Axel</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
+      <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Dinero Cafetier" ${paidFrom === "Dinero Cafetier" ? "selected" : ""}>Dinero Cafetier</option><option value="Axel" ${paidFrom === "Axel" ? "selected" : ""}>Axel</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="eshipKg" type="number" step="0.01" value="${esc(s.weight_kg || 0)}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="eshipCost" type="number" step="0.01" value="${esc(s.shipping_cost || 0)}" /></div>
       <div class="field"><label>Paquetería</label><input class="input" id="eshipCarrier" value="${esc(s.carrier || "")}" /></div>
@@ -1301,10 +1301,10 @@ async function editShipment(shipmentId, orderId) {
           tracking_number: val("eshipTracking") || null,
           destination_address: val("eshipAddress") || null,
           registered_by: val("eshipBy"),
-          funding_source: val("eshipPaidFrom") === "Caja chica" ? "business_account" : "partner_contribution",
+          funding_source: val("eshipPaidFrom") === "Dinero Cafetier" ? "business_account" : "partner_contribution",
           paid_from_account: val("eshipPaidFrom"),
-          partner_name: val("eshipPaidFrom") === "Caja chica" ? null : val("eshipPaidFrom"),
-          from_cashbox: val("eshipPaidFrom") === "Caja chica" ? 1 : 0,
+          partner_name: val("eshipPaidFrom") === "Dinero Cafetier" ? null : val("eshipPaidFrom"),
+          from_cashbox: val("eshipPaidFrom") === "Dinero Cafetier" ? 1 : 0,
         },
       });
       modal.remove();
@@ -1968,7 +1968,7 @@ function newExpense() {
       <div class="field"><label>Fuente de pago</label><select class="select" id="expFunding">${fundingSourceOptions()}</select></div>
       <div class="field"><label>Cuenta / socio</label><select class="select" id="expAccount">${accountOptions("Axel")}</select></div>
       <div class="field"><label>¿Sale de utilidades?</label><select class="select" id="expUtilities"><option value="1">Sí</option><option value="0">No</option></select></div>
-      <div class="field"><label>¿Sale de caja chica?</label><select class="select" id="expCashbox"><option value="1">Sí</option><option value="0">No</option></select></div>
+      <div class="field"><label>¿Sale de Dinero Cafetier?</label><select class="select" id="expCashbox"><option value="1">Sí</option><option value="0">No</option></select></div>
       <div class="field"><label>Proveedor</label><input class="input" id="expSupplier" /></div>
     </div>
     <div class="field"><label>Descripción</label><input class="input" id="expDesc" /></div>
@@ -2016,8 +2016,8 @@ async function editExpense(id) {
   const sel = (cur, v) => String(cur) === String(v) ? "selected" : "";
   const cats = (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${sel(e.category_id, c.id)}>${esc(c.name)}</option>`).join("");
   const people = parseListSetting("individual_people", ["Itza", "Axel"]).map(n => `<option value="${esc(n)}" ${sel(e.paid_by, n)}>${esc(n)}</option>`).join("");
-  const funding = `<option value="cash" ${e.from_cashbox ? "selected" : ""}>Dinero disponible en caja</option>${(state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${!e.from_cashbox && String(e.paid_from_account) === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")}`;
-  const accounts = ["Caja chica", ...(state.master.partners || []).map(p => p.name)].map(a => `<option value="${esc(a)}" ${sel(e.paid_from_account, a)}>${esc(a)}</option>`).join("");
+  const funding = `<option value="cash" ${e.from_cashbox ? "selected" : ""}>Dinero Cafetier</option>${(state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${!e.from_cashbox && String(e.paid_from_account) === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")}`;
+  const accounts = ["Dinero Cafetier", ...(state.master.partners || []).map(p => p.name)].map(a => `<option value="${esc(a)}" ${sel(e.paid_from_account, a)}>${esc(a)}</option>`).join("");
   openModal("Editar gasto", `
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="eeDate" type="date" value="${esc((e.expense_date || "").slice(0, 10))}" /></div>
