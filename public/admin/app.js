@@ -7,8 +7,8 @@ const state = {
 const VIEWS = {
   dashboard: "Dashboard",
   sales: "Ventas",
-  maestros: "Datos maestros",
-  clients: "Datos maestros",
+  maestros: "Datos",
+  clients: "Datos",
   salesDetail: "Detalle de venta",
   purchases: "Compras",
   purchaseDetail: "Detalle de compra",
@@ -394,46 +394,54 @@ function itemsCard(master) {
     </div>`;
 }
 
-function catalogsCards(master) {
+function suppliersCard(master) {
+  return `
+    <div class="card">
+      <div class="row between"><h3>Proveedores</h3><button class="btn secondary sm" onclick="App.newSupplier()">+ Proveedor</button></div>
+      <div class="small muted" style="margin-bottom:6px">Con contacto, teléfono y dirección. Se eligen al comprar café, etiquetas o cualquier ítem.</div>
+      ${(master.suppliers || []).length ? (master.suppliers || []).map(s => `<div class="item"><div class="row between"><strong>${esc(s.name)}</strong><div class="line-actions">${editIcon(`App.editSupplier(${s.id})`)}${delIcon(`App.deleteSupplier(${s.id})`)}</div></div><div class="small muted">${[s.contact_name, s.phone, s.email].filter(Boolean).map(esc).join(" · ") || "Sin contacto"}${s.address ? `<div class="tiny muted">${esc(s.address)}</div>` : ""}</div></div>`).join("") : `<div class="empty">Sin proveedores. Agregá uno con "+ Proveedor".</div>`}
+    </div>`;
+}
+
+function catalogManageCard(table, label, rows, hint) {
+  return `
+    <div class="card">
+      <div class="row between"><h3>${label}</h3><button class="btn secondary sm" onclick="App.newCatalogItem('${table}','${label}')">+ Agregar</button></div>
+      ${hint ? `<div class="small muted" style="margin-bottom:6px">${hint}</div>` : ""}
+      ${(rows || []).length ? (rows || []).map(r => `<div class="item"><div class="row between"><strong>${esc(r.name)}</strong><div class="line-actions">${editIcon(`App.editCatalogItem('${table}',${r.id})`)}${delIcon(`App.deleteCatalogItem('${table}',${r.id})`)}</div></div></div>`).join("") : `<div class="empty">Sin datos.</div>`}
+    </div>`;
+}
+
+function carriersCard(master) {
+  return catalogManageCard("carriers", "Paqueterías", master.carriers, "Se eligen al registrar un envío de venta.");
+}
+
+function otrosCard(master) {
   return `
     <div class="split">
       <div class="stack">
-        <div class="card">
-          <div class="row between"><h3>Proveedores</h3><button class="btn secondary sm" onclick="App.newSupplier()">+ Proveedor</button></div>
-          <div class="small muted" style="margin-bottom:6px">Con contacto, teléfono y dirección. Se eligen al comprar café, etiquetas o cualquier ítem.</div>
-          ${(master.suppliers || []).length ? (master.suppliers || []).map(s => `<div class="item"><div class="row between"><strong>${esc(s.name)}</strong><div class="line-actions">${editIcon(`App.editSupplier(${s.id})`)}${delIcon(`App.deleteSupplier(${s.id})`)}</div></div><div class="small muted">${[s.contact_name, s.phone, s.email].filter(Boolean).map(esc).join(" · ") || "Sin contacto"}${s.address ? `<div class="tiny muted">${esc(s.address)}</div>` : ""}</div></div>`).join("") : `<div class="empty">Sin proveedores.</div>`}
-        </div>
+        ${catalogManageCard("roast_profiles", "Perfiles de tueste", master.roastProfiles)}
+        ${catalogManageCard("origins", "Orígenes", master.origins)}
       </div>
       <div class="stack">
-        <div class="card">
-          <h3>Otros catálogos</h3>
-          <div class="list">
-            ${[
-              ["carriers", "Paqueterías", master.carriers],
-              ["roast_profiles", "Perfiles de tueste", master.roastProfiles],
-              ["origins", "Orígenes", master.origins],
-              ["varieties", "Variedades", master.varieties],
-              ["expense_categories", "Categorías de gasto", master.expenseCategories],
-            ].map(([table, label, rows]) => `
-              <div class="item">
-                <div class="row between"><strong>${label}</strong><button class="btn ghost sm" onclick="App.newCatalogItem('${table}','${label}')">+ Agregar</button></div>
-                <div class="small muted">${(rows || []).map(r => esc(r.name)).join(" · ") || "Sin datos"}</div>
-              </div>`).join("")}
-          </div>
-        </div>
+        ${catalogManageCard("varieties", "Variedades", master.varieties)}
+        ${catalogManageCard("expense_categories", "Categorías de gasto", master.expenseCategories)}
       </div>
     </div>`;
 }
 
 async function renderMaestros() {
   const master = await refreshMaster(true);
-  const tab = ["clientes", "productos", "items", "catalogos"].includes(state.params.mdTab) ? state.params.mdTab : "clientes";
-  const tabs = tabBar("maestros", "mdTab", tab, [["clientes", "Clientes"], ["productos", "Productos"], ["items", "Ítems"], ["catalogos", "Catálogos"]]);
+  const tabKeys = ["clientes", "proveedores", "paqueterias", "items", "productos", "otros"];
+  const tab = tabKeys.includes(state.params.mdTab) ? state.params.mdTab : "clientes";
+  const tabs = tabBar("maestros", "mdTab", tab, [["clientes", "Clientes"], ["proveedores", "Proveedores"], ["paqueterias", "Paqueterías"], ["items", "Ítems"], ["productos", "Productos"], ["otros", "Otros"]]);
   let body = "";
   if (tab === "clientes") body = clientsCard(master);
-  else if (tab === "productos") body = productsCard(master);
+  else if (tab === "proveedores") body = suppliersCard(master);
+  else if (tab === "paqueterias") body = carriersCard(master);
   else if (tab === "items") body = itemsCard(master);
-  else body = catalogsCards(master);
+  else if (tab === "productos") body = productsCard(master);
+  else body = otrosCard(master);
   document.getElementById("content").innerHTML = `${tabs}${body}`;
 }
 
@@ -550,7 +558,7 @@ async function renderPurchases() {
 
     <div class="card">
       <table class="table" id="poTable">
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Kg</th><th>Mercancía est.</th><th>Envío est.</th><th>Falta capital</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Kg</th><th>Mercancía est.</th><th>Envío est.</th><th>Origen del dinero</th><th></th></tr></thead>
         <tbody>
           ${rows.map(po => `
             <tr>
@@ -562,7 +570,7 @@ async function renderPurchases() {
               <td>${kg(po.requested_green_kg)}</td>
               <td class="money">${money(po.estimated_cost)}</td>
               <td class="money">${money(po.estimated_shipping_cost || 0)}</td>
-              <td class="money">${money(po.capital_missing)}</td>
+              <td>${po.paid_from ? esc(po.paid_from) : `<span class="muted">— sin recibir —</span>`}</td>
               <td><div class="line-actions">${["cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
             </tr>`).join("")}
         </tbody>
@@ -607,7 +615,7 @@ async function renderPurchaseDetail(id) {
         <h3>Entradas recibidas</h3>
         ${entries.length ? `
         <table class="table">
-          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo/kg</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Pago</th><th>Proveedor</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo/kg</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Origen del dinero</th><th>Proveedor</th><th></th></tr></thead>
           <tbody>${entries.map(e => `
             <tr>
               <td>${esc((e.created_at || "").slice(0, 10))}</td>
@@ -617,8 +625,9 @@ async function renderPurchaseDetail(id) {
               <td class="money">${money(e.total_cost)}</td>
               <td class="money">${money(e.shipping_cost || 0)}</td>
               <td class="money">${money((e.total_cost || 0) + (e.shipping_cost || 0))}</td>
-              <td>${esc(e.paid_from_account || "")}<div class="tiny muted">${esc(e.funding_source || "")}</div></td>
+              <td>${esc(e.paid_from_account || "")}<div class="tiny muted">${e.funding_source === "partner_contribution" ? "aporte de socio" : "cuenta del negocio"}</div></td>
               <td>${esc(e.supplier || "")}</td>
+              <td><div class="line-actions">${editIcon(`App.editPurchaseEntry(${e.id},${po.id})`)}${delIcon(`App.deletePurchaseEntry(${e.id},${po.id})`)}</div></td>
             </tr>`).join("")}
           </tbody>
         </table>` : `<div class="empty">Aún no hay recepciones.</div>`}
@@ -1102,9 +1111,9 @@ async function renderConfig() {
 
       <div class="stack">
         <div class="card">
-          <h3>Datos maestros</h3>
-          <p class="small muted">Clientes, productos, ítems del inventario y catálogos se administran en su propio apartado.</p>
-          <div class="footer-actions"><button class="btn secondary" onclick="App.setView('maestros',{mdTab:'clientes'})">Ir a Datos maestros</button></div>
+          <h3>Datos</h3>
+          <p class="small muted">Clientes, proveedores, paqueterías, ítems, productos y otros catálogos se administran en su propio apartado.</p>
+          <div class="footer-actions"><button class="btn secondary" onclick="App.setView('maestros',{mdTab:'clientes'})">Ir a Datos</button></div>
         </div>
 
         <div class="card danger-zone">
@@ -1229,7 +1238,7 @@ function readProductLines() {
 }
 function catalogItemOptions(selected = "") {
   const items = state.master.inventoryCatalog || [];
-  if (!items.length) return `<option value="">(definí ítems en Datos maestros → Ítems)</option>`;
+  if (!items.length) return `<option value="">(definí ítems en Datos → Ítems)</option>`;
   return items.map(it => `<option value="${esc(it.name)}" ${it.name === selected ? "selected" : ""}>${esc(it.name)}${it.category ? " · " + esc(it.category) : ""}</option>`).join("");
 }
 
@@ -1299,7 +1308,7 @@ async function newWholesaleSale() {
         <thead><tr><th>Producto</th><th>Peso</th><th>Precio</th><th>Cant.</th></tr></thead>
         <tbody>${productLineRows()}</tbody>
       </table>
-    </div>` : `<div class="notice warn">No tenés productos cargados. Definilos en Datos maestros → Productos, o cargá la venta a granel abajo.</div>`}
+    </div>` : `<div class="notice warn">No tenés productos cargados. Definilos en Datos → Productos, o cargá la venta a granel abajo.</div>`}
     <details ${hasProducts ? "" : "open"} style="margin-top:6px"><summary class="small muted" style="cursor:pointer">O cargar a granel (sin productos)</summary>
       <div class="form-grid" style="margin-top:8px">
         <div class="field"><label>Kg a entregar</label><input class="input" id="whKg" type="number" step="0.01" /></div>
@@ -1547,7 +1556,7 @@ function deleteSale(id) {
 
 function newManualPurchase() {
   const modal = openModal("Nueva orden de compra", `
-    <div class="notice ok">Solo podés comprar ítems definidos en Datos maestros → Ítems (café, cajas, bolsas, insumos…).</div>
+    <div class="notice ok">Solo podés comprar ítems definidos en Datos → Ítems (café, cajas, bolsas, insumos…).</div>
     <div class="form-grid">
       <div class="field"><label>Ítem a comprar</label><select class="select" id="poDesc">${catalogItemOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="poDate" type="date" value="${todayStr()}" /></div>
@@ -1701,6 +1710,62 @@ function deletePurchase(id) {
   if (!confirm("¿Eliminar esta orden de compra? Si ya recibió café se cancelará para conservar el inventario y la contabilidad.")) return;
   api(`/purchase-orders/${id}`, { method: "DELETE" })
     .then(res => { toast(res && res.cancelled ? "Orden cancelada (tenía recepciones)." : "Orden eliminada.", "ok"); setView("purchases"); })
+    .catch(err => toast(err.message, "error"));
+}
+
+async function editPurchaseEntry(entryId, poId) {
+  const { purchaseOrder: po, entries } = await api(`/purchase-orders/${poId}`);
+  const e = entries.find(x => Number(x.id) === Number(entryId));
+  if (!e) { toast("Entrada no encontrada.", "error"); return; }
+  const unit = round2(Number(e.unit_cost || (e.quantity_kg ? e.total_cost / e.quantity_kg : 0)));
+  const source = e.funding_source === "partner_contribution" ? (e.paid_from_account || "Axel") : "Dinero Cafetier";
+  const modal = openModal("Editar entrada recibida", `
+    <div class="notice ok">Editás la recepción de <strong>${esc(po.description || "")}</strong> (${esc(po.po_no)}). Se ajustan inventario, gasto y aporte.</div>
+    <div class="form-grid">
+      <div class="field"><label>Cantidad recibida</label><input class="input" id="peKg" type="number" step="0.01" value="${esc(round2(e.quantity_kg))}" /></div>
+      <div class="field"><label>Costo unitario</label><input class="input" id="peUnit" type="number" step="0.01" value="${esc(unit)}" /></div>
+      <div class="field"><label>Mercancía total</label><input class="input" id="peCost" type="number" step="0.01" value="${esc(round2(e.total_cost))}" /></div>
+      <div class="field"><label>Gastos de envío</label><input class="input" id="peShip" type="number" step="0.01" value="${esc(round2(e.shipping_cost || 0))}" /></div>
+      <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="peSource">${moneySourceOptions(source)}</select></div>
+      <div class="field"><label>Quién registra</label><select class="select" id="peBy">${personOptions()}</select></div>
+      <div class="field"><label>Fecha</label><input class="input" id="peDate" type="date" value="${esc((e.created_at || todayStr()).slice(0, 10))}" /></div>
+      <div class="field"><label>Proveedor</label><select class="select" id="peSupplier">${supplierOptions(e.supplier || "")}</select></div>
+    </div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      const src = val("peSource");
+      await api(`/purchase-entries/${entryId}`, {
+        method: "PUT",
+        body: {
+          quantity_kg: Number(val("peKg")),
+          total_cost: Number(val("peCost")),
+          shipping_cost: Number(val("peShip")),
+          funding_source: src === "Dinero Cafetier" ? "business_account" : "partner_contribution",
+          paid_from_account: src,
+          partner_name: src === "Dinero Cafetier" ? null : src,
+          registered_by: val("peBy"),
+          entry_date: val("peDate"),
+          supplier: val("peSupplier") || null,
+        },
+      });
+      modal.remove();
+      toast("Entrada actualizada.", "ok");
+      openPurchase(poId);
+    }
+  }]);
+  const m = modal.querySelector(".modal");
+  const kgEl = m?.querySelector("#peKg"), unitEl = m?.querySelector("#peUnit"), totalEl = m?.querySelector("#peCost");
+  const sync = () => { const k = Number(kgEl?.value || 0), u = Number(unitEl?.value || 0); if (totalEl && k > 0 && u > 0) totalEl.value = String(round2(k * u)); };
+  kgEl?.addEventListener("input", sync);
+  unitEl?.addEventListener("input", sync);
+}
+
+function deletePurchaseEntry(entryId, poId) {
+  if (!confirm("¿Eliminar esta entrada recibida? Se revierte del inventario y de la contabilidad.")) return;
+  api(`/purchase-entries/${entryId}`, { method: "DELETE" })
+    .then(() => { toast("Entrada eliminada.", "ok"); openPurchase(poId); })
     .catch(err => toast(err.message, "error"));
 }
 
@@ -2094,7 +2159,7 @@ function deleteBatchPhoto(photoId, batchId, sessionId) {
 
 function newInventoryItem() {
   const cat = state.master.inventoryCatalog || [];
-  if (!cat.length) { toast("Primero definí ítems en Configuración → Items del inventario.", "error"); setView("config"); return; }
+  if (!cat.length) { toast("Primero definí ítems en Datos → Ítems.", "error"); setView("maestros", { mdTab: "items" }); return; }
   openModal("Agregar al inventario", `
     <div class="notice ok">Solo se cargan ítems definidos en Configuración → Items del inventario. Lote/origen/variedad aplican solo a café.</div>
     <div class="form-grid">
@@ -2143,7 +2208,7 @@ function newInventoryCatalogItem() {
     kind: "primary",
     onClick: async modal => {
       await api("/inventory-catalog", { method: "POST", body: { name: val("icName"), category: val("icCategory"), unit: val("icUnit") || "pz", supplier: val("icSupplier") || null, min_stock: Number(val("icMin")) } });
-      modal.remove(); await refreshMaster(true); toast("Ítem creado.", "ok"); setView("config");
+      modal.remove(); await refreshMaster(true); toast("Ítem creado.", "ok"); setView("maestros", { mdTab: "items" });
     }
   }]);
 }
@@ -2164,14 +2229,14 @@ async function editInventoryCatalogItem(id) {
     kind: "primary",
     onClick: async modal => {
       await api(`/inventory-catalog/${id}`, { method: "PUT", body: { name: val("icName"), category: val("icCategory"), unit: val("icUnit") || "pz", supplier: val("icSupplier") || null, min_stock: Number(val("icMin")) } });
-      modal.remove(); await refreshMaster(true); toast("Ítem actualizado.", "ok"); setView("config");
+      modal.remove(); await refreshMaster(true); toast("Ítem actualizado.", "ok"); setView("maestros", { mdTab: "items" });
     }
   }]);
 }
 
 function deleteInventoryCatalogItem(id) {
   if (!confirm("¿Eliminar este ítem del catálogo?")) return;
-  api(`/inventory-catalog/${id}`, { method: "DELETE" }).then(async () => { await refreshMaster(true); toast("Ítem eliminado.", "ok"); setView("config"); }).catch(err => toast(err.message, "error"));
+  api(`/inventory-catalog/${id}`, { method: "DELETE" }).then(async () => { await refreshMaster(true); toast("Ítem eliminado.", "ok"); setView("maestros", { mdTab: "items" }); }).catch(err => toast(err.message, "error"));
 }
 
 function newInventoryMovement(itemId, itemName) {
@@ -2603,7 +2668,7 @@ function newProduct() {
       modal.remove();
       await refreshMaster(true);
       toast("Producto guardado.", "ok");
-      setView("config");
+      setView("maestros", { mdTab: "productos" });
     }
   }]);
 }
@@ -2611,11 +2676,12 @@ function newProduct() {
 function deleteProduct(id) {
   if (!confirm("¿Eliminar producto?")) return;
   api(`/products/${id}`, { method: "DELETE" })
-    .then(async () => { await refreshMaster(true); toast("Producto eliminado.", "ok"); setView("config"); })
+    .then(async () => { await refreshMaster(true); toast("Producto eliminado.", "ok"); setView("maestros", { mdTab: "productos" }); })
     .catch(err => toast(err.message, "error"));
 }
 
 function newCatalogItem(table, label) {
+  const back = state.view === "maestros" ? { ...state.params } : {};
   openModal(`Nuevo: ${label}`, `
     <div class="field"><label>Nombre</label><input class="input" id="catName" /></div>
     ${table === "expense_categories" ? `<div class="field"><label>¿Es costo directo?</label><select class="select" id="catDirect"><option value="0">No</option><option value="1">Sí</option></select></div>` : ""}
@@ -2633,9 +2699,34 @@ function newCatalogItem(table, label) {
       modal.remove();
       await refreshMaster(true);
       toast("Catálogo actualizado.", "ok");
-      setView("config");
+      setView("maestros", back);
     }
   }]);
+}
+const CATALOG_ROWS = { carriers: "carriers", roast_profiles: "roastProfiles", origins: "origins", varieties: "varieties", expense_categories: "expenseCategories" };
+function editCatalogItem(table, id) {
+  const rows = state.master[CATALOG_ROWS[table]] || [];
+  const row = rows.find(r => Number(r.id) === Number(id));
+  if (!row) { toast("No encontrado.", "error"); return; }
+  const back = state.view === "maestros" ? { ...state.params } : {};
+  openModal("Editar", `<div class="field"><label>Nombre</label><input class="input" id="catEditName" value="${esc(row.name)}" /></div>`, [{
+    label: "Guardar",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/${table}/${id}`, { method: "PUT", body: { name: val("catEditName") } });
+      modal.remove();
+      await refreshMaster(true);
+      toast("Actualizado.", "ok");
+      setView("maestros", back);
+    }
+  }]);
+}
+function deleteCatalogItem(table, id) {
+  if (!confirm("¿Eliminar este elemento del catálogo?")) return;
+  const back = state.view === "maestros" ? { ...state.params } : {};
+  api(`/${table}/${id}`, { method: "DELETE" })
+    .then(async () => { await refreshMaster(true); toast("Eliminado.", "ok"); setView("maestros", back); })
+    .catch(err => toast(err.message, "error"));
 }
 
 function supplierModal(s) {
@@ -2658,7 +2749,7 @@ function supplierModal(s) {
       modal.remove();
       await refreshMaster(true);
       toast("Proveedor guardado.", "ok");
-      setView("config");
+      setView("maestros", { mdTab: "proveedores" });
     }
   }]);
 }
@@ -2671,7 +2762,7 @@ function editSupplier(id) {
 function deleteSupplier(id) {
   if (!confirm("¿Eliminar este proveedor?")) return;
   api(`/suppliers/${id}`, { method: "DELETE" })
-    .then(async () => { await refreshMaster(true); toast("Proveedor eliminado.", "ok"); setView("config"); })
+    .then(async () => { await refreshMaster(true); toast("Proveedor eliminado.", "ok"); setView("maestros", { mdTab: "proveedores" }); })
     .catch(err => toast(err.message, "error"));
 }
 
@@ -2720,6 +2811,8 @@ const App = {
   openPurchase,
   editPurchase,
   deletePurchase,
+  editPurchaseEntry,
+  deletePurchaseEntry,
   receivePurchase,
   applyCashbookFilter,
   cashbookAll,
@@ -2770,6 +2863,8 @@ const App = {
   newProduct,
   deleteProduct,
   newCatalogItem,
+  editCatalogItem,
+  deleteCatalogItem,
   newSupplier,
   editSupplier,
   deleteSupplier,
