@@ -67,6 +67,7 @@ function purchaseOrderView(row: any) {
     actual_shipping_cost: row.actual_shipping_cost || 0,
     estimated_shipping_cost: row.estimated_shipping_cost || 0,
     capital_missing: row.status === "sin_fondos" ? r2(missing) : 0,
+    paid_from: qVal<string>("SELECT GROUP_CONCAT(DISTINCT paid_from_account) AS v FROM purchase_entries WHERE purchase_order_id=? AND paid_from_account IS NOT NULL AND paid_from_account<>''", row.id) || "",
   };
 }
 // Maps a catalog item to a sensible expense category when receiving a non-coffee purchase.
@@ -77,6 +78,35 @@ function purchaseExpenseCategory(cat: any) {
   if (c.includes("empaque") || c.includes("caja") || c.includes("bolsa") || c.includes("etiqueta")) return "Empaques";
   if (c.includes("marketing")) return "Marketing";
   return "Otros";
+}
+// Expense category for a received entry, derived from the inventory item it landed in.
+function entryExpenseCategory(itemId: number) {
+  const it = qGet<any>("SELECT * FROM inventory_items WHERE id=?", itemId);
+  if (!it) return "Otros";
+  if (it.item_type === "green_coffee") return "Café verde";
+  const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE name=?", it.item_name);
+  return purchaseExpenseCategory(cat || { item_type: it.item_type, category: "" });
+}
+// Undo everything a received entry produced: inventory, its expenses (+mirrors) and partner funding.
+function reversePurchaseEntry(entry: any, po: any) {
+  if (entry.inventory_item_id && Number(entry.quantity_kg) !== 0) {
+    invMove(entry.inventory_item_id, "out", r2(Number(entry.quantity_kg)), `Reverso recepción ${po.po_no}`, "Sistema", true);
+  }
+  for (const e of qAll<any>("SELECT id FROM expenses WHERE ref_type IN ('purchase_entry','purchase_entry_ship') AND ref_id=?", entry.id)) {
+    deleteExpenseAndMirrorRows(Number(e.id));
+  }
+  qRun("DELETE FROM capital_contributions WHERE ref_type='purchase_entry' AND ref_id=?", entry.id);
+}
+// (Re)create the inventory + accounting effects of a received entry, keyed to the entry id.
+function applyPurchaseEntryEffects(entryId: number, itemId: number, po: any, v: { qty: number; cost: number; ship: number; fundingSource: string; partner: string; paidFromAccount: string; registeredBy: string; entryDate: string }) {
+  const landed = r2(v.cost + v.ship);
+  if (v.qty !== 0) invMove(itemId, "in", v.qty, `Recepción ${po.po_no}`, v.registeredBy || "Sistema", true, setIsoDate(now(), v.entryDate));
+  if (v.fundingSource === "partner_contribution") {
+    registerDirectFunding(v.partner, landed, v.entryDate, `Compra ${po.po_no} pagada por ${v.partner}`, v.partner, null, "purchase_entry", entryId);
+  }
+  const fromCashbox = v.fundingSource === "partner_contribution" ? 0 : 1;
+  autoExpense(entryExpenseCategory(itemId), v.cost, `Compra ${po.description || "verde"} ${po.po_no}`, v.registeredBy || v.paidFromAccount, "purchase_entry", entryId, fromCashbox, 0, v.paidFromAccount, v.entryDate);
+  if (v.ship > 0) autoExpense("Envíos", v.ship, `Envío compra ${po.po_no}`, v.registeredBy || v.paidFromAccount, "purchase_entry_ship", entryId, fromCashbox, 0, v.paidFromAccount, v.entryDate);
 }
 function cashbookRows(start?: string | null, end?: string | null) {
   const rows = qAll<any>(`
@@ -739,10 +769,7 @@ api.post("/purchase-orders/:id/receive", async c => {
   // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
 
   const receive = tx(() => {
-    if (fundingSource === "partner_contribution") {
-      req(["Itza", "Axel"].includes(partner), "Elegí qué socio puso el dinero");
-      registerDirectFunding(partner, landed, entryDate, `Compra ${po.po_no} pagada por ${partner}`, partner, null, "purchase_order", poId);
-    }
+    if (fundingSource === "partner_contribution") req(["Itza", "Axel"].includes(partner), "Elegí qué socio puso el dinero");
     // Resolve what is being received from the catalog (the PO description is the item).
     const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE active=1 AND name=?", b.item_name || po.description);
     const itemType = cat?.item_type || "green_coffee";
@@ -756,11 +783,8 @@ api.post("/purchase-orders/:id/receive", async c => {
       // Supplies / packaging / roasted: go straight into their catalog item, no lot.
       itemId = ensureInvItem({ item_type: itemType, item_name: cat.name, unit: cat.unit || "pz" });
     }
-    invMove(itemId, "in", qty, `Recepción ${po.po_no}`, b.registered_by||"Sistema", true, entryCreatedAt);
-    qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", fundingSource, paidFromAccount, entryCreatedAt);
-    const expenseCat = itemType === "green_coffee" ? "Café verde" : purchaseExpenseCategory(cat);
-    autoExpense(expenseCat, cost, `Compra ${cat?.name || "verde"} ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_order", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
-    if (ship > 0) autoExpense("Envíos", ship, `Envío compra ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_shipping", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
+    const entryRes = qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", fundingSource, paidFromAccount, entryCreatedAt);
+    applyPurchaseEntryEffects(Number(entryRes.lastInsertRowid), itemId, po, { qty, cost, ship, fundingSource, partner, paidFromAccount, registeredBy: b.registered_by || "Sistema", entryDate });
     recalcPO(poId);
     const actualShipping = Number(qVal("SELECT COALESCE(SUM(shipping_cost),0) AS v FROM purchase_entries WHERE purchase_order_id=?", poId) ?? 0);
     qRun("UPDATE purchase_orders SET actual_shipping_cost=? WHERE id=?", r2(actualShipping), poId);
@@ -769,6 +793,51 @@ api.post("/purchase-orders/:id/receive", async c => {
   receive();
   return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", poId))));
 });
+
+// Edit a received entry: reverses its inventory + accounting, then re-applies with new values.
+api.put("/purchase-entries/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const entry = qGet<any>("SELECT * FROM purchase_entries WHERE id=?", id);
+  if (!entry) return c.json(fail("Entrada no encontrada"), 404);
+  const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", entry.purchase_order_id);
+  const b = await body(c);
+  const qty = r2(num(b.quantity_kg ?? entry.quantity_kg));
+  req(qty > 0, "Cantidad inválida");
+  const cost = r2(num(b.total_cost ?? entry.total_cost));
+  const ship = r2(num(b.shipping_cost ?? entry.shipping_cost));
+  const entryDate = b.entry_date || b.date || String(entry.created_at || today()).slice(0, 10);
+  const entryCreatedAt = setIsoDate(entry.created_at, entryDate);
+  const fundingSource = String(b.funding_source || entry.funding_source || "business_account");
+  const partner = normPartner(b.partner_name || (fundingSource === "partner_contribution" ? (b.paid_from_account || entry.paid_from_account) : ""));
+  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : entry.paid_from_account || "Dinero Cafetier"));
+  if (fundingSource === "partner_contribution") req(["Itza", "Axel"].includes(partner), "Elegí qué socio puso el dinero");
+  const edit = tx(() => {
+    reversePurchaseEntry(entry, po);
+    qRun("UPDATE purchase_entries SET quantity_kg=?,unit_cost=?,total_cost=?,shipping_cost=?,supplier=?,registered_by=?,funding_source=?,paid_from_account=?,created_at=? WHERE id=?", qty, qty > 0 ? r2(cost / qty) : 0, cost, ship, b.supplier ?? entry.supplier ?? po.supplier ?? null, b.registered_by || entry.registered_by || "Sistema", fundingSource, paidFromAccount, entryCreatedAt, id);
+    applyPurchaseEntryEffects(id, entry.inventory_item_id, po, { qty, cost, ship, fundingSource, partner, paidFromAccount, registeredBy: b.registered_by || entry.registered_by || "Sistema", entryDate });
+    recalcPO(po.id);
+    qRun("UPDATE purchase_orders SET actual_shipping_cost=? WHERE id=?", r2(Number(qVal("SELECT COALESCE(SUM(shipping_cost),0) AS v FROM purchase_entries WHERE purchase_order_id=?", po.id) ?? 0)), po.id);
+    if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
+  });
+  edit();
+  return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", po.id))));
+});
+api.delete("/purchase-entries/:id", c => {
+  const id = Number(c.req.param("id"));
+  const entry = qGet<any>("SELECT * FROM purchase_entries WHERE id=?", id);
+  if (!entry) return c.json(ok(true));
+  const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", entry.purchase_order_id);
+  const del = tx(() => {
+    reversePurchaseEntry(entry, po);
+    qRun("DELETE FROM purchase_entries WHERE id=?", id);
+    recalcPO(po.id);
+    qRun("UPDATE purchase_orders SET actual_shipping_cost=? WHERE id=?", r2(Number(qVal("SELECT COALESCE(SUM(shipping_cost),0) AS v FROM purchase_entries WHERE purchase_order_id=?", po.id) ?? 0)), po.id);
+    if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
+  });
+  del();
+  return c.json(ok(true));
+});
+
 api.put("/purchase-orders/:id", async c => {
   const id = Number(c.req.param("id"));
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", id);
@@ -788,7 +857,9 @@ api.put("/purchase-orders/:id", async c => {
   qRun("UPDATE purchase_entries SET created_at=? WHERE purchase_order_id=?", purchaseCreatedAt, id);
   qRun("UPDATE inventory_movements SET created_at=? WHERE reason=?", purchaseCreatedAt, `Recepción ${po.po_no}`);
   qRun("UPDATE expenses SET expense_date=? WHERE ref_type IN ('purchase_order','purchase_shipping') AND ref_id=?", purchaseDate, id);
+  qRun("UPDATE expenses SET expense_date=? WHERE ref_type IN ('purchase_entry','purchase_entry_ship') AND ref_id IN (SELECT id FROM purchase_entries WHERE purchase_order_id=?)", purchaseDate, id);
   qRun("UPDATE capital_contributions SET contribution_date=? WHERE ref_type='purchase_order' AND ref_id=?", purchaseDate, id);
+  qRun("UPDATE capital_contributions SET contribution_date=? WHERE ref_type='purchase_entry' AND ref_id IN (SELECT id FROM purchase_entries WHERE purchase_order_id=?)", purchaseDate, id);
   qRun("UPDATE capital_contributions SET contribution_date=? WHERE ref_type IS NULL AND description LIKE ?", purchaseDate, `Compra ${po.po_no} pagada por %`);
   if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
   return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", id))));
