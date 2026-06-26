@@ -401,12 +401,21 @@ async function renderSalesDetail(id) {
 
     <div class="split" style="margin-top:12px">
       <div class="stack">
+        ${isWholesale(order.order_type) ? `
         <div class="card">
-          <h3>Items</h3>
+          <h3>Pedido por kilo</h3>
+          <div class="grid cards">
+            <div class="metric flat"><div class="label">Kg solicitados</div><div class="value">${kg(order.total_weight_kg)}</div></div>
+            <div class="metric flat"><div class="label">Precio por kg</div><div class="value money">${money(order.price_per_kg)}</div></div>
+            <div class="metric flat"><div class="label">Total pedido</div><div class="value money">${money(order.total_amount)}</div></div>
+          </div>
+        </div>` : `
+        <div class="card">
+          <h3>Productos</h3>
           ${items.length ? `<table class="table"><thead><tr><th>Descripción</th><th>Cantidad</th><th>Peso unidad</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>
             ${items.map(it => `<tr><td>${esc(it.description)}</td><td>${numFmt.format(it.quantity)}</td><td>${kg(it.unit_weight_kg)}</td><td>${money(it.unit_price)}</td><td>${money(it.subtotal)}</td></tr>`).join("")}
-          </tbody></table>` : `<div class="empty">Sin líneas.</div>`}
-        </div>
+          </tbody></table>` : `<div class="empty">Sin productos cargados.</div>`}
+        </div>`}
 
         <div class="card">
           <div class="row between"><h3>Pagos</h3><button class="btn ghost sm" onclick="App.addPayment(${order.id})">+ Pago</button></div>
@@ -422,7 +431,7 @@ async function renderSalesDetail(id) {
           <div class="row between"><h3>Envíos</h3><button class="btn ghost sm" onclick="App.addShipment(${order.id})">+ Envío</button></div>
           ${shipments.length ? shipments.map(s => `
             <div class="item">
-              <div class="row between"><strong>${kg(s.weight_kg)}</strong><div class="line-actions"><span class="pill">${esc(s.carrier || "Sin paquetería")}</span><button class="btn red sm" onclick="App.deleteShipment(${s.id},${order.id})">Eliminar</button></div></div>
+              <div class="row between"><strong>${kg(s.weight_kg)}</strong><div class="line-actions"><span class="pill">${esc(s.carrier || "Sin paquetería")}</span>${editIcon(`App.editShipment(${s.id},${order.id})`)}<button class="btn red sm" onclick="App.deleteShipment(${s.id},${order.id})">Eliminar</button></div></div>
               <div class="small muted">${esc((s.created_at || "").slice(0, 10))} ${s.destination_address ? "· " + esc(s.destination_address) : ""} ${s.shipping_cost ? "· " + money(s.shipping_cost) : ""} ${shipmentFundingLabel(s) ? "· " + esc(shipmentFundingLabel(s)) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin envíos.</div>`}
         </div>` : ""}
@@ -1220,11 +1229,15 @@ function deletePayment(paymentId, orderId) {
     .catch(err => toast(err.message, "error"));
 }
 
-function addShipment(orderId) {
-  openModal("Ejecutar venta / registrar envío", `
+async function addShipment(orderId) {
+  const { order, shipments } = await api(`/sales-orders/${orderId}`);
+  const shipped = shipments.reduce((sum, s) => sum + Number(s.weight_kg || 0), 0);
+  const pending = Math.max(0, Number(order.total_weight_kg || 0) - shipped);
+  openModal("Registrar envío", `
     <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="shipDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Caja chica">Caja chica</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
-      <div class="field"><label>Kg enviados</label><input class="input" id="shipKg" type="number" step="0.01" /></div>
+      <div class="field"><label>Kg de este envío</label><input class="input" id="shipKg" type="number" step="0.01" value="${pending ? esc(pending) : ""}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Paquetería</label><input class="input" id="shipCarrier" /></div>
       <div class="field"><label>Guía</label><input class="input" id="shipTracking" /></div>
@@ -1238,6 +1251,7 @@ function addShipment(orderId) {
       await api(`/sales-orders/${orderId}/shipments`, {
         method: "POST",
         body: {
+          shipment_date: val("shipDate"),
           weight_kg: Number(val("shipKg")),
           shipping_cost: Number(val("shipCost")),
           carrier: val("shipCarrier") || null,
@@ -1252,6 +1266,49 @@ function addShipment(orderId) {
       });
       modal.remove();
       toast("Envío registrado.", "ok");
+      openSale(orderId);
+    }
+  }]);
+}
+
+async function editShipment(shipmentId, orderId) {
+  const { shipments } = await api(`/sales-orders/${orderId}`);
+  const s = shipments.find(x => Number(x.id) === Number(shipmentId));
+  if (!s) throw new Error("No pude encontrar ese envío.");
+  const paidFrom = s.funding_source === "partner_contribution" ? (s.paid_from_account || "Itza") : (s.paid_from_account || "Caja chica");
+  openModal("Editar envío", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="eshipDate" type="date" value="${esc((s.created_at || todayStr()).slice(0, 10))}" /></div>
+      <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Caja chica" ${paidFrom === "Caja chica" ? "selected" : ""}>Caja chica</option><option value="Axel" ${paidFrom === "Axel" ? "selected" : ""}>Axel</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
+      <div class="field"><label>Kg de este envío</label><input class="input" id="eshipKg" type="number" step="0.01" value="${esc(s.weight_kg || 0)}" /></div>
+      <div class="field"><label>Costo de envío</label><input class="input" id="eshipCost" type="number" step="0.01" value="${esc(s.shipping_cost || 0)}" /></div>
+      <div class="field"><label>Paquetería</label><input class="input" id="eshipCarrier" value="${esc(s.carrier || "")}" /></div>
+      <div class="field"><label>Guía</label><input class="input" id="eshipTracking" value="${esc(s.tracking_number || "")}" /></div>
+    </div>
+    <div class="field"><label>Dirección destino</label><input class="input" id="eshipAddress" value="${esc(s.destination_address || "")}" /></div>
+    <div class="field"><label>Registrado por</label><select class="select" id="eshipBy">${personOptions()}</select></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/sales-shipments/${shipmentId}`, {
+        method: "PUT",
+        body: {
+          shipment_date: val("eshipDate"),
+          weight_kg: Number(val("eshipKg")),
+          shipping_cost: Number(val("eshipCost")),
+          carrier: val("eshipCarrier") || null,
+          tracking_number: val("eshipTracking") || null,
+          destination_address: val("eshipAddress") || null,
+          registered_by: val("eshipBy"),
+          funding_source: val("eshipPaidFrom") === "Caja chica" ? "business_account" : "partner_contribution",
+          paid_from_account: val("eshipPaidFrom"),
+          partner_name: val("eshipPaidFrom") === "Caja chica" ? null : val("eshipPaidFrom"),
+          from_cashbox: val("eshipPaidFrom") === "Caja chica" ? 1 : 0,
+        },
+      });
+      modal.remove();
+      toast("Envío actualizado.", "ok");
       openSale(orderId);
     }
   }]);
@@ -2328,6 +2385,7 @@ const App = {
   editPayment,
   deletePayment,
   addShipment,
+  editShipment,
   deleteShipment,
   newManualPurchase,
   openPurchase,

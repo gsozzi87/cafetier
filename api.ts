@@ -516,6 +516,8 @@ api.post("/sales-orders/:id/shipments", async c => {
   const b = await body(c);
   req(num(b.weight_kg) > 0, "Peso invalido");
   const shippingCost = r2(num(b.shipping_cost));
+  const shipmentDate = b.shipment_date || b.date || today();
+  const shipmentCreatedAt = setIsoDate(now(), shipmentDate);
   const fundingSource = String(b.funding_source || "business_account");
   const partner = normPartner(b.partner_name || b.reimbursable_partner || (fundingSource === "partner_contribution" ? b.paid_from_account : ""));
   const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Caja chica"));
@@ -531,18 +533,65 @@ api.post("/sales-orders/:id/shipments", async c => {
   const send = tx(() => {
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
     req(ri?.id, "No existe inventario de cafe tostado");
-    invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envio pedido #${orderId}`, b.registered_by || "Sistema");
+    invMove(ri!.id, "out", r2(num(b.weight_kg)), `Envio pedido #${orderId}`, b.registered_by || "Sistema", true, shipmentCreatedAt);
     let expId: number | null = null;
     if (shippingCost > 0) {
-      expId = autoExpense("Envios", shippingCost, `Envio pedido #${orderId}`, paidBy || b.registered_by || "Sistema", "shipment", orderId, fromCashbox, 0, paidFromAccount);
+      expId = autoExpense("Envios", shippingCost, `Envio pedido #${orderId}`, paidBy || b.registered_by || "Sistema", "shipment", orderId, fromCashbox, 0, paidFromAccount, shipmentDate);
       if (fundingSource === "partner_contribution" && expId) {
-        registerDirectFunding(partner, shippingCost, today(), `Gasto pagado por ${partner}: Envio pedido #${orderId}`, partner, null, "expense", expId);
+        registerDirectFunding(partner, shippingCost, shipmentDate, `Gasto pagado por ${partner}: Envio pedido #${orderId}`, partner, null, "expense", expId);
       }
     }
-    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address || null, b.carrier || null, b.tracking_number || null, shippingCost, b.registered_by || "Sistema", b.notes || null, expId, fundingSource, paidFromAccount, now());
+    qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", orderId, r2(num(b.weight_kg)), b.destination_address || null, b.carrier || null, b.tracking_number || null, shippingCost, b.registered_by || "Sistema", b.notes || null, expId, fundingSource, paidFromAccount, shipmentCreatedAt);
   });
   send();
   return c.json(ok(recalcSO(orderId)));
+});
+api.put("/sales-shipments/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const row = qGet<any>("SELECT * FROM sales_shipments WHERE id=?", id);
+  req(row, "Envio no encontrado");
+  const b = await body(c);
+  const weight = r2(num(b.weight_kg ?? row.weight_kg));
+  req(weight > 0, "Peso invalido");
+  const shippingCost = r2(num(b.shipping_cost ?? row.shipping_cost));
+  const shipmentDate = b.shipment_date || b.date || String(row.created_at || today()).slice(0, 10);
+  const shipmentCreatedAt = setIsoDate(row.created_at, shipmentDate);
+  const fundingSource = String(b.funding_source || row.funding_source || "business_account");
+  const partner = normPartner(b.partner_name || b.reimbursable_partner || (fundingSource === "partner_contribution" ? (b.paid_from_account || row.paid_from_account) : ""));
+  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : row.paid_from_account || "Caja chica"));
+  const fromCashbox = fundingSource === "partner_contribution" ? 0 : paidFromAccount === "Caja chica" ? 1 : boolFlag(b.from_cashbox, 1);
+  const paidBy = fundingSource === "partner_contribution" ? partner : paidFromAccount;
+  if (shippingCost > 0 && fundingSource === "partner_contribution") req(["Itza", "Axel"].includes(partner), "Elegi que socio pago el envio");
+  if (shippingCost > 0 && fromCashbox && paidFromAccount === "Caja chica") {
+    const balances = accountBalances();
+    const available = Number(balances["Caja chica"] || 0);
+    req(available >= shippingCost, `Sin fondos en caja chica. Disponible: $${available.toFixed(2)}`);
+  }
+
+  const edit = tx(() => {
+    const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
+    req(ri?.id, "No existe inventario de cafe tostado");
+    const diff = r2(weight - Number(row.weight_kg || 0));
+    if (diff > 0) invMove(ri!.id, "out", diff, `Ajuste envio #${id}`, b.registered_by || row.registered_by || "Sistema", true, shipmentCreatedAt);
+    else if (diff < 0) invMove(ri!.id, "in", Math.abs(diff), `Ajuste envio #${id}`, b.registered_by || row.registered_by || "Sistema", false, shipmentCreatedAt);
+
+    let expId: number | null = row.expense_id || null;
+    if (shippingCost > 0 && expId) {
+      qRun("UPDATE expenses SET expense_date=?,amount=?,description=?,paid_by=?,from_cashbox=?,from_utilities=0,paid_from_account=? WHERE id=?", shipmentDate, shippingCost, `Envio pedido #${row.order_id}`, paidBy || b.registered_by || row.registered_by || "Sistema", fromCashbox, paidFromAccount, expId);
+      qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", expId);
+      if (fundingSource === "partner_contribution") registerDirectFunding(partner, shippingCost, shipmentDate, `Gasto pagado por ${partner}: Envio pedido #${row.order_id}`, partner, null, "expense", expId);
+    } else if (shippingCost > 0) {
+      expId = autoExpense("Envios", shippingCost, `Envio pedido #${row.order_id}`, paidBy || b.registered_by || row.registered_by || "Sistema", "shipment", row.order_id, fromCashbox, 0, paidFromAccount, shipmentDate);
+      if (fundingSource === "partner_contribution" && expId) registerDirectFunding(partner, shippingCost, shipmentDate, `Gasto pagado por ${partner}: Envio pedido #${row.order_id}`, partner, null, "expense", expId);
+    } else if (expId) {
+      deleteExpenseAndMirrorRows(Number(expId));
+      expId = null;
+    }
+
+    qRun("UPDATE sales_shipments SET weight_kg=?,destination_address=?,carrier=?,tracking_number=?,shipping_cost=?,registered_by=?,notes=?,expense_id=?,funding_source=?,paid_from_account=?,created_at=? WHERE id=?", weight, b.destination_address ?? row.destination_address ?? null, b.carrier ?? row.carrier ?? null, b.tracking_number ?? row.tracking_number ?? null, shippingCost, b.registered_by || row.registered_by || "Sistema", b.notes ?? row.notes ?? null, expId, fundingSource, paidFromAccount, shipmentCreatedAt, id);
+  });
+  edit();
+  return c.json(ok(recalcSO(Number(row.order_id))));
 });
 api.delete("/sales-shipments/:id", c => {
   const row = qGet<any>("SELECT * FROM sales_shipments WHERE id=?", c.req.param("id"));

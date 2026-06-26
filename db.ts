@@ -338,16 +338,16 @@ function migrateStatusSchema() {
   db.exec("PRAGMA foreign_keys = ON");
 }
 
-export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: number, reason: string, by?: string | null) {
+export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: number, reason: string, by?: string | null, allowNegative = false, movedAt?: string | null) {
   const cur = Number(qVal("SELECT COALESCE(quantity,0) AS v FROM inventory_items WHERE id=?", itemId) ?? 0);
   let next = cur;
   if (dir === "in") next = cur + qty;
   else if (dir === "out") {
-    if (cur < qty) throw new Error(`Inventario insuficiente (disponible: ${cur.toFixed(1)}, solicitado: ${qty.toFixed(1)})`);
+    if (!allowNegative && cur < qty) throw new Error(`Inventario insuficiente (disponible: ${cur.toFixed(1)}, solicitado: ${qty.toFixed(1)})`);
     next = cur - qty;
   } else next = qty;
   qRun("UPDATE inventory_items SET quantity=? WHERE id=?", r2(next), itemId);
-  qRun("INSERT INTO inventory_movements (item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, dir, r2(qty), reason, by ?? "Sistema", now());
+  qRun("INSERT INTO inventory_movements (item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, dir, r2(qty), reason, by ?? "Sistema", movedAt || now());
 }
 
 export function recalcSO(id: number) {
