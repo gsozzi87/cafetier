@@ -814,7 +814,10 @@ api.post("/withdrawals/capital-return", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido");
   const pn = normPartner(b.partner_name);
   // Sin bloqueos por fondos ni por capital pendiente: se permite dejar saldos en negativo.
-  qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('capital_return',?,?,?,?,?,?)", pn, r2(num(b.amount)), b.month||thisMonth(), normAccount(b.paid_from_account || "Dinero Cafetier"), b.notes||"Retorno de capital", now());
+  // La fecha la elige el usuario (puede ser un movimiento pasado) y es la que se usa en el libro de caja.
+  const date = (b.date || (b.month ? `${b.month}-01` : today())).slice(0, 10);
+  const createdAt = setIsoDate(now(), date);
+  qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('capital_return',?,?,?,?,?,?)", pn, r2(num(b.amount)), date.slice(0, 7), normAccount(b.paid_from_account || "Dinero Cafetier"), b.notes||"Retorno de capital", createdAt);
   return c.json(ok(true));
 });
 api.post("/withdrawals/dividend", async c => {
