@@ -94,7 +94,7 @@ function cashbookRows(start?: string | null, end?: string | null) {
     SELECT 'withdrawal' AS source, w.id AS source_id, substr(w.created_at,1,10) AS date,
       CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital' ELSE 'Dividendo' END AS type,
       w.partner_name AS person, COALESCE(w.paid_from_account,'Dinero Cafetier') AS account,
-      (CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital a ' ELSE 'Dividendo a ' END || w.partner_name || CASE WHEN COALESCE(w.notes,'')<>'' THEN ' · ' || w.notes ELSE '' END) AS detail,
+      COALESCE(w.notes,'') AS detail,
       w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at
     FROM withdrawals w
   `).map(r => ({
@@ -107,7 +107,7 @@ function cashbookRows(start?: string | null, end?: string | null) {
   }));
   return rows
     .filter(r => (!start || r.date >= start) && (!end || r.date <= end))
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || Number(b.source_id) - Number(a.source_id));
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.created_at).localeCompare(String(b.created_at)));
 }
 function setIsoDate(current: string | null | undefined, date: string) {
   const suffix = current && String(current).includes("T") ? String(current).slice(10) : "T12:00:00.000Z";
@@ -178,7 +178,9 @@ api.get("/master-data", c => {
   const varieties = qAll("SELECT * FROM varieties WHERE active=1 ORDER BY name");
   const roastProfiles = qAll("SELECT * FROM roast_profiles WHERE active=1 ORDER BY name");
   const expenseCategories = qAll("SELECT * FROM expense_categories WHERE active=1 ORDER BY name");
-  return c.json(ok({ partners, clients, products, origins, varieties, roastProfiles, expenseCategories, settings: getSettings() }));
+  const suppliers = qAll("SELECT * FROM suppliers WHERE active=1 ORDER BY name");
+  const carriers = qAll("SELECT * FROM carriers WHERE active=1 ORDER BY name");
+  return c.json(ok({ partners, clients, products, origins, varieties, roastProfiles, expenseCategories, suppliers, carriers, settings: getSettings() }));
 });
 
 // ===== DASHBOARD (Resumen General) =====
@@ -304,7 +306,7 @@ api.get("/settings", c => c.json(ok(getSettings())));
 api.put("/settings", async c => { const b = await body(c); for (const [k, v] of Object.entries(b)) qRun("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", k, String(v)); return c.json(ok(getSettings())); });
 
 // ===== CATALOGS =====
-for (const table of ["roast_profiles", "origins", "varieties", "expense_categories"]) {
+for (const table of ["roast_profiles", "origins", "varieties", "expense_categories", "suppliers", "carriers"]) {
   api.get(`/${table}`, c => c.json(ok(qAll(`SELECT * FROM ${table} WHERE active=1 ORDER BY name`))));
   api.post(`/${table}`, async c => {
     const b = await body(c); req(b.name, "Nombre obligatorio");
@@ -393,7 +395,7 @@ api.delete("/inventory/:id", c => {
 });
 
 // ===== SALES ORDERS =====
-api.get("/sales-orders", c => c.json(ok(qAll("SELECT so.*, c.name AS client_name, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid_amount, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped_kg FROM sales_orders so LEFT JOIN clients c ON c.id=so.client_id ORDER BY so.id DESC"))));
+api.get("/sales-orders", c => c.json(ok(qAll("SELECT so.*, c.name AS client_name, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid_amount, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped_kg FROM sales_orders so LEFT JOIN clients c ON c.id=so.client_id ORDER BY so.created_at ASC, so.id ASC"))));
 
 api.get("/sales-orders/:id", c => {
   const id = Number(c.req.param("id"));
@@ -618,7 +620,7 @@ api.post("/purchase-orders", async c => {
     createdAt: setIsoDate(now(), purchaseDate),
   }))));
 });
-api.get("/purchase-orders", c => c.json(ok(qAll<any>("SELECT * FROM purchase_orders ORDER BY id DESC").map(purchaseOrderView))));
+api.get("/purchase-orders", c => c.json(ok(qAll<any>("SELECT * FROM purchase_orders ORDER BY created_at ASC, id ASC").map(purchaseOrderView))));
 api.get("/purchase-orders/:id", c => {
   const id = Number(c.req.param("id"));
   const po = purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", id));
@@ -769,7 +771,7 @@ api.put("/partner-assets/:id", async c => {
 });
 api.delete("/partner-assets/:id", c => { qRun("UPDATE partner_assets SET status='retired' WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
-api.get("/capital-contributions", c => c.json(ok(qAll("SELECT * FROM capital_contributions ORDER BY id DESC"))));
+api.get("/capital-contributions", c => c.json(ok(qAll("SELECT * FROM capital_contributions ORDER BY contribution_date ASC, id ASC"))));
 api.post("/capital-contributions", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido"); req(b.description, "Descripción obligatoria");
   const requestId = b.capital_request_id ? Number(b.capital_request_id) : null;
@@ -780,7 +782,7 @@ api.post("/capital-contributions", async c => {
 api.put("/capital-contributions/:id", async c => { const b = await body(c); qRun("UPDATE capital_contributions SET partner_name=?,amount=?,description=?,contribution_date=?,received_account=? WHERE id=?", normPartner(b.partner_name), r2(num(b.amount)), b.description, b.contribution_date, normAccount(b.received_account || b.partner_name), c.req.param("id")); if (b.capital_request_id) refreshCapitalRequest(Number(b.capital_request_id)); return c.json(ok(true)); });
 api.delete("/capital-contributions/:id", c => { qRun("DELETE FROM capital_contributions WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
-api.get("/withdrawals", c => c.json(ok(qAll("SELECT * FROM withdrawals ORDER BY id DESC"))));
+api.get("/withdrawals", c => c.json(ok(qAll("SELECT * FROM withdrawals ORDER BY created_at ASC, id ASC"))));
 api.post("/withdrawals/capital-return", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido");
   const pn = normPartner(b.partner_name);
@@ -805,7 +807,7 @@ api.post("/withdrawals/dividend", async c => {
 api.delete("/withdrawals/:id", c => { qRun("DELETE FROM withdrawals WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== EXPENSES =====
-api.get("/expenses", c => { const m = c.req.query("month"); const sql = m ? "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE substr(e.expense_date,1,7)=? ORDER BY e.id DESC" : "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id ORDER BY e.id DESC"; return c.json(ok(m ? qAll(sql, m) : qAll(sql))); });
+api.get("/expenses", c => { const m = c.req.query("month"); const sql = m ? "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE substr(e.expense_date,1,7)=? ORDER BY e.expense_date ASC, e.id ASC" : "SELECT e.*, ec.name AS category_name FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id ORDER BY e.expense_date ASC, e.id ASC"; return c.json(ok(m ? qAll(sql, m) : qAll(sql))); });
 api.post("/expenses", async c => {
   const b = await body(c); req(b.category_id, "Categoría obligatoria"); req(num(b.amount)>0, "Monto inválido");
   const funding = expenseFunding(b);

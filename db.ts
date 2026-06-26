@@ -413,6 +413,8 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS origins (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS varieties (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS expense_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, is_direct_cost INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS suppliers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS carriers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cafe_name TEXT, contact_name TEXT, phone TEXT, contact_phone TEXT, email TEXT, address TEXT, neighborhood TEXT, municipality TEXT, city TEXT, state TEXT, country TEXT, postal_code TEXT, address_reference TEXT, notes TEXT, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, origin_id INTEGER, variety_id INTEGER, roast_profile_id INTEGER, presentation TEXT, unit_weight_kg REAL DEFAULT 1, price REAL DEFAULT 0, active INTEGER DEFAULT 1, FOREIGN KEY (origin_id) REFERENCES origins(id), FOREIGN KEY (variety_id) REFERENCES varieties(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id));
 
@@ -445,6 +447,7 @@ export function initDB() {
     INSERT OR IGNORE INTO origins (name) VALUES ('Chiapas'),('Veracruz'),('Oaxaca'),('Puebla'),('Guerrero'),('Nayarit'),('Colombia'),('Brasil'),('Guatemala'),('Etiopía'),('Blend');
     INSERT OR IGNORE INTO varieties (name) VALUES ('Typica'),('Bourbon'),('Caturra'),('Catuaí'),('Geisha'),('SL28'),('Pacamara'),('Maragogipe'),('Mundo Novo'),('Catimor'),('Blend');
     INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',1),('Electricidad',1),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Otros',0);
+    INSERT OR IGNORE INTO carriers (name) VALUES ('Estafeta'),('DHL'),('FedEx'),('Paquetexpress'),('Correos de México'),('Retiro en local');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','20'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
   `);
   ensureColumn("clients", "cafe_name", "TEXT");
@@ -482,6 +485,9 @@ export function initDB() {
   // Renombrar la cuenta "Caja chica" a "Dinero Cafetier" en datos existentes.
   qRun("UPDATE expenses SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
   qRun("UPDATE withdrawals SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
+  // Limpiar notas de retiros que quedaron con el prefijo duplicado.
+  qRun("UPDATE withdrawals SET notes = REPLACE(notes, 'Devolución de capital a ' || partner_name || ' · ', '') WHERE notes LIKE '%Devolución de capital a%·%'");
+  qRun("UPDATE withdrawals SET notes = REPLACE(notes, 'Dividendo a ' || partner_name || ' · ', '') WHERE notes LIKE '%Dividendo a%·%'");
   qRun("UPDATE capital_contributions SET received_account='Dinero Cafetier' WHERE received_account='Caja chica'");
   qRun("UPDATE purchase_entries SET paid_from_account='Dinero Cafetier' WHERE paid_from_account='Caja chica'");
   qRun("UPDATE sales_payments SET received_account='Dinero Cafetier' WHERE received_account='Caja chica'");
