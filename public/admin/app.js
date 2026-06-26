@@ -34,6 +34,41 @@ function val(id) { return document.getElementById(id)?.value; }
 function setStatus(text) { document.getElementById("statusPill").textContent = text; }
 function statusBadge(status) { return `<span class="badge ${status}">${esc(status)}</span>`; }
 function titleize(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
+function moneySourceOptions(selected = "Dinero Cafetier") {
+  const opts = [["Dinero Cafetier", "Dinero Cafetier (usa dividendos del negocio)"], ["Axel", "Axel (se le devuelve)"], ["Itza", "Itza (se le devuelve)"]];
+  return opts.map(([v, l]) => `<option value="${v}" ${v === selected ? "selected" : ""}>${l}</option>`).join("");
+}
+// Ordena una tabla por la columna del encabezado clickeado, alternando asc/desc.
+function sortTableByColumn(th) {
+  const table = th.closest("table"); const thead = th.closest("thead");
+  if (!table || !thead) return;
+  const ths = Array.from(thead.querySelectorAll("th"));
+  const idx = ths.indexOf(th);
+  const tbody = table.querySelector("tbody");
+  if (!tbody || idx < 0 || !(th.textContent || "").trim()) return;
+  const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
+  if (rows.length < 2) return;
+  const asc = th.getAttribute("data-sort") !== "asc";
+  ths.forEach(h => { h.removeAttribute("data-sort"); const s = h.querySelector(".sort-ind"); if (s) s.remove(); });
+  th.setAttribute("data-sort", asc ? "asc" : "desc");
+  const cellVal = row => {
+    const t = (row.children[idx]?.textContent || "").trim();
+    const dm = t.match(/\d{4}-\d{2}-\d{2}/);
+    if (dm) return new Date(dm[0]).getTime();
+    const cleaned = t.replace(/[^\d.\-]/g, "");
+    if (cleaned && /\d/.test(t) && !isNaN(parseFloat(cleaned))) return parseFloat(cleaned);
+    return t.toLowerCase();
+  };
+  rows.sort((a, b) => {
+    const va = cellVal(a), vb = cellVal(b);
+    if (va < vb) return asc ? -1 : 1;
+    if (va > vb) return asc ? 1 : -1;
+    return 0;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+  const ind = document.createElement("span"); ind.className = "sort-ind"; ind.textContent = asc ? " ▲" : " ▼";
+  th.appendChild(ind);
+}
 function isWholesale(type) { return ["mayoreo", "wholesale"].includes(String(type || "")); }
 function isClosedStatus(status) { return ["completado", "cancelado", "completed", "cancelled"].includes(String(status || "")); }
 function shipmentFundingLabel(s) {
@@ -739,7 +774,7 @@ async function renderCapital() {
           <div class="row between"><h3>Aportes de capital</h3><span class="pill">${realContribs.length}</span></div>
           ${realContribs.length ? realContribs.map(c => `
             <div class="item">
-              <div class="row between"><strong>${esc(c.partner_name)}</strong><span class="money">${money(c.amount)}</span></div>
+              <div class="row between"><strong>${esc(c.partner_name)}</strong><div class="line-actions"><span class="money">${money(c.amount)}</span>${editIcon(`App.editContribution(${c.id})`)}${delIcon(`App.deleteContribution(${c.id})`)}</div></div>
               <div class="small muted">${esc(c.contribution_date)} ${c.request_no ? "· " + esc(c.request_no) : ""}</div>
               <div class="small muted">${esc(c.description)}</div>
             </div>`).join("") : `<div class="empty">Sin aportes de capital reales.</div>`}
@@ -772,8 +807,8 @@ async function renderCapital() {
           <div class="row between"><h3>Retiros</h3><span class="pill">${withdrawals.length}</span></div>
           ${withdrawals.length ? withdrawals.map(w => `
             <div class="item">
-              <div class="row between"><strong>${esc(w.partner_name)}</strong><span class="money">${money(w.amount)}</span></div>
-              <div class="small muted">${esc(w.kind)} · ${esc(w.month || "")}</div>
+              <div class="row between"><strong>${esc(w.partner_name)}</strong><div class="line-actions"><span class="money">${money(w.amount)}</span>${editIcon(`App.editWithdrawal(${w.id})`)}${delIcon(`App.deleteWithdrawal(${w.id})`)}</div></div>
+              <div class="small muted">${w.kind === "capital_return" ? "Devolución de capital" : "Dividendo"} · sale de ${esc(w.paid_from_account || "Dinero Cafetier")} · ${esc(w.month || "")}</div>
               <div class="small muted">${esc((w.created_at || "").slice(0, 10))} ${w.notes ? "· " + esc(w.notes) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin retiros.</div>`}
         </div>
@@ -1369,7 +1404,7 @@ function deleteSale(id) {
 }
 
 function newManualPurchase() {
-  openModal("Nueva orden de compra", `
+  const modal = openModal("Nueva orden de compra", `
     <div class="form-grid">
       <div class="field"><label>Descripción</label><input class="input" id="poDesc" /></div>
       <div class="field"><label>Fecha</label><input class="input" id="poDate" type="date" value="${todayStr()}" /></div>
@@ -1403,33 +1438,48 @@ function newManualPurchase() {
       setView("purchases");
     }
   }]);
+  const m = modal.querySelector('.modal');
+  const kgEl = m?.querySelector('#poKg'), unitEl = m?.querySelector('#poCostKg'), totalEl = m?.querySelector('#poCost');
+  const sync = () => { const k = Number(kgEl?.value || 0), u = Number(unitEl?.value || 0); if (totalEl && k > 0 && u > 0) totalEl.value = String(round2(k * u)); };
+  kgEl?.addEventListener('input', sync);
+  unitEl?.addEventListener('input', sync);
 }
 
 function openPurchase(id) { setView("purchaseDetail", { id }); }
 
-function receivePurchase(poId) {
+async function receivePurchase(poId) {
   const o = state.master.origins || [];
   const v = state.master.varieties || [];
-  const modal = openModal("Ejecutar compra / registrar recepción", `
-    <div class="notice warn">Elegí si se pagó con dinero del negocio o si lo puso un socio y queda como capital reembolsable.</div>
+  const { purchaseOrder: po } = await api(`/purchase-orders/${poId}`);
+  const reqKg = round2(Number(po.requested_green_kg || 0));
+  const estCost = round2(Number(po.estimated_cost || 0));
+  const unitCost = reqKg > 0 ? round2(estCost / reqKg) : 0;
+  const estShip = round2(Number(po.estimated_shipping_cost || 0));
+  const modal = openModal("Ejecutar compra / recibir café", `
+    <div class="notice ok">Todo viene de la orden <strong>${esc(po.po_no)}</strong>. Confirmá de dónde salió el dinero, quién registra y la fecha.</div>
     <div class="form-grid">
-      <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" /></div>
+      <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" value="${esc(reqKg)}" /></div>
+      <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" value="${esc(unitCost)}" /></div>
+      <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" value="${esc(estCost)}" readonly /></div>
+      <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="${esc(estShip)}" /></div>
+      <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="rcvSource">${moneySourceOptions()}</select></div>
+      <div class="field"><label>Quién registra</label><select class="select" id="rcvBy">${personOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${todayStr()}" /></div>
-      <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" /></div>
-      <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" readonly /></div>
-      <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Proveedor</label><input class="input" id="rcvSupplier" /></div>
-      <div class="field"><label>Lote</label><input class="input" id="rcvLot" /></div>
-      <div class="field"><label>Origen</label><select class="select" id="rcvOrigin"><option value="">-</option>${o.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
-      <div class="field"><label>Variedad</label><select class="select" id="rcvVar"><option value="">-</option>${v.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
-      <div class="field"><label>Fuente de pago</label><select class="select" id="rcvFunding">${fundingSourceOptions()}</select></div>
-      <div class="field"><label>Cuenta / socio</label><select class="select" id="rcvAccount">${accountOptions("Axel")}</select></div>
+      <div class="field"><label>Proveedor</label><input class="input" id="rcvSupplier" value="${esc(po.supplier || "")}" /></div>
     </div>
-    <div class="field"><label>Registrado por</label><select class="select" id="rcvBy">${personOptions()}</select></div>
+    <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Detalles del lote (opcional)</summary>
+      <div class="form-grid" style="margin-top:8px">
+        <div class="field"><label>Lote</label><input class="input" id="rcvLot" /></div>
+        <div class="field"><label>Origen</label><select class="select" id="rcvOrigin"><option value="">-</option>${o.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
+        <div class="field"><label>Variedad</label><select class="select" id="rcvVar"><option value="">-</option>${v.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
+      </div>
+    </details>
   `, [{
     label: "Ejecutar compra",
     kind: "primary",
     onClick: async modal => {
+      const src = val("rcvSource");
+      const fromCafetier = src === "Dinero Cafetier";
       await api(`/purchase-orders/${poId}/receive`, {
         method: "POST",
         body: {
@@ -1443,13 +1493,13 @@ function receivePurchase(poId) {
           origin_id: val("rcvOrigin") || null,
           variety_id: val("rcvVar") || null,
           registered_by: val("rcvBy"),
-          funding_source: val("rcvFunding"),
-          paid_from_account: val("rcvAccount"),
-          partner_name: val("rcvAccount"),
+          funding_source: fromCafetier ? "business_account" : "partner_contribution",
+          paid_from_account: src,
+          partner_name: fromCafetier ? null : src,
         },
       });
       modal.remove();
-      toast("Compra ejecutada y recepción registrada.", "ok");
+      toast("Compra ejecutada.", "ok");
       openPurchase(poId);
     }
   }]);
@@ -1460,11 +1510,10 @@ function receivePurchase(poId) {
   const syncTotal = () => {
     const kg = Number(kgEl?.value || 0);
     const unit = Number(unitEl?.value || 0);
-    if (totalEl) totalEl.value = kg > 0 && unit > 0 ? String(round2(kg * unit)) : '';
+    if (totalEl && kg > 0 && unit > 0) totalEl.value = String(round2(kg * unit));
   };
   kgEl?.addEventListener('input', syncTotal);
   unitEl?.addEventListener('input', syncTotal);
-  syncTotal();
 }
 
 async function editPurchase(id) {
@@ -1559,6 +1608,64 @@ async function newContribution() {
       setView("capital");
     }
   }]);
+}
+
+async function editContribution(id) {
+  const all = await api("/capital-contributions");
+  const c = all.find(x => Number(x.id) === Number(id));
+  if (!c) { toast("Aporte no encontrado.", "error"); return; }
+  openModal("Editar aporte de capital", `
+    <div class="form-grid">
+      <div class="field"><label>Socio</label><select class="select" id="ecPartner">${partnerOptions(c.partner_name)}</select></div>
+      <div class="field"><label>Monto</label><input class="input" id="ecAmount" type="number" step="0.01" value="${esc(c.amount)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="ecDate" type="date" value="${esc((c.contribution_date || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Cuenta que recibió</label><select class="select" id="ecAccount">${accountOptions(c.received_account || c.partner_name)}</select></div>
+    </div>
+    <div class="field"><label>Descripción</label><input class="input" id="ecDesc" value="${esc(c.description || "")}" /></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/capital-contributions/${id}`, { method: "PUT", body: { partner_name: val("ecPartner"), amount: Number(val("ecAmount")), contribution_date: val("ecDate"), received_account: val("ecAccount"), description: val("ecDesc") || "Aporte" } });
+      modal.remove(); toast("Aporte actualizado.", "ok"); setView("capital");
+    }
+  }]);
+}
+
+function deleteContribution(id) {
+  if (!confirm("¿Eliminar este aporte de capital?")) return;
+  api(`/capital-contributions/${id}`, { method: "DELETE" })
+    .then(() => { toast("Aporte eliminado.", "ok"); setView("capital"); })
+    .catch(err => toast(err.message, "error"));
+}
+
+async function editWithdrawal(id) {
+  const all = await api("/withdrawals");
+  const w = all.find(x => Number(x.id) === Number(id));
+  if (!w) { toast("Retiro no encontrado.", "error"); return; }
+  openModal("Editar retiro", `
+    <div class="form-grid">
+      <div class="field"><label>Socio (recibe)</label><select class="select" id="ewPartner">${partnerOptions(w.partner_name)}</select></div>
+      <div class="field"><label>Monto</label><input class="input" id="ewAmount" type="number" step="0.01" value="${esc(w.amount)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="ewDate" type="date" value="${esc((w.created_at || "").slice(0, 10))}" /></div>
+      <div class="field"><label>Sale de</label><select class="select" id="ewAccount">${accountOptions(w.paid_from_account || "Dinero Cafetier")}</select></div>
+    </div>
+    <div class="field"><label>Notas</label><input class="input" id="ewNotes" value="${esc(w.notes || "")}" /></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/cashbook/withdrawal/${id}`, { method: "PUT", body: { person: val("ewPartner"), amount: Number(val("ewAmount")), date: val("ewDate"), account: val("ewAccount"), detail: val("ewNotes") || null } });
+      modal.remove(); toast("Retiro actualizado.", "ok"); setView("capital");
+    }
+  }]);
+}
+
+function deleteWithdrawal(id) {
+  if (!confirm("¿Eliminar este retiro?")) return;
+  api(`/withdrawals/${id}`, { method: "DELETE" })
+    .then(() => { toast("Retiro eliminado.", "ok"); setView("capital"); })
+    .catch(err => toast(err.message, "error"));
 }
 
 function newCapitalReturn() {
@@ -2400,6 +2507,10 @@ const App = {
   toggleAllExpenses,
   newCapitalRequest,
   newContribution,
+  editContribution,
+  deleteContribution,
+  editWithdrawal,
+  deleteWithdrawal,
   newCapitalReturn,
   newDividendOrder,
   payDividendOrder,
@@ -2439,6 +2550,11 @@ window.App = App;
 
 document.querySelectorAll(".nav-item").forEach(node => {
   node.addEventListener("click", () => setView(node.dataset.view));
+});
+// Ordenar cualquier tabla al hacer clic en el encabezado de columna (asc/desc).
+document.getElementById("content").addEventListener("click", e => {
+  const th = e.target.closest("table.table thead th");
+  if (th) sortTableByColumn(th);
 });
 document.getElementById("reloadBtn").addEventListener("click", async () => {
   state.master = null;

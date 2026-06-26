@@ -94,7 +94,8 @@ function cashbookRows(start?: string | null, end?: string | null) {
     SELECT 'withdrawal' AS source, w.id AS source_id, substr(w.created_at,1,10) AS date,
       CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital' ELSE 'Dividendo' END AS type,
       w.partner_name AS person, COALESCE(w.paid_from_account,'Dinero Cafetier') AS account,
-      COALESCE(w.notes,'') AS detail, w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at
+      (CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital a ' ELSE 'Dividendo a ' END || w.partner_name || CASE WHEN COALESCE(w.notes,'')<>'' THEN ' · ' || w.notes ELSE '' END) AS detail,
+      w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at
     FROM withdrawals w
   `).map(r => ({
     ...r,
@@ -744,7 +745,7 @@ api.post("/dividend-orders/:id/pay", async c => {
   const pay = tx(() => {
     for (const p of partners) {
       const share = r2((Number(row.total_amount) * Number(p.share_pct || 0)) / 100);
-      if (share > 0) qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,dividend_order_id,paid_from_account,notes,created_at) VALUES ('dividend',?,?,?,?,?,?,?)", p.name, share, row.month, row.id, normAccount(b.paid_from_account || "Axel"), `Dividendos ${row.month}`, now());
+      if (share > 0) qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,dividend_order_id,paid_from_account,notes,created_at) VALUES ('dividend',?,?,?,?,?,?,?)", p.name, share, row.month, row.id, normAccount(b.paid_from_account || "Dinero Cafetier"), `Dividendos ${row.month}`, now());
     }
     qRun("UPDATE dividend_orders SET status='paid', paid_at=? WHERE id=?", now(), row.id);
   });
@@ -784,7 +785,7 @@ api.post("/withdrawals/capital-return", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido");
   const pn = normPartner(b.partner_name);
   // Sin bloqueos por fondos ni por capital pendiente: se permite dejar saldos en negativo.
-  qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('capital_return',?,?,?,?,?,?)", pn, r2(num(b.amount)), b.month||thisMonth(), normAccount(b.paid_from_account || "Axel"), b.notes||"Retorno de capital", now());
+  qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('capital_return',?,?,?,?,?,?)", pn, r2(num(b.amount)), b.month||thisMonth(), normAccount(b.paid_from_account || "Dinero Cafetier"), b.notes||"Retorno de capital", now());
   return c.json(ok(true));
 });
 api.post("/withdrawals/dividend", async c => {
@@ -795,7 +796,7 @@ api.post("/withdrawals/dividend", async c => {
   const div = tx(() => {
     for (const p of partners) {
       const share = r2((amount * p.share_pct) / 100);
-      if (share > 0) qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('dividend',?,?,?,?,?,?)", p.name, share, b.month||thisMonth(), normAccount(b.paid_from_account || "Axel"), `Dividendos ${b.month||thisMonth()}`, now());
+      if (share > 0) qRun("INSERT INTO withdrawals(kind,partner_name,amount,month,paid_from_account,notes,created_at) VALUES ('dividend',?,?,?,?,?,?)", p.name, share, b.month||thisMonth(), normAccount(b.paid_from_account || "Dinero Cafetier"), `Dividendos ${b.month||thisMonth()}`, now());
     }
   });
   div();
