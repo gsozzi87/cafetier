@@ -488,7 +488,26 @@ api.delete("/sales-orders/:id", c => {
 });
 
 // Payments
-api.post("/sales-orders/:id/payments", async c => { const b = await body(c); req(num(b.amount)>0, "Monto inválido"); qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,received_account,created_at) VALUES (?,?,?,?,?,?,?)", c.req.param("id"), r2(num(b.amount)), b.method||"transferencia", b.notes||null, b.registered_by||"Sistema", normAccount(b.received_account || "Axel"), now()); recalcSO(Number(c.req.param("id"))); return c.json(ok(true)); });
+api.post("/sales-orders/:id/payments", async c => {
+  const b = await body(c);
+  req(num(b.amount)>0, "Monto inválido");
+  const paymentDate = b.payment_date || b.date || today();
+  qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,received_account,created_at) VALUES (?,?,?,?,?,?,?)", c.req.param("id"), r2(num(b.amount)), b.method||"transferencia", b.notes||null, b.registered_by||"Sistema", normAccount(b.received_account || "Axel"), setIsoDate(now(), paymentDate));
+  recalcSO(Number(c.req.param("id")));
+  return c.json(ok(true));
+});
+api.put("/sales-payments/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
+  req(cur, "Pago no encontrado");
+  const b = await body(c);
+  const amount = r2(num(b.amount ?? cur.amount));
+  req(amount > 0, "Monto inválido");
+  const paymentDate = b.payment_date || b.date || String(cur.created_at || today()).slice(0, 10);
+  qRun("UPDATE sales_payments SET amount=?,method=?,notes=?,registered_by=?,received_account=?,created_at=? WHERE id=?", amount, b.method || cur.method || "transferencia", b.notes ?? cur.notes ?? null, b.registered_by || cur.registered_by || "Sistema", normAccount(b.received_account || cur.received_account || "Axel"), setIsoDate(cur.created_at, paymentDate), id);
+  recalcSO(Number(cur.order_id));
+  return c.json(ok(qGet("SELECT * FROM sales_payments WHERE id=?", id)));
+});
 api.delete("/sales-payments/:id", c => { const p = qGet<any>("SELECT * FROM sales_payments WHERE id=?", c.req.param("id")); if (p) { qRun("DELETE FROM sales_payments WHERE id=?", p.id); recalcSO(p.order_id); } return c.json(ok(true)); });
 
 // Shipments (auto expense)
@@ -540,6 +559,23 @@ api.delete("/sales-shipments/:id", c => {
 });
 
 // ===== PURCHASE ORDERS =====
+api.post("/purchase-orders", async c => {
+  const b = await body(c);
+  const requestedKg = num(b.requested_kg || b.requested_green_kg);
+  req(b.description, "Descripcion obligatoria");
+  req(requestedKg > 0, "Kg requeridos");
+  const purchaseDate = b.purchase_date || b.date || today();
+  return c.json(ok(purchaseOrderView(createPO({
+    sourceType: "manual",
+    description: b.description,
+    requestedKg,
+    estimatedCost: num(b.estimated_cost),
+    estimatedShippingCost: num(b.estimated_shipping_cost),
+    supplier: b.supplier || null,
+    notes: b.notes || null,
+    createdAt: setIsoDate(now(), purchaseDate),
+  }))));
+});
 api.get("/purchase-orders", c => c.json(ok(qAll<any>("SELECT * FROM purchase_orders ORDER BY id DESC").map(purchaseOrderView))));
 api.get("/purchase-orders/:id", c => {
   const id = Number(c.req.param("id"));
@@ -548,11 +584,11 @@ api.get("/purchase-orders/:id", c => {
   const capitalRequests = qAll("SELECT * FROM capital_requests WHERE notes LIKE ? ORDER BY id DESC", `%${po?.po_no || ""}%`);
   return c.json(ok({ po, purchaseOrder: po, entries, capitalRequests }));
 });
-api.post("/purchase-orders", async c => { const b = await body(c); const requestedKg = num(b.requested_kg || b.requested_green_kg); req(b.description, "Descripción obligatoria"); req(requestedKg>0, "Kg requeridos"); return c.json(ok(purchaseOrderView(createPO({ sourceType: "manual", description: b.description, requestedKg, estimatedCost: num(b.estimated_cost), estimatedShippingCost: num(b.estimated_shipping_cost), supplier: b.supplier||null, notes: b.notes || null })))); });
-
 api.post("/purchase-orders/:id/receive", async c => {
   const poId = Number(c.req.param("id")); const b = await body(c);
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", poId);
+  const entryDate = b.entry_date || b.purchase_date || b.date || today();
+  const entryCreatedAt = setIsoDate(now(), entryDate);
   if (!po) return c.json(fail("No encontrada"), 404);
   req(num(b.quantity_kg)>0, "Cantidad inválida");
   const qty = r2(num(b.quantity_kg));
@@ -572,15 +608,15 @@ api.post("/purchase-orders/:id/receive", async c => {
   const receive = tx(() => {
     if (fundingSource === "partner_contribution") {
       req(["Itza", "Axel"].includes(partner), "Elegí qué socio puso el dinero");
-      registerDirectFunding(partner, landed, today(), `Compra ${po.po_no} pagada por ${partner}`, partner);
+      registerDirectFunding(partner, landed, entryDate, `Compra ${po.po_no} pagada por ${partner}`, partner, null, "purchase_order", poId);
     }
-    const lotLabel = b.lot_label || `${today()}-${po.po_no}`;
+    const lotLabel = b.lot_label || `${entryDate}-${po.po_no}`;
     const itemName = b.item_name || [b.origin_name, b.variety_name, `Lote ${lotLabel}`].filter(Boolean).join(" · ") || `Café verde ${lotLabel}`;
     const itemId = ensureInvItem({ item_type: "green_coffee", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
     invMove(itemId, "in", qty, `Recepción ${po.po_no}`, b.registered_by||"Sistema");
-    qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", fundingSource, paidFromAccount, now());
-    autoExpense("Café verde", cost, `Compra verde ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_order", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount);
-    if (ship > 0) autoExpense("Envíos", ship, `Envío compra ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_shipping", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount);
+    qRun("INSERT INTO purchase_entries(purchase_order_id,inventory_item_id,quantity_kg,unit_cost,total_cost,shipping_cost,supplier,lot_label,origin_id,variety_id,registered_by,funding_source,paid_from_account,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", poId, itemId, qty, qty>0?r2(cost/qty):0, cost, ship, b.supplier||po.supplier||null, lotLabel, b.origin_id||null, b.variety_id||null, b.registered_by||"Sistema", fundingSource, paidFromAccount, entryCreatedAt);
+    autoExpense("Café verde", cost, `Compra verde ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_order", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
+    if (ship > 0) autoExpense("Envíos", ship, `Envío compra ${po.po_no}`, b.registered_by||paidFromAccount, "purchase_shipping", poId, fundingSource === "partner_contribution" ? 0 : 1, 0, paidFromAccount, entryDate);
     recalcPO(poId);
     const actualShipping = Number(qVal("SELECT COALESCE(SUM(shipping_cost),0) AS v FROM purchase_entries WHERE purchase_order_id=?", poId) ?? 0);
     qRun("UPDATE purchase_orders SET actual_shipping_cost=? WHERE id=?", r2(actualShipping), poId);
@@ -593,7 +629,6 @@ api.put("/purchase-orders/:id", async c => {
   const id = Number(c.req.param("id"));
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", id);
   if (!po) return c.json(fail("No encontrada"), 404);
-  if (po.status === "recibida") return c.json(fail("No se puede editar una orden ya recibida"), 400);
   const b = await body(c);
   const description = b.description ?? po.description;
   req(description, "Descripción obligatoria");
@@ -602,8 +637,15 @@ api.put("/purchase-orders/:id", async c => {
   const est = r2(num(b.estimated_cost ?? po.estimated_cost));
   const ship = r2(num(b.estimated_shipping_cost ?? po.estimated_shipping_cost));
   let status = po.status;
-  if (status !== "cancelada") status = est + ship > finance().cash ? "sin_fondos" : po.received_kg > 0 ? "parcial" : "pendiente";
-  qRun("UPDATE purchase_orders SET description=?,supplier=?,requested_kg=?,estimated_cost=?,estimated_shipping_cost=?,notes=?,status=?,updated_at=? WHERE id=?", description, b.supplier ?? po.supplier ?? null, requestedKg, est, ship, b.notes ?? po.notes ?? null, status, now(), id);
+  if (status !== "cancelada" && status !== "recibida") status = est + ship > finance().cash ? "sin_fondos" : po.received_kg > 0 ? "parcial" : "pendiente";
+  const purchaseDate = b.purchase_date || b.date || String(po.created_at || today()).slice(0, 10);
+  const purchaseCreatedAt = setIsoDate(po.created_at, purchaseDate);
+  qRun("UPDATE purchase_orders SET description=?,supplier=?,requested_kg=?,estimated_cost=?,estimated_shipping_cost=?,notes=?,status=?,created_at=?,updated_at=? WHERE id=?", description, b.supplier ?? po.supplier ?? null, requestedKg, est, ship, b.notes ?? po.notes ?? null, status, purchaseCreatedAt, now(), id);
+  qRun("UPDATE purchase_entries SET created_at=? WHERE purchase_order_id=?", purchaseCreatedAt, id);
+  qRun("UPDATE inventory_movements SET created_at=? WHERE reason=?", purchaseCreatedAt, `Recepción ${po.po_no}`);
+  qRun("UPDATE expenses SET expense_date=? WHERE ref_type IN ('purchase_order','purchase_shipping') AND ref_id=?", purchaseDate, id);
+  qRun("UPDATE capital_contributions SET contribution_date=? WHERE ref_type='purchase_order' AND ref_id=?", purchaseDate, id);
+  qRun("UPDATE capital_contributions SET contribution_date=? WHERE ref_type IS NULL AND description LIKE ?", purchaseDate, `Compra ${po.po_no} pagada por %`);
   if (po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
   return c.json(ok(purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", id))));
 });

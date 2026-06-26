@@ -380,23 +380,26 @@ export function recalcPO(poId: number) {
   return qGet("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function createPO(input: { sourceType: string; sourceId?: number | null; description: string; requestedKg: number; estimatedCost?: number; estimatedShippingCost?: number; supplier?: string | null; notes?: string | null }) {
+export function createPO(input: { sourceType: string; sourceId?: number | null; description: string; requestedKg: number; estimatedCost?: number; estimatedShippingCost?: number; supplier?: string | null; notes?: string | null; createdAt?: string }) {
   const f = finance();
   const est = r2(input.estimatedCost ?? 0);
   const ship = r2(input.estimatedShippingCost ?? 0);
   const status = est + ship > f.cash ? "sin_fondos" : "pendiente";
-  const res = qRun("INSERT INTO purchase_orders (po_no,source_type,source_id,status,description,requested_kg,estimated_cost,estimated_shipping_cost,actual_cost,actual_shipping_cost,received_kg,supplier,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,0,0,?,?,?,?)", docNo("OC"), input.sourceType, input.sourceId ?? null, status, input.description, r2(input.requestedKg), est, ship, input.supplier ?? null, input.notes ?? null, now(), now());
+  const res = qRun("INSERT INTO purchase_orders (po_no,source_type,source_id,status,description,requested_kg,estimated_cost,estimated_shipping_cost,actual_cost,actual_shipping_cost,received_kg,supplier,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,0,0,?,?,?,?)", docNo("OC"), input.sourceType, input.sourceId ?? null, status, input.description, r2(input.requestedKg), est, ship, input.supplier ?? null, input.notes ?? null, input.createdAt || now(), now());
   const poId = Number(res.lastInsertRowid);
   if (input.sourceType === "sales_order" && input.sourceId) recalcSO(input.sourceId);
   return qGet<any>("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
-export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0, paidFromAccount?: string | null) {
+export function autoExpense(catName: string, amount: number, desc: string, paidBy: string, refType: string, refId: number, fromCashbox = 1, fromUtilities = 0, paidFromAccount?: string | null, expenseDate?: string | null) {
   let cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE name=? LIMIT 1", catName);
   const normalizedCat = String(catName || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   if (!cat && normalizedCat.startsWith("env")) cat = qGet<{ id: number }>("SELECT id FROM expense_categories WHERE lower(name) LIKE 'env%' LIMIT 1");
   if (!cat) return null;
-  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?,?)", today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, normAccount(paidFromAccount || paidBy), now());
+  const inferredDate = refType.startsWith("purchase")
+    ? qVal<string>("SELECT substr(created_at,1,10) AS v FROM purchase_entries WHERE purchase_order_id=? ORDER BY id DESC LIMIT 1", refId)
+    : null;
+  const res = qRun("INSERT INTO expenses (expense_date,category_id,amount,description,paid_by,auto_generated,ref_type,ref_id,from_cashbox,from_utilities,paid_from_account,created_at) VALUES (?,?,?,?,?,1,?,?,?,?,?,?)", expenseDate || inferredDate || today(), cat.id, r2(amount), desc, paidBy, refType, refId, fromCashbox ? 1 : 0, fromUtilities ? 1 : 0, normAccount(paidFromAccount || paidBy), now());
   return Number(res.lastInsertRowid);
 }
 

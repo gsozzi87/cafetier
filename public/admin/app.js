@@ -29,6 +29,7 @@ function kg(n) { return `${numFmt.format(Number(n || 0))} kg`; }
 function pct(n) { return `${numFmt.format(Number(n || 0))}%`; }
 function round2(n) { return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100; }
 function esc(v) { return String(v ?? "").replace(/[&<>"]/g, m => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[m])); }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
 function val(id) { return document.getElementById(id)?.value; }
 function setStatus(text) { document.getElementById("statusPill").textContent = text; }
 function statusBadge(status) { return `<span class="badge ${status}">${esc(status)}</span>`; }
@@ -411,7 +412,7 @@ async function renderSalesDetail(id) {
           <div class="row between"><h3>Pagos</h3><button class="btn ghost sm" onclick="App.addPayment(${order.id})">+ Pago</button></div>
           ${payments.length ? payments.map(p => `
             <div class="item">
-              <div class="row between"><strong>${money(p.amount)}</strong><div class="line-actions"><span class="pill">${esc(p.method || "-")}</span><button class="btn red sm" onclick="App.deletePayment(${p.id},${order.id})">Eliminar</button></div></div>
+              <div class="row between"><strong>${money(p.amount)}</strong><div class="line-actions"><span class="pill">${esc(p.method || "-")}</span>${editIcon(`App.editPayment(${p.id},${order.id})`)}<button class="btn red sm" onclick="App.deletePayment(${p.id},${order.id})">Eliminar</button></div></div>
               <div class="small muted">${esc((p.created_at || "").slice(0, 10))} · ${esc(p.received_account || "Axel")} ${p.notes ? "· " + esc(p.notes) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin pagos.</div>`}
         </div>
@@ -481,7 +482,7 @@ async function renderPurchases() {
               <td class="money">${money(po.estimated_cost)}</td>
               <td class="money">${money(po.estimated_shipping_cost || 0)}</td>
               <td class="money">${money(po.capital_missing)}</td>
-              <td><div class="line-actions">${["received","recibida","cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
+              <td><div class="line-actions">${["cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -502,7 +503,7 @@ async function renderPurchaseDetail(id) {
       </div>
       <div class="row wrap">
         ${!["received", "recibida", "cancelled", "cancelada"].includes(po.status) ? `<button class="btn primary" onclick="App.receivePurchase(${po.id})">Ejecutar compra / recibir café</button>` : ""}
-        ${!["received", "recibida", "cancelled", "cancelada"].includes(po.status) ? `<button class="btn ghost" onclick="App.editPurchase(${po.id})">✎ Editar</button>` : ""}
+        ${!["cancelled", "cancelada"].includes(po.status) ? `<button class="btn ghost" onclick="App.editPurchase(${po.id})">✎ Editar</button>` : ""}
         ${po.status !== "cancelada" && po.status !== "cancelled" ? `<button class="btn red" onclick="App.deletePurchase(${po.id})">🗑 Eliminar</button>` : ""}
       </div>
     </div>
@@ -1158,21 +1159,55 @@ function openSale(id) { setView("salesDetail", { id }); }
 function addPayment(orderId) {
   openModal("Registrar pago", `
     <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="payDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Monto</label><input class="input" id="payAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Método</label><select class="select" id="payMethod"><option>transferencia</option><option>efectivo</option><option>tarjeta</option></select></div>
       <div class="field"><label>Cuenta que recibió</label><select class="select" id="payAccount">${accountOptions("Axel")}</select></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="payNotes" /></div>
   `, [{
-    label: "Ejecutar venta",
+    label: "Registrar pago",
     kind: "primary",
     onClick: async modal => {
       await api(`/sales-orders/${orderId}/payments`, {
-        method: "POST",
-        body: { amount: Number(val("payAmount")), method: val("payMethod"), received_account: val("payAccount"), notes: val("payNotes") || null },
+          method: "POST",
+          body: { payment_date: val("payDate"), amount: Number(val("payAmount")), method: val("payMethod"), received_account: val("payAccount"), notes: val("payNotes") || null },
       });
       modal.remove();
       toast("Pago registrado.", "ok");
+      openSale(orderId);
+    }
+  }]);
+}
+
+async function editPayment(paymentId, orderId) {
+  const { payments } = await api(`/sales-orders/${orderId}`);
+  const p = payments.find(x => Number(x.id) === Number(paymentId));
+  if (!p) throw new Error("No pude encontrar ese pago.");
+  openModal("Editar pago", `
+    <div class="form-grid">
+      <div class="field"><label>Fecha</label><input class="input" id="epayDate" type="date" value="${esc((p.created_at || todayStr()).slice(0, 10))}" /></div>
+      <div class="field"><label>Monto</label><input class="input" id="epayAmount" type="number" step="0.01" value="${esc(p.amount)}" /></div>
+      <div class="field"><label>Método</label><select class="select" id="epayMethod"><option ${p.method === "transferencia" ? "selected" : ""}>transferencia</option><option ${p.method === "efectivo" ? "selected" : ""}>efectivo</option><option ${p.method === "tarjeta" ? "selected" : ""}>tarjeta</option></select></div>
+      <div class="field"><label>Cuenta que recibió</label><select class="select" id="epayAccount">${accountOptions(p.received_account || "Axel")}</select></div>
+    </div>
+    <div class="field"><label>Notas</label><input class="input" id="epayNotes" value="${esc(p.notes || "")}" /></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/sales-payments/${paymentId}`, {
+        method: "PUT",
+        body: {
+          payment_date: val("epayDate"),
+          amount: Number(val("epayAmount")),
+          method: val("epayMethod"),
+          received_account: val("epayAccount"),
+          notes: val("epayNotes") || null,
+        },
+      });
+      modal.remove();
+      toast("Pago actualizado.", "ok");
       openSale(orderId);
     }
   }]);
@@ -1280,6 +1315,7 @@ function newManualPurchase() {
   openModal("Nueva orden de compra", `
     <div class="form-grid">
       <div class="field"><label>Descripción</label><input class="input" id="poDesc" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="poDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Proveedor</label><input class="input" id="poSupplier" /></div>
       <div class="field"><label>Kg requeridos</label><input class="input" id="poKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo estimado por kg</label><input class="input" id="poCostKg" type="number" step="0.01" /></div>
@@ -1296,6 +1332,7 @@ function newManualPurchase() {
         method: "POST",
         body: {
           description: val("poDesc"),
+          purchase_date: val("poDate"),
           supplier: val("poSupplier") || null,
           requested_green_kg: Number(val("poKg")),
           estimated_cost_per_kg: Number(val("poCostKg")),
@@ -1320,6 +1357,7 @@ function receivePurchase(poId) {
     <div class="notice warn">Elegí si se pagó con dinero del negocio o si lo puso un socio y queda como capital reembolsable.</div>
     <div class="form-grid">
       <div class="field"><label>Kg recibidos</label><input class="input" id="rcvKg" type="number" step="0.01" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Costo por kg</label><input class="input" id="rcvUnitCost" type="number" step="0.01" /></div>
       <div class="field"><label>Mercancía total</label><input class="input" id="rcvCost" type="number" step="0.01" readonly /></div>
       <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="0" /></div>
@@ -1339,6 +1377,7 @@ function receivePurchase(poId) {
         method: "POST",
         body: {
           quantity_kg: Number(val("rcvKg")),
+          entry_date: val("rcvDate"),
           unit_cost: Number(val("rcvUnitCost")),
           total_cost: Number(val("rcvCost")),
           shipping_cost: Number(val("rcvShipCost")),
@@ -1376,6 +1415,7 @@ async function editPurchase(id) {
   openModal("Editar orden de compra", `
     <div class="form-grid">
       <div class="field"><label>Descripción</label><input class="input" id="epDesc" value="${esc(po.description || "")}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="epDate" type="date" value="${esc((po.created_at || todayStr()).slice(0, 10))}" /></div>
       <div class="field"><label>Proveedor</label><input class="input" id="epSupplier" value="${esc(po.supplier || "")}" /></div>
       <div class="field"><label>Kg requeridos</label><input class="input" id="epKg" type="number" step="0.01" value="${esc(po.requested_green_kg || 0)}" /></div>
       <div class="field"><label>Mercancía estimada total</label><input class="input" id="epCost" type="number" step="0.01" value="${esc(po.estimated_cost || 0)}" /></div>
@@ -1390,6 +1430,7 @@ async function editPurchase(id) {
         method: "PUT",
         body: {
           description: val("epDesc"),
+          purchase_date: val("epDate"),
           supplier: val("epSupplier") || null,
           requested_green_kg: Number(val("epKg")),
           estimated_cost: Number(val("epCost")),
@@ -2284,6 +2325,7 @@ const App = {
   editSale,
   deleteSale,
   addPayment,
+  editPayment,
   deletePayment,
   addShipment,
   deleteShipment,
