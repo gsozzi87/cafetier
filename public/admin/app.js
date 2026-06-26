@@ -880,32 +880,74 @@ ${esc(b.ai_review)}</div>` : ``}
   `;
 }
 
+const INV_TYPE_LABELS = { green_coffee: "Café verde", roasted_coffee: "Café tostado", packaged_coffee: "Café empaquetado", supply: "Insumos y empaques" };
+const INV_TYPE_ORDER = ["green_coffee", "roasted_coffee", "packaged_coffee", "supply"];
+
 async function renderInventory() {
   const rows = await api("/inventory");
-  document.getElementById("content").innerHTML = `
-    <div class="row between" style="margin-bottom:12px">
-      <div class="row wrap">
-        <button class="btn primary" onclick="App.newInventoryItem()">Nuevo ítem</button>
-      </div>
-    </div>
-    <div class="card">
+  const catByName = {};
+  (state.master.inventoryCatalog || []).forEach(c => { catByName[c.name] = c; });
+
+  const groups = INV_TYPE_ORDER
+    .map(type => ({ type, label: INV_TYPE_LABELS[type], items: rows.filter(i => i.item_type === type) }))
+    .filter(g => g.items.length);
+  const known = new Set(INV_TYPE_ORDER);
+  const others = rows.filter(i => !known.has(i.item_type));
+  if (others.length) groups.push({ type: "otros", label: "Otros", items: others });
+
+  const section = g => `
+    <div class="card" style="margin-bottom:14px">
+      <div class="row between" style="margin-bottom:8px"><h3 style="margin:0">${esc(g.label)}</h3><span class="pill">${g.items.length} ítem${g.items.length === 1 ? "" : "s"}</span></div>
       <table class="table">
-        <thead><tr><th>Tipo</th><th>Ítem</th><th>Lote</th><th>Cantidad</th><th>Mínimo</th><th></th></tr></thead>
+        <thead><tr><th>Ítem</th><th>Lote</th><th>Cantidad actual</th><th>Mínimo</th><th></th></tr></thead>
         <tbody>
-          ${rows.map(i => `
-            <tr>
-              <td>${esc(i.item_type)}</td>
-              <td><strong>${esc(i.item_name)}</strong><div class="tiny muted">${esc(i.origin_name || "")} ${i.variety_name ? "· " + esc(i.variety_name) : ""}</div></td>
+          ${g.items.map(i => {
+            const safeName = esc(i.item_name).replace(/'/g, "&#39;");
+            const cat = catByName[i.item_name];
+            const sub = [i.origin_name, i.variety_name].filter(Boolean).join(" · ") || (g.type === "supply" && cat && cat.category ? esc(cat.category) : "");
+            const low = Number(i.min_stock) > 0 && Number(i.quantity) <= Number(i.min_stock);
+            const neg = Number(i.quantity) < 0;
+            return `<tr>
+              <td><strong>${esc(i.item_name)}</strong>${sub ? `<div class="tiny muted">${sub}</div>` : ""}</td>
               <td>${esc(i.lot_label || "-")}</td>
-              <td>${numFmt.format(i.quantity)} ${esc(i.unit)} ${Number(i.min_stock) > 0 && Number(i.quantity) <= Number(i.min_stock) ? `<span class="badge sin_fondos" title="Por debajo del mínimo">bajo</span>` : ""}</td>
+              <td><strong ${neg ? `style="color:var(--red)"` : ""}>${numFmt.format(i.quantity)}</strong> ${esc(i.unit)} ${low && !neg ? `<span class="badge sin_fondos" title="Por debajo del mínimo">bajo</span>` : ""} ${neg ? `<span class="badge" style="background:var(--red-soft);color:var(--red)" title="Stock negativo: falta cargar entradas">negativo</span>` : ""}</td>
               <td>${numFmt.format(i.min_stock)} ${esc(i.unit)}</td>
-              <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${esc(i.item_name).replace(/'/g,"&#39;")}')">Movimiento</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
-            </tr>`).join("")}
+              <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${safeName}')">Entrada / salida</button><button class="btn ghost sm" onclick="App.openInventoryHistory(${i.id},'${safeName}')">Historial</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
-      ${rows.length ? "" : `<div class="empty">Inventario vacío.</div>`}
+    </div>`;
+
+  document.getElementById("content").innerHTML = `
+    <div class="row between" style="margin-bottom:12px">
+      <div class="row wrap"><button class="btn primary" onclick="App.newInventoryItem()">Nuevo ítem</button></div>
     </div>
+    <div class="notice ok" style="margin-bottom:14px">Esto es <strong>lo que tenés ahora</strong> (existencias actuales). Para ver las entradas y salidas de un ítem, tocá <strong>Historial</strong>.</div>
+    ${groups.length ? groups.map(section).join("") : `<div class="card"><div class="empty">Inventario vacío. Cargá ítems con "Nuevo ítem".</div></div>`}
   `;
+}
+
+async function openInventoryHistory(itemId, itemName) {
+  const movements = await api(`/inventory/${itemId}/movements`);
+  const dirLabel = { in: "Entrada", out: "Salida", adjust: "Ajuste" };
+  const sign = { in: "+", out: "−", adjust: "=" };
+  openModal(`Historial · ${itemName}`, `
+    <p class="muted" style="margin-top:0">El <strong>historial</strong> son las entradas y salidas. No es el stock actual: el stock lo ves en la tabla de inventario.</p>
+    ${movements.length ? `
+      <table class="table">
+        <thead><tr><th>Fecha</th><th>Movimiento</th><th>Cantidad</th><th>Razón</th><th>Por</th></tr></thead>
+        <tbody>
+          ${movements.map(m => `<tr>
+            <td>${esc((m.created_at || "").slice(0, 10))}</td>
+            <td>${dirLabel[m.direction] || esc(m.direction)}</td>
+            <td>${sign[m.direction] || ""}${numFmt.format(m.quantity)}</td>
+            <td>${esc(m.reason || "")}</td>
+            <td>${esc(m.registered_by || "")}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>` : `<div class="empty">Sin movimientos todavía.</div>`}
+  `);
 }
 
 async function renderExpenses() {
@@ -2055,9 +2097,10 @@ function deleteInventoryCatalogItem(id) {
 }
 
 function newInventoryMovement(itemId, itemName) {
-  openModal(`Movimiento: ${itemName}`, `
+  openModal(`Entrada / salida · ${itemName}`, `
+    <p class="muted" style="margin-top:0">Registrá una <strong>entrada</strong> (compra/producción) o <strong>salida</strong> (venta/uso). Queda en el historial y ajusta el stock.</p>
     <div class="form-grid">
-      <div class="field"><label>Tipo</label><select class="select" id="mvType"><option value="in">Entrada</option><option value="out">Salida</option><option value="adjust">Ajuste absoluto</option></select></div>
+      <div class="field"><label>Movimiento</label><select class="select" id="mvType"><option value="in">Entrada (suma)</option><option value="out">Salida (resta)</option><option value="adjust">Ajuste a cantidad exacta</option></select></div>
       <div class="field"><label>Cantidad</label><input class="input" id="mvQty" type="number" step="0.01" /></div>
     </div>
     <div class="field"><label>Razón</label><input class="input" id="mvReason" /></div>
@@ -2103,7 +2146,7 @@ async function editInventoryItem(id) {
       <div class="field"><label>Origen</label><select class="select" id="eiOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}" ${Number(item.origin_id) === Number(o.id) ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Variedad</label><select class="select" id="eiVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}" ${Number(item.variety_id) === Number(v.id) ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
     </div>
-    <div class="notice warn">Cambiar la cantidad acá ajusta el stock directo, sin registrar un movimiento. Para entradas/salidas trazables usá "Movimiento".</div>
+    <div class="notice warn">Cambiar la cantidad acá corrige el stock directo, sin dejar rastro en el historial. Para entradas/salidas trazables usá "Entrada / salida".</div>
   `, [{
     label: "Guardar cambios",
     kind: "primary",
@@ -2594,6 +2637,7 @@ const App = {
   editInventoryCatalogItem,
   deleteInventoryCatalogItem,
   newInventoryMovement,
+  openInventoryHistory,
   editInventoryItem,
   deleteInventoryItem,
   newExpense,
