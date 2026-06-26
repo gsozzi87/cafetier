@@ -180,7 +180,8 @@ api.get("/master-data", c => {
   const expenseCategories = qAll("SELECT * FROM expense_categories WHERE active=1 ORDER BY name");
   const suppliers = qAll("SELECT * FROM suppliers WHERE active=1 ORDER BY name");
   const carriers = qAll("SELECT * FROM carriers WHERE active=1 ORDER BY name");
-  return c.json(ok({ partners, clients, products, origins, varieties, roastProfiles, expenseCategories, suppliers, carriers, settings: getSettings() }));
+  const inventoryCatalog = qAll("SELECT * FROM inventory_catalog WHERE active=1 ORDER BY category, name");
+  return c.json(ok({ partners, clients, products, origins, varieties, roastProfiles, expenseCategories, suppliers, carriers, inventoryCatalog, settings: getSettings() }));
 });
 
 // ===== DASHBOARD (Resumen General) =====
@@ -377,11 +378,37 @@ api.post("/products", async c => { const b = await body(c); req(b.name, "Nombre 
 api.put("/products/:id", async c => { const b = await body(c); qRun("UPDATE products SET name=?,origin_id=?,variety_id=?,roast_profile_id=?,presentation=?,unit_weight_kg=?,price=? WHERE id=?", b.name, b.origin_id||null, b.variety_id||null, b.roast_profile_id||null, b.presentation||null, num(b.unit_weight_kg,1), num(b.price), c.req.param("id")); return c.json(ok(true)); });
 api.delete("/products/:id", c => { qRun("UPDATE products SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
+// ===== INVENTORY CATALOG (items definidos) =====
+function catalogTypeFromCategory(category: string, fallback?: string) {
+  const c = String(category || "").trim().toLowerCase();
+  if (c === "café verde" || c === "cafe verde") return "green_coffee";
+  if (c === "café tostado" || c === "cafe tostado") return "roasted_coffee";
+  if (c === "café empaquetado" || c === "cafe empaquetado") return "packaged_coffee";
+  return normInvType(fallback || "supply");
+}
+api.get("/inventory-catalog", c => c.json(ok(qAll("SELECT * FROM inventory_catalog WHERE active=1 ORDER BY category, name"))));
+api.post("/inventory-catalog", async c => {
+  const b = await body(c); req(b.name, "Nombre obligatorio");
+  const itemType = catalogTypeFromCategory(b.category, b.item_type);
+  try {
+    const r = qRun("INSERT INTO inventory_catalog(name,item_type,category,unit,supplier,min_stock,active) VALUES (?,?,?,?,?,?,1)", b.name, itemType, b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock));
+    return c.json(ok(qGet("SELECT * FROM inventory_catalog WHERE id=?", Number(r.lastInsertRowid))));
+  } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un ítem con ese nombre")); throw e; }
+});
+api.put("/inventory-catalog/:id", async c => { const b = await body(c); qRun("UPDATE inventory_catalog SET name=?,item_type=?,category=?,unit=?,supplier=?,min_stock=? WHERE id=?", b.name, catalogTypeFromCategory(b.category, b.item_type), b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock), c.req.param("id")); return c.json(ok(true)); });
+api.delete("/inventory-catalog/:id", c => { qRun("UPDATE inventory_catalog SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
+
 // ===== INVENTORY =====
 api.get("/inventory", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id ORDER BY i.item_type, i.item_name"))));
 api.get("/inventory/green", c => c.json(ok(qAll("SELECT i.*, o.name AS origin_name, v.name AS variety_name FROM inventory_items i LEFT JOIN origins o ON o.id=i.origin_id LEFT JOIN varieties v ON v.id=i.variety_id WHERE i.item_type='green_coffee' AND i.quantity>0 ORDER BY i.item_name"))));
 api.get("/inventory/summary", c => c.json(ok({ verde: invTotal("green_coffee"), tostado: invTotal("roasted_coffee"), empaquetado: invTotal("packaged_coffee"), estimatedLossPct: estimatedLoss(), finance: finance() })));
-api.post("/inventory", async c => { const b = await body(c); req(b.item_type, "Tipo obligatorio"); req(b.item_name, "Nombre obligatorio"); const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,?,?,?,?,?,?)", normInvType(b.item_type), b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null); return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", Number(r.lastInsertRowid)))); });
+api.post("/inventory", async c => {
+  const b = await body(c); req(b.item_name, "Nombre obligatorio");
+  const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE active=1 AND name=?", b.item_name);
+  req(cat, "Ese ítem no está definido. Creálo primero en Configuración → Items del inventario.");
+  const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,?,?,?,?,?,?)", cat.item_type, cat.name, num(b.quantity), b.unit || cat.unit || "kg", num(b.min_stock ?? cat.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null);
+  return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", Number(r.lastInsertRowid))));
+});
 api.put("/inventory/:id", async c => { const b = await body(c); qRun("UPDATE inventory_items SET item_name=?,quantity=?,unit=?,min_stock=?,origin_id=?,variety_id=?,lot_label=? WHERE id=?", b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null, c.req.param("id")); return c.json(ok(true)); });
 api.post("/inventory/:id/movements", async c => { const b = await body(c); req(["in","out","adjust"].includes(b.direction), "Dirección inválida"); const m = tx(() => { invMove(Number(c.req.param("id")), b.direction, num(b.quantity), b.reason || "Manual", b.registered_by); }); m(); return c.json(ok(true)); });
 api.get("/inventory/:id/movements", c => c.json(ok(qAll("SELECT * FROM inventory_movements WHERE item_id=? ORDER BY id DESC", c.req.param("id")))));

@@ -1017,6 +1017,12 @@ async function renderConfig() {
 
       <div class="stack">
         <div class="card">
+          <div class="row between"><h3>Items del inventario</h3><button class="btn secondary sm" onclick="App.newInventoryCatalogItem()">+ Item</button></div>
+          <div class="small muted" style="margin-bottom:6px">Definí acá todo lo que manejás (café, cajas, bolsas, marketing, insumos…). Solo estos se pueden cargar al inventario.</div>
+          ${(master.inventoryCatalog || []).length ? (master.inventoryCatalog || []).map(it => `<div class="item"><div class="row between"><strong>${esc(it.name)}</strong><div class="line-actions"><span class="pill">${esc(it.category || it.item_type)}</span>${editIcon(`App.editInventoryCatalogItem(${it.id})`)}${delIcon(`App.deleteInventoryCatalogItem(${it.id})`)}</div></div><div class="small muted">${esc(it.unit || "")}${it.supplier ? " · " + esc(it.supplier) : ""}${Number(it.min_stock) > 0 ? " · mín " + numFmt.format(it.min_stock) : ""}</div></div>`).join("") : `<div class="empty">Sin ítems definidos.</div>`}
+        </div>
+
+        <div class="card">
           <div class="row between"><h3>Productos</h3><button class="btn secondary sm" onclick="App.newProduct()">+ Producto</button></div>
           ${master.products.map(p => `<div class="item"><div class="row between"><strong>${esc(p.name)}</strong><button class="btn red sm" onclick="App.deleteProduct(${p.id})">Eliminar</button></div><div class="small muted">${esc(p.presentation || "")} · ${kg(p.unit_weight_kg)} · ${money(p.price)}</div></div>`).join("") || `<div class="empty">Sin productos.</div>`}
         </div>
@@ -1933,48 +1939,85 @@ function deleteBatchPhoto(photoId, batchId, sessionId) {
 }
 
 function newInventoryItem() {
-  openModal("Nuevo ítem de inventario", `
+  const cat = state.master.inventoryCatalog || [];
+  if (!cat.length) { toast("Primero definí ítems en Configuración → Items del inventario.", "error"); setView("config"); return; }
+  openModal("Agregar al inventario", `
+    <div class="notice ok">Solo se cargan ítems definidos en Configuración → Items del inventario. Lote/origen/variedad aplican solo a café.</div>
     <div class="form-grid">
-      <div class="field"><label>Tipo</label>
-        <select class="select" id="invType">
-          <option value="green_coffee">Café verde</option>
-          <option value="roasted_coffee">Café tostado</option>
-          <option value="packaged_coffee">Café empaquetado</option>
-          <option value="supply">Insumo</option>
-        </select>
-      </div>
-      <div class="field"><label>Nombre</label><input class="input" id="invName" /></div>
+      <div class="field"><label>Ítem</label><select class="select" id="invCatalog">${cat.map(it => `<option value="${esc(it.name)}">${esc(it.name)}${it.category ? " · " + esc(it.category) : ""}</option>`).join("")}</select></div>
       <div class="field"><label>Cantidad inicial</label><input class="input" id="invQty" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Unidad</label><input class="input" id="invUnit" value="kg" /></div>
-      <div class="field"><label>Stock mínimo</label><input class="input" id="invMin" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Lote</label><input class="input" id="invLot" /></div>
-      <div class="field"><label>Origen</label><select class="select" id="invOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join("")}</select></div>
-      <div class="field"><label>Variedad</label><select class="select" id="invVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Lote (café)</label><input class="input" id="invLot" /></div>
+      <div class="field"><label>Origen (café)</label><select class="select" id="invOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>Variedad (café)</label><select class="select" id="invVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join("")}</select></div>
     </div>
-    <div class="field"><label>Notas</label><textarea class="textarea" id="invNotes"></textarea></div>
   `, [{
-    label: "Guardar ítem",
+    label: "Agregar",
     kind: "primary",
     onClick: async modal => {
       await api("/inventory", {
         method: "POST",
         body: {
-          item_type: val("invType"),
-          item_name: val("invName"),
+          item_name: val("invCatalog"),
           quantity: Number(val("invQty")),
-          unit: val("invUnit"),
-          min_stock: Number(val("invMin")),
           lot_label: val("invLot") || null,
           origin_id: val("invOrigin") || null,
           variety_id: val("invVar") || null,
-          notes: val("invNotes") || null,
         },
       });
       modal.remove();
-      toast("Ítem agregado.", "ok");
+      toast("Ítem agregado al inventario.", "ok");
       setView("inventory");
     }
   }]);
+}
+
+function inventoryCategoryOptions(selected = "") {
+  return ["Café verde", "Café tostado", "Café empaquetado", "Empaque", "Consumible", "Marketing", "Insumo"].map(c => `<option value="${c}" ${c === selected ? "selected" : ""}>${c}</option>`).join("");
+}
+
+function newInventoryCatalogItem() {
+  openModal("Nuevo ítem del catálogo", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="icName" placeholder="Ej: Caja chica, Bolsa kraft 250g" /></div>
+      <div class="field"><label>Categoría</label><select class="select" id="icCategory">${inventoryCategoryOptions("Empaque")}</select></div>
+      <div class="field"><label>Unidad</label><input class="input" id="icUnit" value="pz" /></div>
+      <div class="field"><label>Proveedor</label><select class="select" id="icSupplier">${supplierOptions()}</select></div>
+      <div class="field"><label>Stock mínimo</label><input class="input" id="icMin" type="number" step="0.01" value="0" /></div>
+    </div>
+  `, [{
+    label: "Guardar",
+    kind: "primary",
+    onClick: async modal => {
+      await api("/inventory-catalog", { method: "POST", body: { name: val("icName"), category: val("icCategory"), unit: val("icUnit") || "pz", supplier: val("icSupplier") || null, min_stock: Number(val("icMin")) } });
+      modal.remove(); await refreshMaster(true); toast("Ítem creado.", "ok"); setView("config");
+    }
+  }]);
+}
+
+async function editInventoryCatalogItem(id) {
+  const it = (state.master.inventoryCatalog || []).find(x => Number(x.id) === Number(id));
+  if (!it) return;
+  openModal("Editar ítem del catálogo", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="icName" value="${esc(it.name)}" /></div>
+      <div class="field"><label>Categoría</label><select class="select" id="icCategory">${inventoryCategoryOptions(it.category || "")}</select></div>
+      <div class="field"><label>Unidad</label><input class="input" id="icUnit" value="${esc(it.unit || "pz")}" /></div>
+      <div class="field"><label>Proveedor</label><select class="select" id="icSupplier">${supplierOptions(it.supplier || "")}</select></div>
+      <div class="field"><label>Stock mínimo</label><input class="input" id="icMin" type="number" step="0.01" value="${esc(it.min_stock || 0)}" /></div>
+    </div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/inventory-catalog/${id}`, { method: "PUT", body: { name: val("icName"), category: val("icCategory"), unit: val("icUnit") || "pz", supplier: val("icSupplier") || null, min_stock: Number(val("icMin")) } });
+      modal.remove(); await refreshMaster(true); toast("Ítem actualizado.", "ok"); setView("config");
+    }
+  }]);
+}
+
+function deleteInventoryCatalogItem(id) {
+  if (!confirm("¿Eliminar este ítem del catálogo?")) return;
+  api(`/inventory-catalog/${id}`, { method: "DELETE" }).then(async () => { await refreshMaster(true); toast("Ítem eliminado.", "ok"); setView("config"); }).catch(err => toast(err.message, "error"));
 }
 
 function newInventoryMovement(itemId, itemName) {
@@ -2512,6 +2555,9 @@ const App = {
   uploadBatchPhoto,
   deleteBatchPhoto,
   newInventoryItem,
+  newInventoryCatalogItem,
+  editInventoryCatalogItem,
+  deleteInventoryCatalogItem,
   newInventoryMovement,
   editInventoryItem,
   deleteInventoryItem,
