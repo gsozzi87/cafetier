@@ -602,7 +602,7 @@ async function renderPurchaseDetail(id) {
 
 async function renderCashbook() {
   const nowDate = new Date();
-  const start = state.params.start || `${nowDate.toISOString().slice(0, 7)}-01`;
+  const start = state.params.start || "2000-01-01";
   const end = state.params.end || nowDate.toISOString().slice(0, 10);
   const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
   document.getElementById("content").innerHTML = `
@@ -654,7 +654,7 @@ function cashbookAll() {
 }
 
 async function editCashbookMovement(source, id) {
-  const start = state.params.start || `${new Date().toISOString().slice(0, 7)}-01`;
+  const start = state.params.start || "2000-01-01";
   const end = state.params.end || new Date().toISOString().slice(0, 10);
   const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
   const movement = data.movements.find(m => m.source === source && Number(m.source_id) === Number(id));
@@ -721,11 +721,9 @@ async function renderCapital() {
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
-        <button class="btn primary" onclick="App.newCapitalRequest()">Orden de ingreso de capital</button>
-        <button class="btn secondary" onclick="App.newContribution()">Registrar aporte</button>
+        <button class="btn primary" onclick="App.newContribution()">Registrar aporte</button>
         <button class="btn secondary" onclick="App.newCapitalReturn()">Devolver capital</button>
         <button class="btn green" onclick="App.newDividendOrder()">Orden de dividendos fin de mes</button>
-        <button class="btn secondary" onclick="App.newPartnerAsset()">Activo personal de socio</button>
       </div>
     </div>
 
@@ -761,16 +759,6 @@ async function renderCapital() {
         </div>
 
         <div class="card">
-          <div class="row between"><h3>Órdenes de ingreso de capital</h3><span class="pill">${requests.length}</span></div>
-          ${requests.length ? requests.map(r => `
-            <div class="item">
-              <div class="row between"><strong>${esc(r.request_no)}</strong>${statusBadge(r.status)}</div>
-              <div class="small muted">${money(r.amount_requested)} solicitado · ${money(r.amount_funded)} fondeado</div>
-              <div class="small muted">${esc(r.notes || "")}</div>
-            </div>`).join("") : `<div class="empty">No hay órdenes de capital.</div>`}
-        </div>
-
-        <div class="card">
           <div class="row between"><h3>Aportes de capital</h3><span class="pill">${realContribs.length}</span></div>
           ${realContribs.length ? realContribs.map(c => `
             <div class="item">
@@ -783,16 +771,6 @@ async function renderCapital() {
       </div>
 
       <div class="stack">
-        <div class="card">
-          <div class="row between"><h3>Activos personales en uso</h3><button class="btn ghost sm" onclick="App.newPartnerAsset()">+ Activo</button></div>
-          ${assets.length ? assets.map(a => `
-            <div class="item">
-              <div class="row between"><strong>${esc(a.asset_name)}</strong><span class="pill">${esc(a.owner_partner)}</span></div>
-              <div class="small muted">${esc(a.purchase_date)} · ${money(a.amount)} · ${esc(a.status || "active")}</div>
-              <div class="small muted">${esc(a.notes || "No afecta utilidad ni capital reembolsable.")}</div>
-            </div>`).join("") : `<div class="empty">Sin activos personales registrados.</div>`}
-        </div>
-
         <div class="card">
           <div class="row between"><h3>Órdenes de dividendos</h3><span class="pill">${dividends.length}</span></div>
           ${dividends.length ? dividends.map(d => `
@@ -938,7 +916,7 @@ async function renderInventory() {
 }
 
 async function renderExpenses() {
-  const showAll = !!state.params.allExpenses;
+  const showAll = !state.params.expMonth;
   const month = state.params.expMonth || new Date().toISOString().slice(0, 7);
   const rows = await api(showAll ? "/expenses" : `/expenses?month=${month}`);
   const total = rows.reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -972,8 +950,8 @@ async function renderExpenses() {
   `;
 }
 
-function applyExpenseMonth() { setView("expenses", { expMonth: val("expMonth"), allExpenses: false }); }
-function toggleAllExpenses() { setView("expenses", { allExpenses: !state.params.allExpenses, expMonth: state.params.expMonth }); }
+function applyExpenseMonth() { setView("expenses", { expMonth: val("expMonth") }); }
+function toggleAllExpenses() { setView("expenses", state.params.expMonth ? {} : { expMonth: new Date().toISOString().slice(0, 7) }); }
 
 async function renderMachine() {
   const rows = await api("/machine-logs");
@@ -1047,6 +1025,8 @@ async function renderConfig() {
           <h3>Catálogos</h3>
           <div class="list">
             ${[
+              ["suppliers","Proveedores", master.suppliers],
+              ["carriers","Paqueterías", master.carriers],
               ["roast_profiles","Perfiles de tueste", master.roastProfiles],
               ["origins","Orígenes", master.origins],
               ["varieties","Variedades", master.varieties],
@@ -1078,6 +1058,12 @@ function filterTable(input, tableId) {
 
 function clientOptions() {
   return (state.master.clients || []).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+}
+function supplierOptions(selected = "") {
+  return `<option value="">— Proveedor —</option>${(state.master.suppliers || []).map(s => `<option value="${esc(s.name)}" ${s.name === selected ? "selected" : ""}>${esc(s.name)}</option>`).join("")}`;
+}
+function carrierOptions(selected = "") {
+  return `<option value="">— Paquetería —</option>${(state.master.carriers || []).map(c => `<option value="${esc(c.name)}" ${c.name === selected ? "selected" : ""}>${esc(c.name)}</option>`).join("")}`;
 }
 function parseListSetting(key, fallback = []) {
   const raw = (state.master.settings || {})[key] || "";
@@ -1274,7 +1260,7 @@ async function addShipment(orderId) {
       <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="shipKg" type="number" step="0.01" value="${pending ? esc(pending) : ""}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Paquetería</label><input class="input" id="shipCarrier" /></div>
+      <div class="field"><label>Paquetería</label><select class="select" id="shipCarrier">${carrierOptions()}</select></div>
       <div class="field"><label>Guía</label><input class="input" id="shipTracking" /></div>
     </div>
     <div class="field"><label>Dirección destino</label><input class="input" id="shipAddress" /></div>
@@ -1317,7 +1303,7 @@ async function editShipment(shipmentId, orderId) {
       <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Dinero Cafetier" ${paidFrom === "Dinero Cafetier" ? "selected" : ""}>Dinero Cafetier</option><option value="Axel" ${paidFrom === "Axel" ? "selected" : ""}>Axel</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="eshipKg" type="number" step="0.01" value="${esc(s.weight_kg || 0)}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="eshipCost" type="number" step="0.01" value="${esc(s.shipping_cost || 0)}" /></div>
-      <div class="field"><label>Paquetería</label><input class="input" id="eshipCarrier" value="${esc(s.carrier || "")}" /></div>
+      <div class="field"><label>Paquetería</label><select class="select" id="eshipCarrier">${carrierOptions(s.carrier || "")}</select></div>
       <div class="field"><label>Guía</label><input class="input" id="eshipTracking" value="${esc(s.tracking_number || "")}" /></div>
     </div>
     <div class="field"><label>Dirección destino</label><input class="input" id="eshipAddress" value="${esc(s.destination_address || "")}" /></div>
@@ -1408,7 +1394,7 @@ function newManualPurchase() {
     <div class="form-grid">
       <div class="field"><label>Descripción</label><input class="input" id="poDesc" /></div>
       <div class="field"><label>Fecha</label><input class="input" id="poDate" type="date" value="${todayStr()}" /></div>
-      <div class="field"><label>Proveedor</label><input class="input" id="poSupplier" /></div>
+      <div class="field"><label>Proveedor</label><select class="select" id="poSupplier">${supplierOptions()}</select></div>
       <div class="field"><label>Kg requeridos</label><input class="input" id="poKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo estimado por kg</label><input class="input" id="poCostKg" type="number" step="0.01" /></div>
       <div class="field"><label>Mercancía estimada total</label><input class="input" id="poCost" type="number" step="0.01" /></div>
@@ -1465,7 +1451,7 @@ async function receivePurchase(poId) {
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="rcvSource">${moneySourceOptions()}</select></div>
       <div class="field"><label>Quién registra</label><select class="select" id="rcvBy">${personOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${todayStr()}" /></div>
-      <div class="field"><label>Proveedor</label><input class="input" id="rcvSupplier" value="${esc(po.supplier || "")}" /></div>
+      <div class="field"><label>Proveedor</label><select class="select" id="rcvSupplier">${supplierOptions(po.supplier || "")}</select></div>
     </div>
     <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Detalles del lote (opcional)</summary>
       <div class="form-grid" style="margin-top:8px">
