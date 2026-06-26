@@ -233,3 +233,8 @@ body{background:radial-gradient(1100px 560px at 72% -12%, #fdfaf3, var(--bg))}
 ::-webkit-scrollbar-thumb{background:#d9d0bd;border-radius:6px}
 ::-webkit-scrollbar-thumb:hover{background:#c9bea6}
 ::-webkit-scrollbar-track{background:transparent}
+
+/* ---- Encabezados de tabla ordenables ---- */
+#content table.table thead th{cursor:pointer;user-select:none}
+#content table.table thead th:hover{color:var(--accent)}
+.sort-ind{font-size:10px;opacity:.7;margin-left:3px}
