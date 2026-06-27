@@ -21,7 +21,8 @@ function expenseFunding(b: any) {
   const fromCashbox = isPartnerContribution ? 0 : b.from_cashbox === undefined ? (explicitPartner ? 0 : 1) : boolFlag(b.from_cashbox, 1);
   const fromUtilities = boolFlag(b.from_utilities, 0);
   const paidBy = explicitPartner || b.paid_by || (fromCashbox ? "Dinero Cafetier" : "Itza");
-  const partner = ["Itza", "Axel"].includes(normPartner(paidBy)) ? normPartner(paidBy) : "";
+  // Solo Itza es socia reembolsable. Axel = Cafetier (dinero del negocio, no se reembolsa).
+  const partner = normPartner(paidBy) === "Itza" ? "Itza" : "";
   const paidFromAccount = normAccount(b.paid_from_account || b.account || (fromCashbox ? paidBy : partner || paidBy));
   return { fromCashbox, fromUtilities, paidBy: partner || paidBy, partner: fromCashbox ? "" : partner, paidFromAccount };
 }
@@ -133,7 +134,7 @@ function cashbookRows(start?: string | null, end?: string | null) {
     WHERE cc.description NOT LIKE '%pagado por%' AND cc.description NOT LIKE '%pagada por%'
     UNION ALL
     SELECT 'sales_payment' AS source, sp.id AS source_id, substr(sp.created_at,1,10) AS date, 'Cobro de venta' AS type, 'Venta' AS clase,
-      COALESCE(sp.registered_by,'Sistema') AS person, COALESCE(sp.received_account,'Axel') AS account,
+      COALESCE(sp.registered_by,'Sistema') AS person, COALESCE(sp.received_account,'Dinero Cafetier') AS account,
       'Pago ' || COALESCE(so.order_no, '#' || sp.order_id) || COALESCE(' · ' || sp.notes, '') AS detail,
       sp.amount AS amount, sp.amount AS signed_amount, sp.created_at AS created_at
     FROM sales_payments sp
@@ -269,6 +270,34 @@ api.get("/dashboard", c => {
     roasted: r2(roasted), shipped: r2(shipped), avgLoss: r2(avgLoss),
     profitPerRoastedKg: roasted > 0 ? r2(periodProfit / roasted) : 0,
   };
+  // Totales desde el inicio (no dependen del mes elegido).
+  const kgPurchased = Number(qVal("SELECT COALESCE(SUM(pe.quantity_kg),0) AS v FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='green_coffee'") ?? 0);
+  const kgSold = Number(qVal("SELECT COALESCE(SUM(total_weight_kg),0) AS v FROM sales_orders WHERE status != 'cancelado'") ?? 0);
+  const purchasesMerch = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE ref_type='purchase_entry'") ?? 0);
+  const purchasesGreen = Number(qVal("SELECT COALESCE(SUM(e.amount),0) AS v FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE e.ref_type='purchase_entry' AND ec.name='Café verde'") ?? 0);
+  const purchasesPackaging = r2(purchasesMerch - purchasesGreen); // empaques y consumibles
+  const purchasesShipping = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE ref_type='purchase_entry_ship'") ?? 0);
+  const purchasesTotal = r2(purchasesMerch + purchasesShipping);
+  const expensesAll = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses") ?? 0);
+  const expensesOperating = r2(expensesAll - purchasesTotal); // gastos que no son compras
+  const totals = {
+    salesRevenue: r2(f.revenue),
+    kgPurchased: r2(kgPurchased),
+    kgSold: r2(kgSold),
+    purchasesTotal,
+    purchasesGreen: r2(purchasesGreen),
+    purchasesPackaging,
+    purchasesShipping: r2(purchasesShipping),
+    expensesOperating,
+    expensesAll: r2(expensesAll),
+  };
+  const itzaCap = partnerCapital().find((p: any) => p.name === "Itza") || {};
+  const itza = {
+    contributed: r2(Number((itzaCap as any).contributed || 0)),
+    returned: r2(Number((itzaCap as any).recovered || 0)),
+    pending: r2(Number((itzaCap as any).unrecovered || 0)),
+    cafetierToItza: r2(Number(position.settlement.cafetierToItza || 0)),
+  };
   // Per-partner equity: total business cash = (capital owed back to each) + (50/50 of the rest).
   const pcaps = partnerCapital();
   const totalUnrecovered = r2(pcaps.reduce((s: number, p: any) => s + Number(p.unrecovered || 0), 0));
@@ -287,6 +316,9 @@ api.get("/dashboard", c => {
   return c.json(ok({
     month,
     period,
+    totals,
+    itza,
+    settlement: position.settlement,
     finance: f,
     inv,
     inventory: { green: inv.verde, roasted: inv.tostado, packaged: inv.empaquetado, supplies: position.inventory.supplies },
@@ -906,7 +938,7 @@ api.post("/purchase-orders/:id/receive", async c => {
   req(landed > 0, "Costo total inválido");
   const fundingSource = String(b.funding_source || "business_account");
   const partner = normPartner(b.partner_name || b.paid_by || b.paid_from_account || "");
-  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Axel"));
+  const paidFromAccount = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partner : "Dinero Cafetier"));
   // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
 
   const receive = tx(() => {
