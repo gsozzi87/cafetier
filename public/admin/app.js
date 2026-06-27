@@ -1053,7 +1053,9 @@ async function renderInventoryHistory() {
 async function renderExpenses() {
   const showAll = !state.params.expMonth;
   const month = state.params.expMonth || new Date().toISOString().slice(0, 7);
-  const rows = await api(showAll ? "/expenses" : `/expenses?month=${month}`);
+  const all = await api(showAll ? "/expenses" : `/expenses?month=${month}`);
+  // Solo gastos cargados a mano: compras y envíos se ven en el libro de caja.
+  const rows = all.filter(e => !e.auto_generated);
   const total = rows.reduce((s, e) => s + Number(e.amount || 0), 0);
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
@@ -1065,6 +1067,7 @@ async function renderExpenses() {
       </div>
       <span class="pill">${showAll ? "Desde el inicio" : month} · ${rows.length} · ${money(total)}</span>
     </div>
+    <div class="notice ok" style="margin-bottom:12px">Solo gastos cargados a mano. Las compras y los envíos se ven en el <strong>Libro de caja</strong>.</div>
     <div class="card">
       <table class="table">
         <thead><tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th>Fuente</th><th>Monto</th><th></th></tr></thead>
