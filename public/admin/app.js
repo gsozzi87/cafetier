@@ -614,7 +614,7 @@ async function renderPurchases() {
               <td>${esc(po.description)}</td>
               <td>${esc(po.supplier || "—")}</td>
               <td>${statusBadge(po.status)}</td>
-              <td>${kg(po.requested_green_kg)}</td>
+              <td>${numFmt.format(po.requested_green_kg)} ${esc(po.unit || "kg")}</td>
               <td class="money">${money(costoUnit)}</td>
               <td class="money">${money(totalPO)}<div class="tiny muted">${Number(po.actual_cost || 0) > 0 ? "real (con envío)" : "estimado (con envío)"}</div></td>
               <td>${po.paid_from ? esc(po.paid_from) : `<span class="muted">— sin recibir —</span>`}</td>
@@ -668,7 +668,7 @@ async function renderPurchaseDetail(id) {
             <tr>
               <td>${esc((e.created_at || "").slice(0, 10))}</td>
               <td>${esc(e.item_name)}</td>
-              <td>${kg(e.quantity_kg)}</td>
+              <td>${numFmt.format(e.quantity_kg)} ${esc(e.item_unit || "kg")}</td>
               <td class="money">${money(e.unit_cost || 0)}</td>
               <td class="money">${money(e.total_cost)}</td>
               <td class="money">${money(e.shipping_cost || 0)}</td>
@@ -707,6 +707,15 @@ function cashClassBadge(clase) {
   const [bg, fg] = map[clase] || ["#f0f0f0", "#666"];
   return `<span class="badge" style="background:${bg};color:${fg}">${esc(clase || "—")}</span>`;
 }
+// Quita del detalle la palabra de la clase (Compra/Envío/Gasto…), que es redundante con la columna Clase.
+function cashDetail(m) {
+  return String(m.detail || "")
+    .replace(/^Compra\s+/i, "")
+    .replace(/^Env[ií]o\s+compra\s+/i, "")
+    .replace(/^Env[ií]o\s+/i, "")
+    .replace(/^Gasto\s+/i, "")
+    .trim();
+}
 
 async function renderCashbook() {
   const nowDate = new Date();
@@ -740,7 +749,7 @@ async function renderCashbook() {
               <td><strong>${esc(m.date)}</strong></td>
               <td>${cashClassBadge(m.clase)}</td>
               <td>${esc(m.type)}</td>
-              <td>${esc(m.detail || "")}</td>
+              <td>${esc(cashDetail(m))}</td>
               <td>${esc(m.account || "")}</td>
               <td class="money">${m.signed_amount > 0 ? money(m.amount) : ""}</td>
               <td class="money">${m.signed_amount < 0 ? money(m.amount) : ""}</td>
@@ -1177,6 +1186,13 @@ function supplierOptions(selected = "") {
 function carrierOptions(selected = "") {
   return `<option value="">— Paquetería —</option>${(state.master.carriers || []).map(c => `<option value="${esc(c.name)}" ${c.name === selected ? "selected" : ""}>${esc(c.name)}</option>`).join("")}`;
 }
+// Campos editables: podés elegir de la lista o escribir uno nuevo (se agrega solo al catálogo).
+function supplierField(id, selected = "") {
+  return `<input class="input" id="${id}" list="${id}_dl" value="${esc(selected)}" placeholder="Elegí o escribí uno nuevo" autocomplete="off" /><datalist id="${id}_dl">${(state.master.suppliers || []).map(s => `<option value="${esc(s.name)}"></option>`).join("")}</datalist>`;
+}
+function carrierField(id, selected = "") {
+  return `<input class="input" id="${id}" list="${id}_dl" value="${esc(selected)}" placeholder="Elegí o escribí una nueva" autocomplete="off" /><datalist id="${id}_dl">${(state.master.carriers || []).map(c => `<option value="${esc(c.name)}"></option>`).join("")}</datalist>`;
+}
 // Packaging picker: lets you tag which catalog supplies (boxes/bags/etc) a shipment consumed.
 function packagingCatalogItems() {
   return (state.master.inventoryCatalog || []).filter(it => it.item_type === "supply");
@@ -1456,7 +1472,7 @@ async function addShipment(orderId) {
       <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="shipKg" type="number" step="0.01" value="${pending ? esc(pending) : ""}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Paquetería</label><select class="select" id="shipCarrier">${carrierOptions()}</select></div>
+      <div class="field"><label>Paquetería</label>${carrierField("shipCarrier")}</div>
       <div class="field"><label>Guía</label><input class="input" id="shipTracking" /></div>
     </div>
     <div class="field"><label>Dirección destino</label><input class="input" id="shipAddress" /></div>
@@ -1484,6 +1500,7 @@ async function addShipment(orderId) {
         },
       });
       modal.remove();
+      await refreshMaster(true);
       toast("Envío registrado.", "ok");
       openSale(orderId);
     }
@@ -1501,7 +1518,7 @@ async function editShipment(shipmentId, orderId) {
       <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Dinero Cafetier" ${paidFrom === "Dinero Cafetier" ? "selected" : ""}>Dinero Cafetier</option><option value="Axel" ${paidFrom === "Axel" ? "selected" : ""}>Axel</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="eshipKg" type="number" step="0.01" value="${esc(s.weight_kg || 0)}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="eshipCost" type="number" step="0.01" value="${esc(s.shipping_cost || 0)}" /></div>
-      <div class="field"><label>Paquetería</label><select class="select" id="eshipCarrier">${carrierOptions(s.carrier || "")}</select></div>
+      <div class="field"><label>Paquetería</label>${carrierField("eshipCarrier", s.carrier || "")}</div>
       <div class="field"><label>Guía</label><input class="input" id="eshipTracking" value="${esc(s.tracking_number || "")}" /></div>
     </div>
     <div class="field"><label>Dirección destino</label><input class="input" id="eshipAddress" value="${esc(s.destination_address || "")}" /></div>
@@ -1595,7 +1612,7 @@ function newManualPurchase() {
     <div class="form-grid">
       <div class="field"><label>Ítem a comprar</label><select class="select" id="poDesc">${catalogItemOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="poDate" type="date" value="${todayStr()}" /></div>
-      <div class="field"><label>Proveedor</label><select class="select" id="poSupplier">${supplierOptions()}</select></div>
+      <div class="field"><label>Proveedor</label>${supplierField("poSupplier")}</div>
       <div class="field"><label>Cantidad</label><input class="input" id="poKg" type="number" step="0.01" /></div>
       <div class="field"><label>Costo unitario estimado</label><input class="input" id="poCostKg" type="number" step="0.01" /></div>
       <div class="field"><label>Mercancía estimada total</label><input class="input" id="poCost" type="number" step="0.01" /></div>
@@ -1622,6 +1639,7 @@ function newManualPurchase() {
         },
       });
       modal.remove();
+      await refreshMaster(true);
       toast("OC creada. Si no alcanza caja, quedó en espera de capital.", "ok");
       setView("purchases");
     }
@@ -1653,7 +1671,7 @@ async function receivePurchase(poId) {
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="rcvSource">${moneySourceOptions()}</select></div>
       <div class="field"><label>Quién registra</label><select class="select" id="rcvBy">${personOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${todayStr()}" /></div>
-      <div class="field"><label>Proveedor</label><select class="select" id="rcvSupplier">${supplierOptions(po.supplier || "")}</select></div>
+      <div class="field"><label>Proveedor</label>${supplierField("rcvSupplier", po.supplier || "")}</div>
     </div>
     <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Detalles del café (opcional)</summary>
       <div class="form-grid" style="margin-top:8px">
@@ -1685,6 +1703,7 @@ async function receivePurchase(poId) {
         },
       });
       modal.remove();
+      await refreshMaster(true);
       toast("Compra ejecutada.", "ok");
       openPurchase(poId);
     }
@@ -1710,7 +1729,7 @@ async function editPurchase(id) {
     <div class="form-grid">
       <div class="field"><label>Ítem a comprar</label><select class="select" id="epDesc">${descOptions}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="epDate" type="date" value="${esc((po.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Proveedor</label><select class="select" id="epSupplier">${supplierOptions(po.supplier || "")}</select></div>
+      <div class="field"><label>Proveedor</label>${supplierField("epSupplier", po.supplier || "")}</div>
       <div class="field"><label>Cantidad</label><input class="input" id="epKg" type="number" step="0.01" value="${esc(po.requested_green_kg || 0)}" /></div>
       <div class="field"><label>Mercancía estimada total</label><input class="input" id="epCost" type="number" step="0.01" value="${esc(po.estimated_cost || 0)}" /></div>
       <div class="field"><label>Envío estimado compra</label><input class="input" id="epShip" type="number" step="0.01" value="${esc(po.estimated_shipping_cost || 0)}" /></div>
@@ -1762,7 +1781,7 @@ async function editPurchaseEntry(entryId, poId) {
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="peSource">${moneySourceOptions(source)}</select></div>
       <div class="field"><label>Quién registra</label><select class="select" id="peBy">${personOptions()}</select></div>
       <div class="field"><label>Fecha</label><input class="input" id="peDate" type="date" value="${esc((e.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Proveedor</label><select class="select" id="peSupplier">${supplierOptions(e.supplier || "")}</select></div>
+      <div class="field"><label>Proveedor</label>${supplierField("peSupplier", e.supplier || "")}</div>
     </div>
   `, [{
     label: "Guardar cambios",
@@ -2231,7 +2250,7 @@ function newInventoryCatalogItem() {
       <div class="field"><label>Nombre</label><input class="input" id="icName" placeholder="Ej: Caja chica, Bolsa kraft 250g" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="icCategory">${inventoryCategoryOptions("Empaque")}</select></div>
       <div class="field"><label>Unidad</label><input class="input" id="icUnit" value="pz" /></div>
-      <div class="field"><label>Proveedor</label><select class="select" id="icSupplier">${supplierOptions()}</select></div>
+      <div class="field"><label>Proveedor</label>${supplierField("icSupplier")}</div>
       <div class="field"><label>Stock mínimo</label><input class="input" id="icMin" type="number" step="0.01" value="0" /></div>
     </div>
   `, [{
@@ -2252,7 +2271,7 @@ async function editInventoryCatalogItem(id) {
       <div class="field"><label>Nombre</label><input class="input" id="icName" value="${esc(it.name)}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="icCategory">${inventoryCategoryOptions(it.category || "")}</select></div>
       <div class="field"><label>Unidad</label><input class="input" id="icUnit" value="${esc(it.unit || "pz")}" /></div>
-      <div class="field"><label>Proveedor</label><select class="select" id="icSupplier">${supplierOptions(it.supplier || "")}</select></div>
+      <div class="field"><label>Proveedor</label>${supplierField("icSupplier", it.supplier || "")}</div>
       <div class="field"><label>Stock mínimo</label><input class="input" id="icMin" type="number" step="0.01" value="${esc(it.min_stock || 0)}" /></div>
     </div>
   `, [{
