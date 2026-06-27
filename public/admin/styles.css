@@ -195,6 +195,9 @@ body{background:radial-gradient(1100px 560px at 72% -12%, #fdfaf3, var(--bg))}
 .table td{vertical-align:middle}
 .table tbody tr:nth-child(even) td{background:#fcfbf7}
 .table tr:hover td{background:#f6efdd}
+.table tfoot .total-row td{font-weight:800;background:#f1ead7;border-top:2px solid var(--accent);font-size:11.5px;text-transform:uppercase;letter-spacing:.5px}
+.table tfoot .total-row td.money{font-size:12.5px}
+.table tfoot .total-row:hover td{background:#f1ead7}
 
 /* ---- Buttons ---- */
 .btn{border-radius:11px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.05)}

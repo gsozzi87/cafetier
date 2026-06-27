@@ -70,6 +70,8 @@ function purchaseOrderView(row: any) {
     capital_missing: row.status === "sin_fondos" ? r2(missing) : 0,
     paid_from: qVal<string>("SELECT GROUP_CONCAT(DISTINCT paid_from_account) AS v FROM purchase_entries WHERE purchase_order_id=? AND paid_from_account IS NOT NULL AND paid_from_account<>''", row.id) || "",
     unit: qVal<string>("SELECT unit FROM inventory_catalog WHERE name=? AND active=1", row.description) || "kg",
+    item_type: (qVal<string>("SELECT item_type FROM inventory_catalog WHERE name=? AND active=1", row.description) || (/caf[eé]\s+verde/i.test(String(row.description || "")) ? "green_coffee" : "")),
+    category: qVal<string>("SELECT category FROM inventory_catalog WHERE name=? AND active=1", row.description) || "",
   };
 }
 // Maps a catalog item to a sensible expense category when receiving a non-coffee purchase.
@@ -706,6 +708,27 @@ api.post("/sales-orders", async c => {
       // No bloqueamos la venta de mostrador por falta de stock: si no alcanza, el café tostado
       // queda en negativo y se acomoda después con la carga de inventario (allowNegative).
       if (ri && totalKg > 0) invMove(ri.id, "out", totalKg, `Venta ${orderNo}`, b.registered_by||"Sistema", true);
+    }
+
+    // Mostrador: empaques usados + envío opcional (igual que mayoreo). El café ya se descontó arriba,
+    // así que el envío va con peso 0: solo descuenta cajas/bolsas y registra el costo de envío.
+    if (type === "mostrador") {
+      const pkg = Array.isArray(b.packaging) ? b.packaging : [];
+      const shipCost = r2(num(b.shipping_cost));
+      if (pkg.length || shipCost > 0 || b.carrier) {
+        ensureCarrier(b.carrier);
+        const fundingSource = String(b.funding_source || "business_account");
+        const partnerS = normPartner(b.partner_name || (fundingSource === "partner_contribution" ? b.paid_from_account : ""));
+        const paidFromAccountS = normAccount(b.paid_from_account || (fundingSource === "partner_contribution" ? partnerS : "Dinero Cafetier"));
+        const fromCashboxS = fundingSource === "partner_contribution" ? 0 : 1;
+        let expId: number | null = null;
+        if (shipCost > 0) {
+          expId = autoExpense("Envíos", shipCost, `Envío venta ${orderNo}`, b.registered_by || "Sistema", "shipment", orderId, fromCashboxS, 0, paidFromAccountS, today());
+          if (fundingSource === "partner_contribution" && partnerS && expId) registerDirectFunding(partnerS, shipCost, today(), `Gasto pagado por ${partnerS}: Envío venta ${orderNo}`, partnerS, null, "expense", expId);
+        }
+        const shipRes = qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,0,?,?,?,?,?,?,?,?,?,?)", orderId, b.destination_address || null, b.carrier || null, b.tracking_number || null, shipCost, b.registered_by || "Sistema", null, expId, fundingSource, paidFromAccountS, now());
+        applyShipmentPackaging(Number(shipRes.lastInsertRowid), orderId, pkg, b.registered_by || "Sistema", now());
+      }
     }
 
     // Wholesale: check green stock

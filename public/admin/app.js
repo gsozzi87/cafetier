@@ -217,90 +217,48 @@ async function render() {
 }
 
 async function renderDashboard() {
-  const dm = state.params.dashMonth || null;
-  const d = await api(`/dashboard${dm ? "?month=" + encodeURIComponent(dm) : ""}`);
-  const per = d.period || { isAllTime: true, rev: 0, exp: 0, profit: 0, roasted: 0, shipped: 0, avgLoss: 0, profitPerRoastedKg: 0 };
+  // Top siempre histórico; el mes solo afecta el panel "Por mes".
+  const dm = state.params.dashMonth || todayStr().slice(0, 7);
+  const d = await api(`/dashboard?month=${encodeURIComponent(dm)}`);
+  const per = d.period || { rev: 0, exp: 0, profit: 0, month: dm };
   const t = d.totals || { salesRevenue: 0, kgPurchased: 0, kgSold: 0, purchasesTotal: 0, purchasesGreen: 0, purchasesPackaging: 0, purchasesShipping: 0, expensesOperating: 0 };
   const it = d.itza || { contributed: 0, returned: 0, pending: 0, cafetierToItza: 0 };
-  const plabel = per.isAllTime ? "(total)" : "· " + per.month;
+  const resultado = Number(t.salesRevenue || 0) - Number(t.purchasesTotal || 0) - Number(t.expensesOperating || 0);
   document.getElementById("content").innerHTML = `
-    <div class="row between" style="margin-bottom:12px">
-      <div class="row wrap">
-        <button class="btn ${per.isAllTime ? "primary" : "ghost"} sm" onclick="App.dashAll()">Total (desde el inicio)</button>
-        <div class="field inline-field"><label>Mes</label><input class="input" id="dashMonth" type="month" value="${esc(dm || todayStr().slice(0, 7))}" /></div>
-        <button class="btn ${per.isAllTime ? "ghost" : "primary"} sm" onclick="App.applyDashMonth()">Ver mes</button>
-      </div>
-      <span class="pill">${per.isAllTime ? "Totales desde el inicio" : "Mes " + per.month}</span>
-    </div>
-
     <div class="grid cards">
-      <div class="card metric"><div class="label">Ingresos ${plabel}</div><div class="value money">${money(per.rev)}</div><small>Ventas cobradas</small></div>
-      <div class="card metric"><div class="label">Gastos ${plabel}</div><div class="value money">${money(per.exp)}</div><small>Incluye compras y costos</small></div>
-      <div class="card metric"><div class="label">Resultado ${plabel}</div><div class="value money">${money(per.profit)}</div><small>Ingresos - gastos</small></div>
-      <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(d.finance.availableCash)}</div><small>Dinero Cafetier + Itza</small></div>
-      <div class="card metric accent"><div class="label">Dinero Cafetier</div><div class="value money">${money(d.cafetierBalance)}</div><small>Saldo en la cuenta del negocio</small></div>
-      <div class="card metric"><div class="label">Utilidad repartible</div><div class="value money">${money(d.equityPool)}</div><small>${d.totalUnrecovered > 0 ? "Después de devolver aportes" : "Lista para repartir"}</small></div>
-      <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(d.receivables || 0)}</div><small>Ventas pendientes de pago</small></div>
-      <div class="card metric"><div class="label">Utilidad/kg tostado ${plabel}</div><div class="value money">${money(per.profitPerRoastedKg)}</div><small>${kg(per.roasted)} tostados</small></div>
-    </div>
-
-    <div class="row between" style="margin:18px 0 8px"><h3 style="margin:0">Totales desde el inicio</h3><span class="pill">Histórico</span></div>
-    <div class="grid cards">
-      <div class="card metric accent"><div class="label">Entró por ventas</div><div class="value money">${money(t.salesRevenue)}</div><small>Todo lo cobrado por ventas</small></div>
-      <div class="card metric"><div class="label">Café comprado</div><div class="value">${kg(t.kgPurchased)}</div><small>Café verde recibido</small></div>
-      <div class="card metric"><div class="label">Café vendido</div><div class="value">${kg(t.kgSold)}</div><small>Kg en pedidos de venta</small></div>
-      <div class="card metric"><div class="label">Usado en compras</div><div class="value money">${money(t.purchasesTotal)}</div><small>Verde ${money(t.purchasesGreen)} · empaques/insumos ${money(t.purchasesPackaging)}${t.purchasesShipping ? " · envío " + money(t.purchasesShipping) : ""}</small></div>
-      <div class="card metric"><div class="label">Gastos operativos</div><div class="value money">${money(t.expensesOperating)}</div><small>Gastos que no son compras</small></div>
+      <div class="card metric accent"><div class="label">Caja Cafetier</div><div class="value money">${money(d.cafetierBalance)}</div><small>Dinero disponible del negocio</small></div>
+      <div class="card metric"><div class="label">Entró por ventas</div><div class="value money">${money(t.salesRevenue)}</div><small>Total cobrado, desde el inicio</small></div>
+      <div class="card metric"><div class="label">Salió en compras</div><div class="value money">${money(t.purchasesTotal)}</div><small>Café + empaques + envío</small></div>
+      <div class="card metric"><div class="label">Gastos</div><div class="value money">${money(t.expensesOperating)}</div><small>Gastos operativos (no compras)</small></div>
+      <div class="card metric"><div class="label">Resultado</div><div class="value money">${money(resultado)}</div><small>Ventas − compras − gastos</small></div>
     </div>
 
     <div class="grid cards" style="margin-top:10px">
-      <div class="card metric"><div class="label">Café verde comprado</div><div class="value money">${money(t.purchasesGreen)}</div><small>Solo café verde</small></div>
-      <div class="card metric"><div class="label">Empaques e insumos</div><div class="value money">${money(t.purchasesPackaging)}</div><small>Cajas, bolsas, etiquetas, consumibles</small></div>
-      ${t.purchasesShipping ? `<div class="card metric"><div class="label">Envío de compras</div><div class="value money">${money(t.purchasesShipping)}</div><small>Flete de las compras</small></div>` : ""}
+      <div class="card metric"><div class="label">Café comprado</div><div class="value">${kg(t.kgPurchased)}</div><small>Café verde recibido</small></div>
+      <div class="card metric"><div class="label">Café vendido</div><div class="value">${kg(t.kgSold)}</div><small>Kg en pedidos de venta</small></div>
+      <div class="card metric"><div class="label">Inventario verde</div><div class="value">${kg(d.inventory.green)}</div><small>En stock</small></div>
+      <div class="card metric"><div class="label">Inventario tostado</div><div class="value">${kg(d.inventory.roasted)}</div><small>En stock</small></div>
+      <div class="card metric"><div class="label">Inventario empaquetado</div><div class="value">${kg(d.inventory.packaged)}</div><small>En stock</small></div>
     </div>
 
-    <div class="split" style="margin-top:12px">
+    <div class="split" style="margin-top:14px">
       <div class="stack">
-        <div class="card">
-          <h3>Operación</h3>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Pedidos abiertos</div><div class="value number">${d.openSales}</div></div>
-            <div><div class="muted tiny">OC pendientes</div><div class="value number">${d.pendingPurchaseOrders}</div></div>
-            <div><div class="muted tiny">Órdenes de capital</div><div class="value number">${d.openCapitalRequests}</div></div>
-          </div>
-          <div class="hr"></div>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Tostado ${plabel}</div><div class="value">${kg(per.roasted)}</div></div>
-            <div><div class="muted tiny">Enviado ${plabel}</div><div class="value">${kg(per.shipped)}</div></div>
-            <div><div class="muted tiny">Merma promedio</div><div class="value">${pct(per.avgLoss)}</div></div>
-          </div>
-        </div>
-
         <div class="card">
           <div class="row between"><h3>Itza (socia)</h3><button class="btn ghost sm" onclick="App.setView('capital')">Capital</button></div>
           <div class="kpi-strip">
-            <div><div class="muted tiny">Puso (aportó)</div><div class="value money">${money(it.contributed)}</div></div>
+            <div><div class="muted tiny">Puso</div><div class="value money">${money(it.contributed)}</div></div>
             <div><div class="muted tiny">Se le devolvió</div><div class="value money">${money(it.returned)}</div></div>
             <div><div class="muted tiny">Falta pasarle</div><div class="value money">${money(it.pending)}</div></div>
           </div>
-          <div class="tiny muted" style="margin-top:6px">${it.pending > 0 ? `Falta pasarle ${money(it.pending)} de Dinero Cafetier${it.cafetierToItza < it.pending ? ` (hoy la caja alcanza para ${money(it.cafetierToItza)})` : " (la caja alcanza)"}.` : "El capital de Itza está totalmente devuelto."}</div>
+          <div class="tiny muted" style="margin-top:6px">${it.pending > 0 ? `Falta pasarle ${money(it.pending)} desde la caja${it.cafetierToItza < it.pending ? ` (hoy alcanza para ${money(it.cafetierToItza)})` : " (la caja alcanza)"}.` : "El capital de Itza está totalmente devuelto."}</div>
         </div>
 
         <div class="card">
-          <div class="row between"><h3>Dinero por cuenta</h3><button class="btn ghost sm" onclick="App.setView('cashbook')">Libro de caja</button></div>
+          <h3>En qué se gastó en compras</h3>
           <div class="kpi-strip">
-            <div><div class="muted tiny">Dinero Cafetier</div><div class="value money">${money(d.accounts?.["Dinero Cafetier"] || 0)}</div></div>
-            <div><div class="muted tiny">En cuenta de Itza</div><div class="value money">${money(d.accounts?.Itza || 0)}</div></div>
-          </div>
-          <div class="tiny muted" style="margin-top:6px">Si la cuenta de Itza queda en negativo, el negocio le debe ese dinero.</div>
-        </div>
-
-        <div class="card">
-          <div class="row between"><h3>Inventario</h3><button class="btn ghost sm" onclick="App.setView('inventory')">Ver inventario</button></div>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Verde</div><div class="value">${kg(d.inventory.green)}</div></div>
-            <div><div class="muted tiny">Tostado</div><div class="value">${kg(d.inventory.roasted)}</div></div>
-            <div><div class="muted tiny">Empaquetado</div><div class="value">${kg(d.inventory.packaged)}</div></div>
+            <div><div class="muted tiny">Café verde</div><div class="value money">${money(t.purchasesGreen)}</div></div>
+            <div><div class="muted tiny">Empaques e insumos</div><div class="value money">${money(t.purchasesPackaging)}</div></div>
+            ${t.purchasesShipping ? `<div><div class="muted tiny">Envío de compras</div><div class="value money">${money(t.purchasesShipping)}</div></div>` : ""}
           </div>
         </div>
 
@@ -324,35 +282,37 @@ async function renderDashboard() {
 
       <div class="stack">
         <div class="card">
-          <div class="row between"><h3>Capital &amp; dividendos (total)</h3><button class="btn ghost sm" onclick="App.setView('capital')">Abrir módulo</button></div>
-          <div class="list">
-            <div class="item">
-              <div class="row between"><strong>Aportes totales</strong><span class="money">${money(d.finance.totalContributed)}</span></div>
-              <div class="row between small"><span class="muted">Capital recuperado</span><span class="money">${money(d.finance.capitalRecovered)}</span></div>
-              <div class="row between small"><span class="muted">Capital pendiente de devolver</span><span class="money">${money(d.finance.unrecoveredCapital)}</span></div>
-              <div class="row between small"><span class="muted">Utilidad repartible total</span><span class="money">${money(d.equityPool)}</span></div>
+          <div class="row between">
+            <h3>Por mes</h3>
+            <div class="row wrap" style="gap:6px">
+              <input class="input" id="dashMonth" type="month" value="${esc(dm)}" style="max-width:150px" onchange="App.applyDashMonth()" />
             </div>
-            ${(d.partnersEquity || []).map(p => `
-              <div class="item">
-                <div class="row between"><strong>${esc(p.name)} · ${p.share_pct}%</strong><span class="money">${money(p.belongs)}</span></div>
-                <div class="small muted">Aportó ${money(p.contributed)} · le falta cobrar ${money(p.unrecovered)} · dividendos ${money(p.dividend_share)}</div>
-                <div class="tiny muted">Le pertenece = aporte pendiente + su parte de la utilidad (lo haya sacado o no).</div>
-              </div>`).join("")}
+          </div>
+          <div class="kpi-strip">
+            <div><div class="muted tiny">Entró (${esc(per.month || dm)})</div><div class="value money">${money(per.rev)}</div></div>
+            <div><div class="muted tiny">Salió</div><div class="value money">${money(per.exp)}</div></div>
+            <div><div class="muted tiny">Resultado</div><div class="value money">${money(per.profit)}</div></div>
+          </div>
+          <div class="hr"></div>
+          <div class="kpi-strip">
+            <div><div class="muted tiny">Pedidos abiertos</div><div class="value number">${d.openSales}</div></div>
+            <div><div class="muted tiny">Compras pendientes</div><div class="value number">${d.pendingPurchaseOrders}</div></div>
+            <div><div class="muted tiny">Por cobrar</div><div class="value money">${money(d.receivables || 0)}</div></div>
           </div>
         </div>
 
         <div class="card">
-          <div class="row between"><h3>Últimas órdenes de compra</h3><button class="btn ghost sm" onclick="App.setView('purchases')">Ver compras</button></div>
+          <div class="row between"><h3>Últimas compras</h3><button class="btn ghost sm" onclick="App.setView('purchases')">Ver compras</button></div>
           ${d.lastPurchaseOrders.length ? `
           <table class="table">
-            <thead><tr><th>OC</th><th>Estado</th><th>Kg</th><th>Costo</th></tr></thead>
+            <thead><tr><th>OC</th><th>Descripción</th><th>Estado</th><th>Costo</th></tr></thead>
             <tbody>
               ${d.lastPurchaseOrders.map(row => `
                 <tr onclick="App.openPurchase(${row.id})" style="cursor:pointer">
                   <td>${esc(row.po_no)}</td>
+                  <td>${esc(row.description || "")}</td>
                   <td>${statusBadge(row.status)}</td>
-                  <td>${kg(row.requested_green_kg)}</td>
-                  <td>${money(row.actual_cost || row.estimated_cost)}</td>
+                  <td class="money">${money(row.actual_cost || row.estimated_cost)}</td>
                 </tr>`).join("")}
             </tbody>
           </table>` : `<div class="empty">Sin órdenes de compra</div>`}
@@ -371,44 +331,52 @@ function salesTotals(order) {
   return { paid, shipped, pending: Math.max(0, Number(order.total_amount || 0) - paid) };
 }
 
+function salesTableCard(title, rows, id, isMay) {
+  const tot = rows.reduce((a, o) => {
+    const t = salesTotals(o);
+    a.kg += Number(o.total_weight_kg || 0); a.amount += Number(o.total_amount || 0); a.paid += t.paid; return a;
+  }, { kg: 0, amount: 0, paid: 0 });
+  const cols = isMay ? 9 : 8;
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div class="row between"><h3>${title}</h3><span class="pill">${rows.length} ${rows.length === 1 ? "venta" : "ventas"}</span></div>
+      <table class="table" id="${id}">
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Cliente</th><th>Estado</th><th>Kg</th>${isMay ? "<th>Precio/kg</th>" : ""}<th>Total</th><th>Pagado</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map(order => { const t = salesTotals(order); return `
+            <tr>
+              <td>${esc((order.created_at || "").slice(0, 10))}${order.delivery_date ? `<div class="tiny muted">entrega ${esc(order.delivery_date)}</div>` : ""}</td>
+              <td><strong>${esc(order.order_no)}</strong></td>
+              <td>${esc(order.client_name || "Mostrador")}</td>
+              <td>${statusBadge(order.status)}</td>
+              <td>${kg(order.total_weight_kg)}</td>
+              ${isMay ? `<td class="money">${money(order.price_per_kg)}</td>` : ""}
+              <td class="money">${money(order.total_amount)}</td>
+              <td class="money">${money(t.paid)}</td>
+              <td><div class="line-actions">${editIcon(`App.editSale(${order.id})`)}${delIcon(`App.deleteSale(${order.id})`)}<button class="btn ghost sm" onclick="App.openSale(${order.id})">Abrir</button></div></td>
+            </tr>`; }).join("")}
+        </tbody>
+        ${rows.length ? `<tfoot><tr class="total-row"><td colspan="4">Total</td><td>${kg(tot.kg)}</td>${isMay ? "<td></td>" : ""}<td class="money">${money(tot.amount)}</td><td class="money">${money(tot.paid)}</td><td></td></tr></tfoot>` : ""}
+      </table>
+      ${rows.length ? "" : `<div class="empty">Sin ventas de este tipo.</div>`}
+    </div>`;
+}
+
 async function renderSales() {
   const rows = await api("/sales-orders");
+  const mayoreo = rows.filter(o => o.order_type === "mayoreo");
+  const mostrador = rows.filter(o => o.order_type !== "mayoreo");
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
         <button class="btn primary" onclick="App.newRetailSale()">Nueva venta mostrador</button>
         <button class="btn secondary" onclick="App.newWholesaleSale()">Nuevo pedido mayoreo</button>
       </div>
-      <input class="search" style="max-width:280px" placeholder="Buscar pedido o cliente" oninput="App.filterTable(this,'salesTable')" />
+      <input class="search" style="max-width:280px" placeholder="Buscar pedido o cliente" oninput="App.filterTable(this,'salesWrap')" />
     </div>
-
-    <div class="card">
-      <table class="table" id="salesTable">
-        <thead>
-          <tr><th>Fecha</th><th>Folio</th><th>Tipo</th><th>Cliente / Proveedor</th><th>Estado</th><th>Kg</th><th>Precio/kg</th><th>Total</th><th>Pagado</th><th>Enviado</th><th></th></tr>
-        </thead>
-        <tbody>
-          ${rows.map(order => {
-            const t = salesTotals(order);
-            return `
-              <tr>
-                <td>${esc((order.created_at || "").slice(0, 10))}${order.delivery_date ? `<div class="tiny muted">entrega ${esc(order.delivery_date)}</div>` : ""}</td>
-                <td><strong>${esc(order.order_no)}</strong></td>
-                <td>${esc(order.order_type)}</td>
-                <td>${esc(order.client_name || "Mostrador")}</td>
-                <td>${statusBadge(order.status)}</td>
-                <td>${kg(order.total_weight_kg)}</td>
-                <td class="money">${money(order.price_per_kg)}</td>
-                <td class="money">${money(order.total_amount)}</td>
-                <td class="money">${money(t.paid)}</td>
-                <td>${kg(t.shipped)}</td>
-                <td><div class="line-actions">${editIcon(`App.editSale(${order.id})`)}${delIcon(`App.deleteSale(${order.id})`)}<button class="btn ghost sm" onclick="App.openSale(${order.id})">Abrir</button></div></td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-      ${rows.length ? "" : `<div class="empty">Todavía no hay ventas registradas.</div>`}
+    <div id="salesWrap">
+      ${salesTableCard("Venta mayorista", mayoreo, "salesTableMay", true)}
+      ${salesTableCard("Venta minorista (mostrador)", mostrador, "salesTableMos", false)}
     </div>
   `;
 }
@@ -558,8 +526,8 @@ async function renderSalesDetail(id) {
         <div class="card">
           <h3>Productos</h3>
           ${items.length ? `<table class="table"><thead><tr><th>Descripción</th><th>Cantidad</th><th>Peso unidad</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>
-            ${items.map(it => `<tr><td>${esc(it.description)}</td><td>${numFmt.format(it.quantity)}</td><td>${kg(it.unit_weight_kg)}</td><td>${money(it.unit_price)}</td><td>${money(it.subtotal)}</td></tr>`).join("")}
-          </tbody></table>` : `<div class="empty">Sin productos cargados.</div>`}
+            ${items.map(it => `<tr><td>${esc(it.description)}</td><td>${numFmt.format(it.quantity)}</td><td>${kg(it.unit_weight_kg)}</td><td>${money(it.unit_price)}</td><td class="money">${money(it.subtotal)}</td></tr>`).join("")}
+          </tbody><tfoot><tr class="total-row"><td colspan="4">Total</td><td class="money">${money(items.reduce((s, it) => s + Number(it.subtotal || 0), 0))}</td></tr></tfoot></table>` : `<div class="empty">Sin productos cargados.</div>`}
         </div>`}
 
         <div class="card">
@@ -613,44 +581,56 @@ async function renderSalesDetail(id) {
   `;
 }
 
+function purchasesTableCard(title, rows, id) {
+  let totMonto = 0;
+  const body = rows.map(po => {
+    const recibido = Number(po.received_green_kg || 0) > 0;
+    const totalPO = Number(po.actual_cost || 0) > 0 ? Number(po.actual_cost || 0) : (Number(po.estimated_cost || 0) + Number(po.estimated_shipping_cost || 0));
+    const cantRef = recibido ? Number(po.received_green_kg) : Number(po.requested_green_kg || 0);
+    const merca = Number(po.actual_cost || 0) > 0 ? (Number(po.actual_cost) - Number(po.actual_shipping_cost || 0)) : Number(po.estimated_cost || 0);
+    const costoUnit = cantRef > 0 ? merca / cantRef : 0;
+    totMonto += totalPO;
+    return `
+      <tr>
+        <td>${esc((po.created_at || "").slice(0, 10))}</td>
+        <td><strong>${esc(po.po_no)}</strong></td>
+        <td>${esc(po.description)}</td>
+        <td>${esc(po.supplier || "—")}</td>
+        <td>${statusBadge(po.status)}</td>
+        <td>${numFmt.format(po.requested_green_kg)} ${esc(po.unit || "kg")}</td>
+        <td class="money">${money(costoUnit)}</td>
+        <td class="money">${money(totalPO)}<div class="tiny muted">${Number(po.actual_cost || 0) > 0 ? "real (con envío)" : "estimado (con envío)"}</div></td>
+        <td>${po.paid_from ? esc(po.paid_from) : `<span class="muted">— sin recibir —</span>`}</td>
+        <td><div class="line-actions">${["cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
+      </tr>`;
+  }).join("");
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div class="row between"><h3>${title}</h3><span class="pill">${rows.length} ${rows.length === 1 ? "orden" : "órdenes"}</span></div>
+      <table class="table" id="${id}">
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Cantidad</th><th>Costo unit.</th><th>Monto total</th><th>Origen del dinero</th><th></th></tr></thead>
+        <tbody>${body}</tbody>
+        ${rows.length ? `<tfoot><tr class="total-row"><td colspan="7">Total</td><td class="money">${money(totMonto)}</td><td></td><td></td></tr></tfoot>` : ""}
+      </table>
+      ${rows.length ? "" : `<div class="empty">Sin órdenes en esta categoría.</div>`}
+    </div>`;
+}
+
 async function renderPurchases() {
   const rows = await api("/purchase-orders");
+  const verde = rows.filter(po => po.item_type === "green_coffee");
+  const otras = rows.filter(po => po.item_type !== "green_coffee");
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
       <div class="row wrap">
         <button class="btn primary" onclick="App.newManualPurchase()">Nueva orden de compra</button>
         <button class="btn secondary" onclick="App.setView('capital')">Ver capital</button>
       </div>
-      <input class="search" style="max-width:280px" placeholder="Buscar OC o descripción" oninput="App.filterTable(this,'poTable')" />
+      <input class="search" style="max-width:280px" placeholder="Buscar OC o descripción" oninput="App.filterTable(this,'poWrap')" />
     </div>
-
-    <div class="card">
-      <table class="table" id="poTable">
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Cantidad</th><th>Costo unit.</th><th>Monto total</th><th>Origen del dinero</th><th></th></tr></thead>
-        <tbody>
-          ${rows.map(po => {
-            const recibido = Number(po.received_green_kg || 0) > 0;
-            const totalPO = Number(po.actual_cost || 0) > 0 ? Number(po.actual_cost || 0) : (Number(po.estimated_cost || 0) + Number(po.estimated_shipping_cost || 0));
-            const cantRef = recibido ? Number(po.received_green_kg) : Number(po.requested_green_kg || 0);
-            const merca = Number(po.actual_cost || 0) > 0 ? (Number(po.actual_cost) - Number(po.actual_shipping_cost || 0)) : Number(po.estimated_cost || 0);
-            const costoUnit = cantRef > 0 ? merca / cantRef : 0;
-            return `
-            <tr>
-              <td>${esc((po.created_at || "").slice(0, 10))}</td>
-              <td><strong>${esc(po.po_no)}</strong></td>
-              <td>${esc(po.description)}</td>
-              <td>${esc(po.supplier || "—")}</td>
-              <td>${statusBadge(po.status)}</td>
-              <td>${numFmt.format(po.requested_green_kg)} ${esc(po.unit || "kg")}</td>
-              <td class="money">${money(costoUnit)}</td>
-              <td class="money">${money(totalPO)}<div class="tiny muted">${Number(po.actual_cost || 0) > 0 ? "real (con envío)" : "estimado (con envío)"}</div></td>
-              <td>${po.paid_from ? esc(po.paid_from) : `<span class="muted">— sin recibir —</span>`}</td>
-              <td><div class="line-actions">${["cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-      ${rows.length ? "" : `<div class="empty">No hay órdenes de compra.</div>`}
+    <div id="poWrap">
+      ${purchasesTableCard("Compras de café verde", verde, "poTableVerde")}
+      ${purchasesTableCard("Compras de empaques e insumos", otras, "poTableOtras")}
     </div>
   `;
 }
@@ -705,6 +685,7 @@ async function renderPurchaseDetail(id) {
               <td><div class="line-actions">${editIcon(`App.editPurchaseEntry(${e.id},${po.id})`)}${delIcon(`App.deletePurchaseEntry(${e.id},${po.id})`)}</div></td>
             </tr>`).join("")}
           </tbody>
+          <tfoot><tr class="total-row"><td colspan="4">Total</td><td class="money">${money(entries.reduce((s, e) => s + Number(e.total_cost || 0), 0))}</td><td class="money">${money(entries.reduce((s, e) => s + Number(e.shipping_cost || 0), 0))}</td><td class="money">${money(entries.reduce((s, e) => s + Number(e.total_cost || 0) + Number(e.shipping_cost || 0), 0))}</td><td colspan="3"></td></tr></tfoot>
         </table>` : `<div class="empty">Aún no hay recepciones.</div>`}
       </div>
 
@@ -783,6 +764,7 @@ async function renderCashbook() {
               <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Editar</button><button class="btn red sm" onclick="App.deleteCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Borrar</button></div></td>
             </tr>`).join("")}
         </tbody>
+        ${data.movements.length ? `<tfoot><tr class="total-row"><td colspan="5">Total · neto ${money(data.net)}</td><td class="money">${money(data.total_in)}</td><td class="money">${money(data.total_out)}</td><td></td></tr></tfoot>` : ""}
       </table>
       ${data.movements.length ? "" : `<div class="empty">No hay movimientos en este rango.</div>`}
     </div>
@@ -958,6 +940,7 @@ async function renderRoasting() {
               <td><div class="line-actions">${editIcon(`App.editRoastingSession(${r.id})`)}${Number(r.batch_count) === 0 ? delIcon(`App.deleteRoastingSession(${r.id})`) : ""}<button class="btn ghost sm" onclick="App.openRoasting(${r.id})">Abrir</button></div></td>
             </tr>`).join("")}
         </tbody>
+        ${rows.length ? `<tfoot><tr class="total-row"><td colspan="2">Total</td><td>${rows.reduce((s, r) => s + Number(r.batch_count || 0), 0)}</td><td>${kg(rows.reduce((s, r) => s + Number(r.total_green || 0), 0))}</td><td>${kg(rows.reduce((s, r) => s + Number(r.total_roasted || 0), 0))}</td><td colspan="2"></td></tr></tfoot>` : ""}
       </table>
       ${rows.length ? "" : `<div class="empty">Sin sesiones de tueste.</div>`}
     </div>
@@ -1143,6 +1126,7 @@ async function renderExpenses() {
               <td><div class="line-actions">${e.auto_generated ? `<span class="pill" title="Generado automáticamente">auto</span>` : editIcon(`App.editExpense(${e.id})`)}${delIcon(`App.deleteExpense(${e.id})`)}</div></td>
             </tr>`).join("")}
         </tbody>
+        ${rows.length ? `<tfoot><tr class="total-row"><td colspan="4">Total</td><td class="money">${money(total)}</td><td></td></tr></tfoot>` : ""}
       </table>
       ${rows.length ? "" : `<div class="empty">${showAll ? "Sin gastos registrados." : "Sin gastos este mes."}</div>`}
     </div>
@@ -1339,6 +1323,14 @@ async function newRetailSale() {
         <tbody>${productQtyRows()}</tbody>
       </table>
     </div>
+    <details style="margin-top:6px"><summary class="small muted" style="cursor:pointer">Envío y empaques (opcional)</summary>
+      <div class="form-grid" style="margin-top:8px">
+        <div class="field"><label>Costo de envío</label><input class="input" id="retShipCost" type="number" step="0.01" value="0" /></div>
+        <div class="field"><label>Paquetería</label>${carrierField("retCarrier")}</div>
+        <div class="field"><label>Quién pagó el envío</label><select class="select" id="retShipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Itza">Itza</option></select></div>
+      </div>
+      ${packagingPicker("retPkgRows", [{}])}
+    </details>
   `, [{
     label: "Guardar venta",
     kind: "primary",
@@ -1360,6 +1352,7 @@ async function newRetailSale() {
         }
       });
       if (!lines.length) throw new Error("Elegí al menos un producto.");
+      const shipPaidFrom = val("retShipPaidFrom") || "Dinero Cafetier";
       await api("/sales-orders", {
         method: "POST",
         body: {
@@ -1369,6 +1362,11 @@ async function newRetailSale() {
           received_account: val("retAccount"),
           pay_now: 1,
           items: lines,
+          shipping_cost: Number(val("retShipCost")) || 0,
+          carrier: val("retCarrier") || null,
+          packaging: readPkgRows("retPkgRows"),
+          funding_source: shipPaidFrom === "Dinero Cafetier" ? "business_account" : "partner_contribution",
+          paid_from_account: shipPaidFrom,
         },
       });
       modal.remove();
