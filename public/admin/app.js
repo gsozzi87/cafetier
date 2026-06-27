@@ -216,17 +216,29 @@ async function render() {
 }
 
 async function renderDashboard() {
-  const d = await api("/dashboard");
+  const dm = state.params.dashMonth || null;
+  const d = await api(`/dashboard${dm ? "?month=" + encodeURIComponent(dm) : ""}`);
+  const per = d.period || { isAllTime: true, rev: 0, exp: 0, profit: 0, roasted: 0, shipped: 0, avgLoss: 0, profitPerRoastedKg: 0 };
+  const plabel = per.isAllTime ? "(total)" : "· " + per.month;
   document.getElementById("content").innerHTML = `
+    <div class="row between" style="margin-bottom:12px">
+      <div class="row wrap">
+        <button class="btn ${per.isAllTime ? "primary" : "ghost"} sm" onclick="App.dashAll()">Total (desde el inicio)</button>
+        <div class="field inline-field"><label>Mes</label><input class="input" id="dashMonth" type="month" value="${esc(dm || todayStr().slice(0, 7))}" /></div>
+        <button class="btn ${per.isAllTime ? "ghost" : "primary"} sm" onclick="App.applyDashMonth()">Ver mes</button>
+      </div>
+      <span class="pill">${per.isAllTime ? "Totales desde el inicio" : "Mes " + per.month}</span>
+    </div>
+
     <div class="grid cards">
-      <div class="card metric"><div class="label">Ingresos del mes</div><div class="value money">${money(d.revenueMonth)}</div><small>Ventas cobradas</small></div>
-      <div class="card metric"><div class="label">Gastos del mes</div><div class="value money">${money(d.expenseMonth)}</div><small>Incluye compras y costos</small></div>
-      <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(d.finance.availableCash)}</div><small>Capital + cobros - gastos - retiros</small></div>
-      <div class="card metric"><div class="label">Dividendos distribuibles</div><div class="value money">${money(d.finance.distributableDividends)}</div><small>${d.finance.unrecoveredCapital > 0 ? "Bloqueado hasta recuperar capital" : "Listo para fin de mes"}</small></div>
-      <div class="card metric accent"><div class="label">Axel → Itza sugerido</div><div class="value money">${money(d.settlement?.axelToItza || 0)}</div><small>${esc(d.settlement?.reason || "")}</small></div>
+      <div class="card metric"><div class="label">Ingresos ${plabel}</div><div class="value money">${money(per.rev)}</div><small>Ventas cobradas</small></div>
+      <div class="card metric"><div class="label">Gastos ${plabel}</div><div class="value money">${money(per.exp)}</div><small>Incluye compras y costos</small></div>
+      <div class="card metric"><div class="label">Resultado ${plabel}</div><div class="value money">${money(per.profit)}</div><small>Ingresos - gastos</small></div>
+      <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(d.finance.availableCash)}</div><small>Total del negocio (3 cuentas)</small></div>
+      <div class="card metric accent"><div class="label">Dinero Cafetier</div><div class="value money">${money(d.cafetierBalance)}</div><small>Saldo en la cuenta del negocio</small></div>
+      <div class="card metric"><div class="label">Utilidad repartible</div><div class="value money">${money(d.equityPool)}</div><small>${d.totalUnrecovered > 0 ? "Después de devolver aportes" : "Lista para repartir"}</small></div>
       <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(d.receivables || 0)}</div><small>Ventas pendientes de pago</small></div>
-      <div class="card metric"><div class="label">Utilidad/kg tostado</div><div class="value money">${money(d.monthly?.profitPerRoastedKg || 0)}</div><small>${kg(d.monthly?.roastedKg || d.roastedMonth)} tostados este mes</small></div>
-      <div class="card metric"><div class="label">Saldo en Axel</div><div class="value money">${money(d.accounts?.Axel || 0)}</div><small>Dinero del negocio en su cuenta</small></div>
+      <div class="card metric"><div class="label">Utilidad/kg tostado ${plabel}</div><div class="value money">${money(per.profitPerRoastedKg)}</div><small>${kg(per.roasted)} tostados</small></div>
     </div>
 
     <div class="split" style="margin-top:12px">
@@ -240,10 +252,20 @@ async function renderDashboard() {
           </div>
           <div class="hr"></div>
           <div class="kpi-strip">
-            <div><div class="muted tiny">Tostado del mes</div><div class="value">${kg(d.roastedMonth)}</div></div>
-            <div><div class="muted tiny">Enviado del mes</div><div class="value">${kg(d.shippedMonth)}</div></div>
-            <div><div class="muted tiny">Merma promedio</div><div class="value">${pct(d.avgLoss)}</div></div>
+            <div><div class="muted tiny">Tostado ${plabel}</div><div class="value">${kg(per.roasted)}</div></div>
+            <div><div class="muted tiny">Enviado ${plabel}</div><div class="value">${kg(per.shipped)}</div></div>
+            <div><div class="muted tiny">Merma promedio</div><div class="value">${pct(per.avgLoss)}</div></div>
           </div>
+        </div>
+
+        <div class="card">
+          <div class="row between"><h3>Dinero por cuenta</h3><button class="btn ghost sm" onclick="App.setView('cashbook')">Libro de caja</button></div>
+          <div class="kpi-strip">
+            <div><div class="muted tiny">Dinero Cafetier</div><div class="value money">${money(d.accounts?.["Dinero Cafetier"] || 0)}</div></div>
+            <div><div class="muted tiny">En cuenta de Axel</div><div class="value money">${money(d.accounts?.Axel || 0)}</div></div>
+            <div><div class="muted tiny">En cuenta de Itza</div><div class="value money">${money(d.accounts?.Itza || 0)}</div></div>
+          </div>
+          <div class="tiny muted" style="margin-top:6px">Dónde está físicamente el dinero del negocio. La cuenta de un socio en negativo significa que el negocio le debe.</div>
         </div>
 
         <div class="card">
@@ -275,17 +297,19 @@ async function renderDashboard() {
 
       <div class="stack">
         <div class="card">
-          <div class="row between"><h3>Capital & dividendos</h3><button class="btn ghost sm" onclick="App.setView('capital')">Abrir módulo</button></div>
+          <div class="row between"><h3>Capital &amp; dividendos (total)</h3><button class="btn ghost sm" onclick="App.setView('capital')">Abrir módulo</button></div>
           <div class="list">
             <div class="item">
               <div class="row between"><strong>Aportes totales</strong><span class="money">${money(d.finance.totalContributed)}</span></div>
               <div class="row between small"><span class="muted">Capital recuperado</span><span class="money">${money(d.finance.capitalRecovered)}</span></div>
-              <div class="row between small"><span class="muted">Capital pendiente</span><span class="money">${money(d.finance.unrecoveredCapital)}</span></div>
+              <div class="row between small"><span class="muted">Capital pendiente de devolver</span><span class="money">${money(d.finance.unrecoveredCapital)}</span></div>
+              <div class="row between small"><span class="muted">Utilidad repartible total</span><span class="money">${money(d.equityPool)}</span></div>
             </div>
-            ${d.partnerBreakdown.map(p => `
+            ${(d.partnersEquity || []).map(p => `
               <div class="item">
-                <div class="row between"><strong>${esc(p.name)} · ${p.share_pct}%</strong><span class="money">${money(p.dividends_available)}</span></div>
-                <div class="small muted">Aportó ${money(p.contributed)} · recuperó ${money(p.recovered)}</div>
+                <div class="row between"><strong>${esc(p.name)} · ${p.share_pct}%</strong><span class="money">${money(p.belongs)}</span></div>
+                <div class="small muted">Aportó ${money(p.contributed)} · le falta cobrar ${money(p.unrecovered)} · dividendos ${money(p.dividend_share)}</div>
+                <div class="tiny muted">Le pertenece = aporte pendiente + su parte de la utilidad (lo haya sacado o no).</div>
               </div>`).join("")}
           </div>
         </div>
@@ -310,6 +334,9 @@ async function renderDashboard() {
     </div>
   `;
 }
+
+function applyDashMonth() { const m = val("dashMonth"); setView("dashboard", m ? { dashMonth: m } : {}); }
+function dashAll() { setView("dashboard", {}); }
 
 function salesTotals(order) {
   const paid = Number(order.paid_amount ?? order.paid ?? 0);
@@ -2694,6 +2721,8 @@ const App = {
   setView,
   render,
   filterTable,
+  applyDashMonth,
+  dashAll,
   newRetailSale,
   newWholesaleSale,
   openSale,
