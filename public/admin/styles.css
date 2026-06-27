@@ -277,3 +277,89 @@ body{background:radial-gradient(1100px 560px at 72% -12%, #fdfaf3, var(--bg))}
 .modal-body .field+.field,.modal-body .form-grid+.field,.modal-body .field+.form-grid{margin-top:12px}
 .modal-body .notice{margin-bottom:12px}
 .sort-ind{font-size:10px;opacity:.7;margin-left:3px}
+
+/* ============================================================
+   CAFETIER · Móvil (drawer + tablas en tarjetas)
+   ============================================================ */
+.menu-btn{display:none;appearance:none;border:1px solid var(--line);background:#fff;width:40px;height:40px;border-radius:11px;font-size:18px;line-height:1;cursor:pointer;align-items:center;justify-content:center;color:var(--text);flex:0 0 auto}
+.menu-btn:active{background:var(--accent-soft)}
+.topbar-left{display:flex;align-items:center;gap:10px;min-width:0}
+.nav-backdrop{display:none}
+
+@media (max-width: 820px){
+  #app{display:block;height:auto;min-height:100vh}
+
+  /* Sidebar -> slide-in drawer */
+  .sidebar{position:fixed;top:0;left:0;bottom:0;width:84vw;max-width:330px;z-index:60;display:flex;flex-direction:column;
+    transform:translateX(-100%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+    border-right:1px solid var(--line);box-shadow:0 24px 60px rgba(40,28,10,.30);overflow-y:auto}
+  body.nav-open .sidebar{transform:translateX(0)}
+  .nav-backdrop{display:block;position:fixed;inset:0;z-index:55;background:rgba(20,12,4,.42);backdrop-filter:blur(2px);
+    opacity:0;visibility:hidden;transition:opacity .28s, visibility .28s}
+  body.nav-open .nav-backdrop{opacity:1;visibility:visible}
+  body.nav-open{overflow:hidden}
+
+  /* Drawer stays vertical (overrides the older horizontal mobile rules) */
+  .brand{flex-direction:row;justify-content:flex-start;text-align:left;gap:12px;padding:18px 16px}
+  .brand-logo{width:46px;height:46px}
+  .brand h1{font-size:24px;letter-spacing:4px}
+  .nav{display:block;flex:1;padding:10px 12px;overflow-y:auto}
+  .nav-section{display:block;margin:16px 8px 8px}
+  .nav-item{display:flex;width:auto;white-space:normal;padding:13px 12px;font-size:15px;border-radius:12px}
+  .sidebar-foot{display:block}
+
+  /* Main + topbar */
+  .main{min-height:0;overflow:visible}
+  .topbar{position:sticky;top:0;z-index:30;padding:10px 12px}
+  .topbar h2{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .menu-btn{display:inline-flex}
+  #reloadBtn,#statusPill{display:none}
+  .content{padding:14px 12px 96px;height:auto;overflow:visible}
+
+  /* Grids */
+  .grid.cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .kpi-strip,.split,.form-grid{grid-template-columns:1fr}
+  .metric .value{font-size:21px}
+  .card{padding:13px}
+
+  /* Touch targets */
+  .btn{padding:11px 15px}
+  .btn.sm{padding:9px 12px;font-size:12px}
+  .row.between{flex-wrap:wrap;gap:8px}
+  .search{padding:12px 14px}
+
+  /* Tables -> stacked cards (one card per row, label above value) */
+  .table{display:block;width:100%}
+  .table thead{display:none}
+  .table tbody{display:block;width:100%}
+  .table tr{display:block;border:1px solid var(--line);border-radius:14px;background:#fff;
+    padding:6px 14px;margin-bottom:10px;box-shadow:var(--shadow)}
+  .table tbody tr:nth-child(even) td,.table tr:hover td{background:transparent}
+  .table td{display:block;border:0;border-bottom:1px solid #f2ede2;padding:9px 0;text-align:left;font-size:13.5px}
+  .table td::before{content:attr(data-label);display:block;font-weight:800;color:var(--muted);
+    text-transform:uppercase;font-size:10px;letter-spacing:.5px;margin-bottom:3px}
+  .table td:last-child{border-bottom:0}
+  .table td:empty{display:none}
+  .table td.money,.table td.number{font-weight:700}
+  .table td .line-actions{flex-wrap:wrap;margin-top:2px}
+
+  /* Modals = bottom sheet */
+  .modal-backdrop{padding:0;align-items:flex-end}
+  .modal{width:100%;max-width:100%;max-height:94vh;border-radius:22px 22px 0 0;margin:0;padding:16px 16px 18px}
+  .modal-title{font-size:20px}
+  .footer-actions{position:sticky;bottom:0;background:var(--card);padding-top:12px;margin-top:14px}
+  .footer-actions .btn{flex:1}
+
+  /* Tabs scroll horizontally */
+  .tabbar{display:flex;width:100%;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .tabbar .btn{flex:0 0 auto}
+
+  /* Toasts span the width */
+  .toast-wrap{right:12px;left:12px;bottom:12px}
+  .toast{max-width:none}
+}
+
+/* Very small phones: KPIs single column */
+@media (max-width: 460px){
+  .grid.cards{grid-template-columns:1fr}
+}
