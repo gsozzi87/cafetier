@@ -785,7 +785,7 @@ api.post("/sales-orders", async c => {
   return c.json(ok(create()));
 });
 
-api.put("/sales-orders/:id", async c => { const b = await body(c); qRun("UPDATE sales_orders SET client_id=?,delivery_date=?,total_weight_kg=?,price_per_kg=?,total_amount=?,notes=?,updated_at=? WHERE id=?", b.client_id||null, b.delivery_date||null, num(b.total_weight_kg), num(b.price_per_kg), num(b.total_amount), b.notes||null, now(), c.req.param("id")); return c.json(ok(recalcSO(Number(c.req.param("id"))))); });
+api.put("/sales-orders/:id", async c => { const b = await body(c); const cur = qGet<any>("SELECT isr_amount FROM sales_orders WHERE id=?", c.req.param("id")); const isr = b.isr_amount !== undefined ? r2(num(b.isr_amount)) : Number(cur?.isr_amount || 0); qRun("UPDATE sales_orders SET client_id=?,delivery_date=?,total_weight_kg=?,price_per_kg=?,total_amount=?,isr_amount=?,notes=?,updated_at=? WHERE id=?", b.client_id||null, b.delivery_date||null, num(b.total_weight_kg), num(b.price_per_kg), num(b.total_amount), isr, b.notes||null, now(), c.req.param("id")); return c.json(ok(recalcSO(Number(c.req.param("id"))))); });
 api.patch("/sales-orders/:id/status", async c => { const b = await body(c); qRun("UPDATE sales_orders SET status=?,updated_at=? WHERE id=?", b.status, now(), c.req.param("id")); return c.json(ok(true)); });
 api.delete("/sales-orders/:id", c => {
   const id = Number(c.req.param("id"));
@@ -818,9 +818,17 @@ api.post("/sales-orders/:id/payments", async c => {
   const b = await body(c);
   req(num(b.amount)>0, "Monto inválido");
   const paymentDate = b.payment_date || b.date || today();
+  // El ISR retenido (si lo hay) se guarda en la venta; no entra a caja.
+  if (b.isr_amount !== undefined) qRun("UPDATE sales_orders SET isr_amount=? WHERE id=?", r2(num(b.isr_amount)), c.req.param("id"));
   qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,received_account,created_at) VALUES (?,?,?,?,?,?,?)", c.req.param("id"), r2(num(b.amount)), b.method||"transferencia", b.notes||null, b.registered_by||"Sistema", normAccount(b.received_account || "Axel"), setIsoDate(now(), paymentDate));
   recalcSO(Number(c.req.param("id")));
   return c.json(ok(true));
+});
+// Fijar/editar la retención de ISR de una venta (no entra a caja; completa el valor de la venta).
+api.patch("/sales-orders/:id/isr", async c => {
+  const b = await body(c);
+  qRun("UPDATE sales_orders SET isr_amount=?,updated_at=? WHERE id=?", r2(num(b.isr_amount)), now(), c.req.param("id"));
+  return c.json(ok(recalcSO(Number(c.req.param("id")))));
 });
 api.put("/sales-payments/:id", async c => {
   const id = Number(c.req.param("id"));

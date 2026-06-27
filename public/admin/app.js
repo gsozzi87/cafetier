@@ -496,6 +496,8 @@ async function renderSalesDetail(id) {
   const data = await api(`/sales-orders/${id}`);
   const { order, items, payments, shipments, purchaseOrders, batches } = data;
   const paid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const isr = Number(order.isr_amount || 0);
+  const pendingPay = Math.max(0, Number(order.total_amount || 0) - paid - isr);
   const shipped = shipments.reduce((sum, s) => sum + Number(s.weight_kg || 0), 0);
   const roasted = batches.reduce((sum, b) => sum + Number(b.roasted_kg || 0), 0);
   const pendingRoast = Math.max(0, Number(order.total_weight_kg || 0) - roasted);
@@ -519,7 +521,7 @@ async function renderSalesDetail(id) {
     <div class="grid cards">
       <div class="card metric"><div class="label">Cliente</div><div class="value" style="font-size:22px">${esc(order.client_name || "Mostrador")}</div><small>${esc(order.client_city || "")}</small></div>
       <div class="card metric"><div class="label">Total</div><div class="value money">${money(order.total_amount)}</div><small>${kg(order.total_weight_kg)}</small></div>
-      <div class="card metric"><div class="label">Pagado</div><div class="value money">${money(paid)}</div><small>Pendiente ${money(Math.max(0, order.total_amount - paid))}</small></div>
+      <div class="card metric"><div class="label">Pagado</div><div class="value money">${money(paid)}</div><small>${isr > 0 ? `ISR ${money(isr)} · ` : ""}Pendiente ${money(pendingPay)}</small></div>
       <div class="card metric"><div class="label">Producción / envío</div><div class="value">${kg(roasted)} / ${kg(shipped)}</div><small>Falta por tostar ${kg(pendingRoast)} · falta por enviar ${kg(pendingShip)}</small></div>
     </div>
 
@@ -548,6 +550,10 @@ async function renderSalesDetail(id) {
               <div class="row between"><strong>${money(p.amount)}</strong><div class="line-actions"><span class="pill">${esc(p.method || "-")}</span>${editIcon(`App.editPayment(${p.id},${order.id})`)}<button class="btn red sm" onclick="App.deletePayment(${p.id},${order.id})">Eliminar</button></div></div>
               <div class="small muted">${esc((p.created_at || "").slice(0, 10))} · ${esc(p.received_account || "Dinero Cafetier")} ${p.notes ? "· " + esc(p.notes) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin pagos.</div>`}
+          <div class="item">
+            <div class="row between"><span class="muted">Retención ISR (no entra a caja)</span><div class="line-actions"><strong class="money">${money(isr)}</strong><button class="btn ghost sm" onclick="App.editIsr(${order.id})">Editar</button></div></div>
+            <div class="tiny muted">Cobrado ${money(paid)} + ISR ${money(isr)} = ${money(paid + isr)} de ${money(order.total_amount)}.${pendingPay <= 0.001 ? " Venta saldada." : ` Faltan ${money(pendingPay)}.`}</div>
+          </div>
         </div>
 
         ${isWholesale(order.order_type) ? `
@@ -1459,9 +1465,11 @@ function openSale(id) { setView("salesDetail", { id }); }
 async function addPayment(orderId) {
   const { order } = await api(`/sales-orders/${orderId}`);
   openModal("Registrar pago", `
+    <div class="notice ok" style="margin-top:0">Total de la venta <strong>${money(order.total_amount)}</strong>. Si te retienen impuestos, poné lo cobrado en <strong>Monto</strong> y la retención en <strong>ISR</strong>: cuando juntos llegan al total, la venta queda completada. El ISR no entra a la caja.</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="payDate" type="date" value="${esc((order.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Monto</label><input class="input" id="payAmount" type="number" step="0.01" /></div>
+      <div class="field"><label>Monto cobrado</label><input class="input" id="payAmount" type="number" step="0.01" /></div>
+      <div class="field"><label>Retención ISR (no entra a caja)</label><input class="input" id="payIsr" type="number" step="0.01" value="${esc(order.isr_amount || 0)}" /></div>
       <div class="field"><label>Método</label><select class="select" id="payMethod"><option>transferencia</option><option>efectivo</option><option>tarjeta</option></select></div>
       <div class="field"><label>Cuenta que recibió</label><select class="select" id="payAccount">${accountOptions("Dinero Cafetier")}</select></div>
     </div>
@@ -1472,10 +1480,27 @@ async function addPayment(orderId) {
     onClick: async modal => {
       await api(`/sales-orders/${orderId}/payments`, {
           method: "POST",
-          body: { payment_date: val("payDate"), amount: Number(val("payAmount")), method: val("payMethod"), received_account: val("payAccount"), notes: val("payNotes") || null },
+          body: { payment_date: val("payDate"), amount: Number(val("payAmount")), isr_amount: Number(val("payIsr")) || 0, method: val("payMethod"), received_account: val("payAccount"), notes: val("payNotes") || null },
       });
       modal.remove();
       toast("Pago registrado.", "ok");
+      openSale(orderId);
+    }
+  }]);
+}
+
+async function editIsr(orderId) {
+  const { order } = await api(`/sales-orders/${orderId}`);
+  openModal("Retención ISR", `
+    <p class="muted" style="margin-top:0">Impuesto retenido en esta venta (total ${money(order.total_amount)}). No entra a la caja; junto con lo cobrado completa el valor de la venta.</p>
+    <div class="field"><label>Monto de ISR</label><input class="input" id="isrAmount" type="number" step="0.01" value="${esc(order.isr_amount || 0)}" /></div>
+  `, [{
+    label: "Guardar",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/sales-orders/${orderId}/isr`, { method: "PATCH", body: { isr_amount: Number(val("isrAmount")) || 0 } });
+      modal.remove();
+      toast("ISR actualizado.", "ok");
       openSale(orderId);
     }
   }]);
@@ -2955,6 +2980,7 @@ const App = {
   editSale,
   deleteSale,
   addPayment,
+  editIsr,
   editPayment,
   deletePayment,
   addShipment,

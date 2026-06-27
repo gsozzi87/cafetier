@@ -156,14 +156,14 @@ export function financialPosition(month = thisMonth()) {
     dividends_available: r2((f.distributable * p.share_pct) / 100),
   }));
   const receivables = Number(qVal(`
-    SELECT COALESCE(SUM(CASE WHEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) > 0
-      THEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) ELSE 0 END),0) AS v
+    SELECT COALESCE(SUM(CASE WHEN so.total_amount - COALESCE(so.isr_amount,0) - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) > 0
+      THEN so.total_amount - COALESCE(so.isr_amount,0) - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) ELSE 0 END),0) AS v
     FROM sales_orders so
     WHERE so.status != 'cancelado'
   `) ?? 0);
   const receivablesMonth = Number(qVal(`
-    SELECT COALESCE(SUM(CASE WHEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) > 0
-      THEN so.total_amount - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) ELSE 0 END),0) AS v
+    SELECT COALESCE(SUM(CASE WHEN so.total_amount - COALESCE(so.isr_amount,0) - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) > 0
+      THEN so.total_amount - COALESCE(so.isr_amount,0) - COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) ELSE 0 END),0) AS v
     FROM sales_orders so
     WHERE so.status != 'cancelado' AND substr(so.created_at,1,7)=?
   `, month) ?? 0);
@@ -385,12 +385,14 @@ export function recalcSO(id: number) {
   const o = qGet<any>("SELECT * FROM sales_orders WHERE id=?", id);
   if (!o) return null;
   const paid = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments WHERE order_id=?", id) ?? 0);
+  // El ISR retenido no entra a caja, pero junto con lo cobrado completa el valor de la venta.
+  const settled = r2(paid + Number(o.isr_amount || 0));
   const shipped = Number(qVal("SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments WHERE order_id=?", id) ?? 0);
   const roasted = Number(qVal("SELECT COALESCE(SUM(roasted_kg),0) AS v FROM roasting_batches WHERE sales_order_id=?", id) ?? 0);
   const hasPendPO = Number(qVal("SELECT COUNT(*) AS v FROM purchase_orders WHERE source_type='sales_order' AND source_id=? AND status NOT IN ('recibida','cancelada')", id) ?? 0);
   let status = o.status;
-  if (o.order_type === "mostrador") status = paid >= o.total_amount ? "completado" : "abierto";
-  else if (shipped >= (o.total_weight_kg || 0) && o.total_weight_kg > 0) status = paid >= o.total_amount ? "completado" : "listo";
+  if (o.order_type === "mostrador") status = settled >= o.total_amount ? "completado" : "abierto";
+  else if (shipped >= (o.total_weight_kg || 0) && o.total_weight_kg > 0) status = settled >= o.total_amount ? "completado" : "listo";
   else if (shipped > 0) status = "envio_parcial";
   else if (roasted >= (o.total_weight_kg || 0) && o.total_weight_kg > 0) status = "listo";
   else if (roasted > 0) status = "en_produccion";
@@ -504,6 +506,7 @@ export function initDB() {
   ensureColumn("sales_shipments", "funding_source", "TEXT");
   ensureColumn("sales_shipments", "paid_from_account", "TEXT");
   ensureColumn("sales_payments", "received_account", "TEXT DEFAULT 'Axel'");
+  ensureColumn("sales_orders", "isr_amount", "REAL DEFAULT 0");
   ensureColumn("purchase_orders", "estimated_shipping_cost", "REAL DEFAULT 0");
   ensureColumn("purchase_orders", "actual_shipping_cost", "REAL DEFAULT 0");
   ensureColumn("purchase_orders", "notes", "TEXT");
