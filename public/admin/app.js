@@ -2330,36 +2330,30 @@ async function editInventoryItem(id) {
 
 function newExpense() {
   openModal("Nuevo gasto", `
-    <div class="notice warn">Si es balanza, selladora o máquina que se queda un socio, registralo como activo personal en Capital, no como gasto.</div>
+    <div class="notice ok">El dinero sale de una cuenta: <strong>Axel</strong> o <strong>Itza</strong> (queda como aporte para devolverles) o <strong>Dinero Cafetier</strong> (son utilidades del negocio).</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="expDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="expCat">${expenseCategoryOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="expAmount" type="number" step="0.01" /></div>
-      <div class="field"><label>Pagado por</label><select class="select" id="expPaidBy">${personOptions()}</select></div>
-      <div class="field"><label>Fuente de pago</label><select class="select" id="expFunding">${fundingSourceOptions()}</select></div>
-      <div class="field"><label>Cuenta / socio</label><select class="select" id="expAccount">${accountOptions("Axel")}</select></div>
-      <div class="field"><label>¿Sale de utilidades?</label><select class="select" id="expUtilities"><option value="1">Sí</option><option value="0">No</option></select></div>
-      <div class="field"><label>¿Sale de Dinero Cafetier?</label><select class="select" id="expCashbox"><option value="1">Sí</option><option value="0">No</option></select></div>
+      <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="expSource">${moneySourceOptions()}</select></div>
       <div class="field"><label>Proveedor</label><input class="input" id="expSupplier" /></div>
+      <div class="field"><label>Descripción</label><input class="input" id="expDesc" /></div>
     </div>
-    <div class="field"><label>Descripción</label><input class="input" id="expDesc" /></div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="expNotes"></textarea></div>
   `, [{
     label: "Guardar gasto",
     kind: "primary",
     onClick: async modal => {
+      const src = val("expSource");
       await api("/expenses", {
         method: "POST",
         body: {
           expense_date: val("expDate"),
           category_id: Number(val("expCat")),
           amount: Number(val("expAmount")),
-          paid_by: val("expPaidBy"),
-          funding_source: val("expFunding"),
-          paid_from_account: val("expAccount"),
-          partner_name: val("expAccount"),
-          from_utilities: Number(val("expUtilities")),
-          from_cashbox: Number(val("expCashbox")),
+          funding_source: src === "Dinero Cafetier" ? "business_account" : "partner_contribution",
+          paid_from_account: src,
+          partner_name: src === "Dinero Cafetier" ? null : src,
           supplier: val("expSupplier") || null,
           description: val("expDesc") || null,
           notes: val("expNotes") || null,
@@ -2386,37 +2380,33 @@ async function editExpense(id) {
   if (e.auto_generated) { toast("Este gasto se generó automáticamente; editá su origen (envío/compra/máquina).", "error"); return; }
   const sel = (cur, v) => String(cur) === String(v) ? "selected" : "";
   const cats = (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${sel(e.category_id, c.id)}>${esc(c.name)}</option>`).join("");
-  const people = parseListSetting("individual_people", ["Itza", "Axel"]).map(n => `<option value="${esc(n)}" ${sel(e.paid_by, n)}>${esc(n)}</option>`).join("");
-  const funding = `<option value="cash" ${e.from_cashbox ? "selected" : ""}>Dinero Cafetier</option>${(state.master.partners || []).map(p => `<option value="${esc(p.name)}" ${!e.from_cashbox && String(e.paid_from_account) === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")}`;
-  const accounts = ["Dinero Cafetier", ...(state.master.partners || []).map(p => p.name)].map(a => `<option value="${esc(a)}" ${sel(e.paid_from_account, a)}>${esc(a)}</option>`).join("");
+  const currentSource = e.from_cashbox ? "Dinero Cafetier" : (e.paid_from_account || "Axel");
   openModal("Editar gasto", `
+    <div class="notice ok">El dinero sale de una cuenta: <strong>Axel</strong> o <strong>Itza</strong> (queda como aporte para devolverles) o <strong>Dinero Cafetier</strong> (son utilidades).</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="eeDate" type="date" value="${esc((e.expense_date || "").slice(0, 10))}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="eeCat">${cats}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="eeAmount" type="number" step="0.01" value="${esc(e.amount || 0)}" /></div>
-      <div class="field"><label>Pagado por</label><select class="select" id="eePaidBy">${people}</select></div>
-      <div class="field"><label>Fuente de pago</label><select class="select" id="eeFunding">${funding}</select></div>
-      <div class="field"><label>Cuenta / socio</label><select class="select" id="eeAccount">${accounts}</select></div>
+      <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="eeSource">${moneySourceOptions(currentSource)}</select></div>
       <div class="field"><label>Proveedor</label><input class="input" id="eeSupplier" value="${esc(e.supplier || "")}" /></div>
+      <div class="field"><label>Descripción</label><input class="input" id="eeDesc" value="${esc(e.description || "")}" /></div>
     </div>
-    <div class="field"><label>Descripción</label><input class="input" id="eeDesc" value="${esc(e.description || "")}" /></div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="eeNotes">${esc(e.notes || "")}</textarea></div>
   `, [{
     label: "Guardar cambios",
     kind: "primary",
     onClick: async modal => {
+      const src = val("eeSource");
       await api(`/expenses/${id}`, {
         method: "PUT",
         body: {
           expense_date: val("eeDate"),
           category_id: Number(val("eeCat")),
           amount: Number(val("eeAmount")),
-          paid_by: val("eePaidBy"),
-          funding_source: val("eeFunding"),
-          paid_from_account: val("eeAccount"),
-          partner_name: val("eeAccount"),
-          from_cashbox: val("eeFunding") === "cash" ? 1 : 0,
-          from_utilities: Number(e.from_utilities || 0),
+          funding_source: src === "Dinero Cafetier" ? "business_account" : "partner_contribution",
+          paid_from_account: src,
+          partner_name: src === "Dinero Cafetier" ? null : src,
+          from_utilities: 0,
           supplier: val("eeSupplier") || null,
           description: val("eeDesc") || null,
           notes: val("eeNotes") || null,
