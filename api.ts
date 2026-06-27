@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, resetData, thisMonth, today, tx } from "./db";
+import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, partnerCapital, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, resetData, thisMonth, today, tx } from "./db";
 
 const api = new Hono();
 const ok = (d: any = null) => ({ success: true, data: d });
@@ -225,16 +225,39 @@ api.get("/master-data", c => {
 
 // ===== DASHBOARD (Resumen General) =====
 api.get("/dashboard", c => {
-  const month = c.req.query("month") || thisMonth();
+  // Default view is all-time (no month). A month filters the period figures.
+  const monthParam = c.req.query("month") || null;
+  const month = monthParam || thisMonth();
   const f = finance();
   const position = financialPosition(month);
   const inv = { verde: invTotal("green_coffee"), tostado: invTotal("roasted_coffee"), empaquetado: invTotal("packaged_coffee") };
-  const revMonth = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments WHERE substr(created_at,1,7)=?", month) ?? 0);
-  const expMonth = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE substr(expense_date,1,7)=?", month) ?? 0);
-  const roastedMonth = Number(qVal("SELECT COALESCE(SUM(rb.roasted_kg),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=?", month) ?? 0);
-  const shippedMonth = Number(qVal("SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments WHERE substr(created_at,1,7)=?", month) ?? 0);
-  const minMonth = Number(qVal("SELECT COALESCE(SUM(rb.machine_minutes),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=?", month) ?? 0);
-  const avgLoss = Number(qVal("SELECT COALESCE(AVG(rb.loss_pct),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=? AND rb.loss_pct IS NOT NULL", month) ?? 0);
+  // Period figures: filtered by month when given, otherwise totalled from the beginning.
+  const mc = monthParam ? " WHERE substr(created_at,1,7)=?" : "";
+  const me = monthParam ? " WHERE substr(expense_date,1,7)=?" : "";
+  const mr = monthParam ? " WHERE substr(rs.session_date,1,7)=?" : "";
+  const arg = monthParam ? [monthParam] : [];
+  const rev = Number(qVal(`SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments${mc}`, ...arg) ?? 0);
+  const exp = Number(qVal(`SELECT COALESCE(SUM(amount),0) AS v FROM expenses${me}`, ...arg) ?? 0);
+  const roasted = Number(qVal(`SELECT COALESCE(SUM(rb.roasted_kg),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id${mr}`, ...arg) ?? 0);
+  const shipped = Number(qVal(`SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments${mc}`, ...arg) ?? 0);
+  const avgLoss = Number(qVal(`SELECT COALESCE(AVG(rb.loss_pct),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id${mr ? mr + " AND" : " WHERE"} rb.loss_pct IS NOT NULL`, ...arg) ?? 0);
+  const periodProfit = r2(rev - exp);
+  const period = {
+    isAllTime: !monthParam,
+    month: monthParam,
+    rev: r2(rev), exp: r2(exp), profit: periodProfit,
+    roasted: r2(roasted), shipped: r2(shipped), avgLoss: r2(avgLoss),
+    profitPerRoastedKg: roasted > 0 ? r2(periodProfit / roasted) : 0,
+  };
+  // Per-partner equity: total business cash = (capital owed back to each) + (50/50 of the rest).
+  const pcaps = partnerCapital();
+  const totalUnrecovered = r2(pcaps.reduce((s: number, p: any) => s + Number(p.unrecovered || 0), 0));
+  const equityPool = r2(f.cash - totalUnrecovered);
+  const partnersEquity = pcaps.map((p: any) => {
+    const dividend = r2((equityPool * Number(p.share_pct || 0)) / 100);
+    return { ...p, dividend_share: dividend, belongs: r2(Number(p.unrecovered || 0) + dividend) };
+  });
+  const cafetierBalance = r2(Number(position.accounts["Dinero Cafetier"] || 0));
   const openSales = Number(qVal("SELECT COUNT(*) AS v FROM sales_orders WHERE status NOT IN ('completado','cancelado')") ?? 0);
   const pendingPO = Number(qVal("SELECT COUNT(*) AS v FROM purchase_orders WHERE status IN ('sin_fondos','pendiente','parcial')") ?? 0);
   const partners = position.partners.map((p: any) => ({ ...p, div_available: p.dividends_available }));
@@ -243,17 +266,10 @@ api.get("/dashboard", c => {
   const openCapitalRequests = Number(qVal("SELECT COUNT(*) AS v FROM capital_requests WHERE status IN ('open','partially_funded')") ?? 0);
   return c.json(ok({
     month,
+    period,
     finance: f,
     inv,
     inventory: { green: inv.verde, roasted: inv.tostado, packaged: inv.empaquetado, supplies: position.inventory.supplies },
-    revMonth,
-    expMonth,
-    revenueMonth: revMonth,
-    expenseMonth: expMonth,
-    roastedMonth,
-    shippedMonth,
-    minMonth,
-    avgLoss,
     estimatedLossPct: estimatedLoss(),
     openSales,
     pendingPO,
@@ -261,10 +277,12 @@ api.get("/dashboard", c => {
     openCapitalRequests,
     partners,
     partnerBreakdown: partners,
+    partnersEquity,
+    equityPool,
+    totalUnrecovered,
+    cafetierBalance,
     accounts: position.accounts,
-    settlement: position.settlement,
     receivables: position.receivables,
-    monthly: position.monthly,
     dividendAdvice: position.dividendAdvice,
     lastSales,
     lastPO,
