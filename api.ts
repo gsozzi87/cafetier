@@ -110,13 +110,13 @@ function applyPurchaseEntryEffects(entryId: number, itemId: number, po: any, v: 
 }
 function cashbookRows(start?: string | null, end?: string | null) {
   const rows = qAll<any>(`
-    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type,
+    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type, 'Aporte' AS clase,
       cc.partner_name AS person, COALESCE(cc.received_account, cc.partner_name) AS account, cc.description AS detail,
       cc.amount AS amount, cc.amount AS signed_amount, cc.created_at AS created_at
     FROM capital_contributions cc
     WHERE cc.description NOT LIKE '%pagado por%' AND cc.description NOT LIKE '%pagada por%'
     UNION ALL
-    SELECT 'sales_payment' AS source, sp.id AS source_id, substr(sp.created_at,1,10) AS date, 'Cobro de venta' AS type,
+    SELECT 'sales_payment' AS source, sp.id AS source_id, substr(sp.created_at,1,10) AS date, 'Cobro de venta' AS type, 'Venta' AS clase,
       COALESCE(sp.registered_by,'Sistema') AS person, COALESCE(sp.received_account,'Axel') AS account,
       'Pago ' || COALESCE(so.order_no, '#' || sp.order_id) || COALESCE(' · ' || sp.notes, '') AS detail,
       sp.amount AS amount, sp.amount AS signed_amount, sp.created_at AS created_at
@@ -124,6 +124,9 @@ function cashbookRows(start?: string | null, end?: string | null) {
     LEFT JOIN sales_orders so ON so.id=sp.order_id
     UNION ALL
     SELECT 'expense' AS source, e.id AS source_id, e.expense_date AS date, ec.name AS type,
+      CASE WHEN e.ref_type IN ('purchase_entry','purchase_order') THEN 'Compra'
+           WHEN e.ref_type IN ('purchase_entry_ship','purchase_shipping','shipment') THEN 'Envío'
+           ELSE 'Gasto' END AS clase,
       e.paid_by AS person, COALESCE(e.paid_from_account, e.paid_by) AS account,
       COALESCE(e.description, ec.name) || COALESCE(' · ' || e.supplier, '') AS detail,
       e.amount AS amount, -e.amount AS signed_amount, e.created_at AS created_at
@@ -132,6 +135,7 @@ function cashbookRows(start?: string | null, end?: string | null) {
     UNION ALL
     SELECT 'withdrawal' AS source, w.id AS source_id, substr(w.created_at,1,10) AS date,
       CASE w.kind WHEN 'capital_return' THEN 'Devolución de capital' ELSE 'Dividendo' END AS type,
+      CASE w.kind WHEN 'capital_return' THEN 'Retiro' ELSE 'Dividendo' END AS clase,
       w.partner_name AS person, COALESCE(w.paid_from_account,'Dinero Cafetier') AS account,
       COALESCE(w.notes,'') AS detail,
       w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at

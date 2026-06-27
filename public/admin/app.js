@@ -688,6 +688,20 @@ async function renderPurchaseDetail(id) {
   `;
 }
 
+function cashClassBadge(clase) {
+  const map = {
+    "Venta": ["var(--green-soft)", "var(--green)"],
+    "Compra": ["var(--blue-soft)", "var(--blue)"],
+    "Envío": ["var(--orange-soft)", "var(--orange)"],
+    "Gasto": ["var(--red-soft)", "var(--red)"],
+    "Aporte": ["var(--accent-soft)", "var(--accent)"],
+    "Retiro": ["#efe9fb", "#6b4ea8"],
+    "Dividendo": ["var(--green-soft)", "var(--green)"],
+  };
+  const [bg, fg] = map[clase] || ["#f0f0f0", "#666"];
+  return `<span class="badge" style="background:${bg};color:${fg}">${esc(clase || "—")}</span>`;
+}
+
 async function renderCashbook() {
   const nowDate = new Date();
   const start = state.params.start || "2000-01-01";
@@ -713,11 +727,12 @@ async function renderCashbook() {
 
     <div class="card">
       <table class="table" id="cashbookTable">
-        <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Entrada</th><th>Salida</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Clase</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Entrada</th><th>Salida</th><th></th></tr></thead>
         <tbody>
           ${data.movements.map(m => `
             <tr>
-              <td><strong>${esc(m.date)}</strong><div class="tiny muted">${esc(m.source)} #${esc(m.source_id)}</div></td>
+              <td><strong>${esc(m.date)}</strong></td>
+              <td>${cashClassBadge(m.clase)}</td>
               <td>${esc(m.type)}</td>
               <td>${esc(m.detail || "")}</td>
               <td>${esc(m.account || "")}</td>
