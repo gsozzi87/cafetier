@@ -222,35 +222,42 @@ async function renderDashboard() {
   const d = await api(`/dashboard?month=${encodeURIComponent(dm)}`);
   const per = d.period || { rev: 0, exp: 0, profit: 0, month: dm };
   const t = d.totals || { salesRevenue: 0, kgPurchased: 0, kgSold: 0, purchasesTotal: 0, purchasesGreen: 0, purchasesPackaging: 0, purchasesShipping: 0, expensesOperating: 0 };
-  const it = d.itza || { contributed: 0, returned: 0, pending: 0, cafetierToItza: 0 };
-  const resultado = Number(t.salesRevenue || 0) - Number(t.purchasesTotal || 0) - Number(t.expensesOperating || 0);
+  const cf = d.cafe || { kgPurchased: 0, kgSold: 0, merma: 0, avgBuyPerKg: 0, avgSalePerKg: 0, packagingPerKg: 0, costPerKgProduced: 0, profitPerKgSold: 0 };
+  const caf = d.cafetier || { cash: 0, owesItza: 0, dividends: 0 };
   document.getElementById("content").innerHTML = `
+    <div class="row between" style="margin:0 0 8px"><h3 style="margin:0">Café (desde el inicio)</h3></div>
     <div class="grid cards">
-      <div class="card metric accent"><div class="label">Caja Cafetier</div><div class="value money">${money(d.cafetierBalance)}</div><small>Dinero disponible del negocio</small></div>
-      <div class="card metric"><div class="label">Entró por ventas</div><div class="value money">${money(t.salesRevenue)}</div><small>Total cobrado, desde el inicio</small></div>
-      <div class="card metric"><div class="label">Salió en compras</div><div class="value money">${money(t.purchasesTotal)}</div><small>Café + empaques + envío</small></div>
-      <div class="card metric"><div class="label">Gastos</div><div class="value money">${money(t.expensesOperating)}</div><small>Gastos operativos (no compras)</small></div>
-      <div class="card metric"><div class="label">Resultado</div><div class="value money">${money(resultado)}</div><small>Ventas − compras − gastos</small></div>
+      <div class="card metric"><div class="label">Café comprado</div><div class="value">${kg(cf.kgPurchased)}</div><small>Compra promedio ${money(cf.avgBuyPerKg)}/kg</small></div>
+      <div class="card metric"><div class="label">Café vendido</div><div class="value">${kg(cf.kgSold)}</div><small>Venta promedio ${money(cf.avgSalePerKg)}/kg</small></div>
+      <div class="card metric"><div class="label">Merma promedio</div><div class="value">${pct(cf.merma)}</div><small>Pérdida al tostar</small></div>
     </div>
 
-    <div class="grid cards" style="margin-top:10px">
-      <div class="card metric"><div class="label">Café comprado</div><div class="value">${kg(t.kgPurchased)}</div><small>Café verde recibido</small></div>
-      <div class="card metric"><div class="label">Café vendido</div><div class="value">${kg(t.kgSold)}</div><small>Kg en pedidos de venta</small></div>
-      <div class="card metric"><div class="label">Inventario verde</div><div class="value">${kg(d.inventory.green)}</div><small>En stock</small></div>
-      <div class="card metric"><div class="label">Inventario tostado</div><div class="value">${kg(d.inventory.roasted)}</div><small>En stock</small></div>
-      <div class="card metric"><div class="label">Inventario empaquetado</div><div class="value">${kg(d.inventory.packaged)}</div><small>En stock</small></div>
+    <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Costos y ganancia por kilo (estimado)</h3></div>
+    <div class="grid cards">
+      <div class="card metric"><div class="label">Costo /kg comprado</div><div class="value money">${money(cf.avgBuyPerKg)}</div><small>Café verde</small></div>
+      <div class="card metric"><div class="label">Precio /kg vendido</div><div class="value money">${money(cf.avgSalePerKg)}</div><small>Promedio al vender</small></div>
+      <div class="card metric"><div class="label">Costo /kg producido</div><div class="value money">${money(cf.costPerKgProduced)}</div><small>Verde + merma + empaques (${money(cf.packagingPerKg)}/kg)</small></div>
+      <div class="card metric ${cf.profitPerKgSold >= 0 ? "accent" : ""}"><div class="label">Ganancia /kg vendido</div><div class="value money">${money(cf.profitPerKgSold)}</div><small>Precio venta − costo producido</small></div>
+    </div>
+
+    <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Cafetier</h3></div>
+    <div class="grid cards">
+      <div class="card metric accent"><div class="label">En la cuenta de Cafetier</div><div class="value money">${money(caf.cash)}</div><small>Dinero disponible</small></div>
+      <div class="card metric"><div class="label">Debe devolver a Itza</div><div class="value money">${money(caf.owesItza)}</div><small>Capital pendiente</small></div>
+      <div class="card metric"><div class="label">Dividendos de Cafetier</div><div class="value money">${money(caf.dividends)}</div><small>Caja − lo que se le debe a Itza</small></div>
+      <div class="card metric"><div class="label">Entró por ventas</div><div class="value money">${money(t.salesRevenue)}</div><small>Total cobrado</small></div>
+      <div class="card metric"><div class="label">Salió en compras</div><div class="value money">${money(t.purchasesTotal)}</div><small>Café + empaques + envío</small></div>
     </div>
 
     <div class="split" style="margin-top:14px">
       <div class="stack">
         <div class="card">
-          <div class="row between"><h3>Itza (socia)</h3><button class="btn ghost sm" onclick="App.setView('capital')">Capital</button></div>
+          <div class="row between"><h3>Inventario</h3><button class="btn ghost sm" onclick="App.setView('inventory')">Ver</button></div>
           <div class="kpi-strip">
-            <div><div class="muted tiny">Puso</div><div class="value money">${money(it.contributed)}</div></div>
-            <div><div class="muted tiny">Se le devolvió</div><div class="value money">${money(it.returned)}</div></div>
-            <div><div class="muted tiny">Falta pasarle</div><div class="value money">${money(it.pending)}</div></div>
+            <div><div class="muted tiny">Verde</div><div class="value">${kg(d.inventory.green)}</div></div>
+            <div><div class="muted tiny">Tostado</div><div class="value">${kg(d.inventory.roasted)}</div></div>
+            <div><div class="muted tiny">Empaquetado</div><div class="value">${kg(d.inventory.packaged)}</div></div>
           </div>
-          <div class="tiny muted" style="margin-top:6px">${it.pending > 0 ? `Falta pasarle ${money(it.pending)} desde la caja${it.cafetierToItza < it.pending ? ` (hoy alcanza para ${money(it.cafetierToItza)})` : " (la caja alcanza)"}.` : "El capital de Itza está totalmente devuelto."}</div>
         </div>
 
         <div class="card">
@@ -581,8 +588,8 @@ async function renderSalesDetail(id) {
   `;
 }
 
-function purchasesTableCard(title, rows, id) {
-  let totMonto = 0;
+function purchasesTableCard(title, rows, id, showKg) {
+  let totMonto = 0, totKg = 0;
   const body = rows.map(po => {
     const recibido = Number(po.received_green_kg || 0) > 0;
     const totalPO = Number(po.actual_cost || 0) > 0 ? Number(po.actual_cost || 0) : (Number(po.estimated_cost || 0) + Number(po.estimated_shipping_cost || 0));
@@ -590,6 +597,7 @@ function purchasesTableCard(title, rows, id) {
     const merca = Number(po.actual_cost || 0) > 0 ? (Number(po.actual_cost) - Number(po.actual_shipping_cost || 0)) : Number(po.estimated_cost || 0);
     const costoUnit = cantRef > 0 ? merca / cantRef : 0;
     totMonto += totalPO;
+    totKg += cantRef;
     return `
       <tr>
         <td>${esc((po.created_at || "").slice(0, 10))}</td>
@@ -610,7 +618,9 @@ function purchasesTableCard(title, rows, id) {
       <table class="table" id="${id}">
         <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Cantidad</th><th>Costo unit.</th><th>Monto total</th><th>Origen del dinero</th><th></th></tr></thead>
         <tbody>${body}</tbody>
-        ${rows.length ? `<tfoot><tr class="total-row"><td colspan="7">Total</td><td class="money">${money(totMonto)}</td><td></td><td></td></tr></tfoot>` : ""}
+        ${rows.length ? (showKg
+          ? `<tfoot><tr class="total-row"><td colspan="5">Total</td><td>${kg(totKg)}</td><td></td><td class="money">${money(totMonto)}</td><td></td><td></td></tr></tfoot>`
+          : `<tfoot><tr class="total-row"><td colspan="7">Total</td><td class="money">${money(totMonto)}</td><td></td><td></td></tr></tfoot>`) : ""}
       </table>
       ${rows.length ? "" : `<div class="empty">Sin órdenes en esta categoría.</div>`}
     </div>`;
@@ -629,8 +639,8 @@ async function renderPurchases() {
       <input class="search" style="max-width:280px" placeholder="Buscar OC o descripción" oninput="App.filterTable(this,'poWrap')" />
     </div>
     <div id="poWrap">
-      ${purchasesTableCard("Compras de café verde", verde, "poTableVerde")}
-      ${purchasesTableCard("Compras de empaques e insumos", otras, "poTableOtras")}
+      ${purchasesTableCard("Compras de café verde", verde, "poTableVerde", true)}
+      ${purchasesTableCard("Compras de empaques e insumos", otras, "poTableOtras", false)}
     </div>
   `;
 }
@@ -2471,7 +2481,7 @@ function newExpense() {
       <div class="field"><label>Categoría</label><select class="select" id="expCat">${expenseCategoryOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="expAmount" type="number" step="0.01" /></div>
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="expSource">${moneySourceOptions()}</select></div>
-      <div class="field"><label>Proveedor</label><input class="input" id="expSupplier" /></div>
+      <div class="field"><label>Proveedor</label>${supplierField("expSupplier")}</div>
       <div class="field"><label>Descripción</label><input class="input" id="expDesc" /></div>
     </div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="expNotes"></textarea></div>
@@ -2523,7 +2533,7 @@ async function editExpense(id) {
       <div class="field"><label>Categoría</label><select class="select" id="eeCat">${cats}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="eeAmount" type="number" step="0.01" value="${esc(e.amount || 0)}" /></div>
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="eeSource">${moneySourceOptions(currentSource)}</select></div>
-      <div class="field"><label>Proveedor</label><input class="input" id="eeSupplier" value="${esc(e.supplier || "")}" /></div>
+      <div class="field"><label>Proveedor</label>${supplierField("eeSupplier", e.supplier || "")}</div>
       <div class="field"><label>Descripción</label><input class="input" id="eeDesc" value="${esc(e.description || "")}" /></div>
     </div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="eeNotes">${esc(e.notes || "")}</textarea></div>
@@ -2787,7 +2797,6 @@ function newCatalogItem(table, label) {
   const back = state.view === "maestros" ? { ...state.params } : {};
   openModal(`Nuevo: ${label}`, `
     <div class="field"><label>Nombre</label><input class="input" id="catName" /></div>
-    ${table === "expense_categories" ? `<div class="field"><label>¿Es costo directo?</label><select class="select" id="catDirect"><option value="0">No</option><option value="1">Sí</option></select></div>` : ""}
   `, [{
     label: "Guardar",
     kind: "primary",
@@ -2796,7 +2805,6 @@ function newCatalogItem(table, label) {
         method: "POST",
         body: {
           name: val("catName"),
-          ...(table === "expense_categories" ? { is_direct_cost: Number(val("catDirect")) } : {})
         },
       });
       modal.remove();

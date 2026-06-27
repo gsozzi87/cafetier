@@ -309,6 +309,34 @@ api.get("/dashboard", c => {
     return { ...p, dividend_share: dividend, belongs: r2(Number(p.unrecovered || 0) + dividend) };
   });
   const cafetierBalance = r2(Number(position.accounts["Dinero Cafetier"] || 0));
+  // Café: costos y márgenes estimados (desde el inicio).
+  const salesAmount = Number(qVal("SELECT COALESCE(SUM(total_amount),0) AS v FROM sales_orders WHERE status != 'cancelado'") ?? 0);
+  const merma = estimatedLoss();
+  const avgBuyPerKg = kgPurchased > 0 ? r2(purchasesGreen / kgPurchased) : 0;
+  const avgSalePerKg = kgSold > 0 ? r2(salesAmount / kgSold) : 0;
+  // Valor unitario de cada empaque = costo promedio de compra por unidad.
+  const pkgUnitCost: Record<string, number> = {};
+  for (const r of qAll<any>("SELECT i.item_name AS name, COALESCE(SUM(pe.total_cost),0) AS cost, COALESCE(SUM(pe.quantity_kg),0) AS qty FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='supply' GROUP BY i.item_name")) {
+    pkgUnitCost[r.name] = Number(r.qty) > 0 ? Number(r.cost) / Number(r.qty) : 0;
+  }
+  let packagingValueUsed = 0;
+  for (const r of qAll<any>("SELECT item_name AS name, COALESCE(SUM(quantity),0) AS qty FROM sales_shipment_packaging GROUP BY item_name")) {
+    packagingValueUsed += Number(r.qty) * (pkgUnitCost[r.name] || 0);
+  }
+  const packagingPerKg = kgSold > 0 ? r2(packagingValueUsed / kgSold) : 0;
+  // 1 kg tostado necesita 1/(1-merma) kg verde, más el empaque por kg.
+  const greenPerRoastedKg = avgBuyPerKg / (1 - Math.min(0.95, merma / 100));
+  const costPerKgProduced = r2(greenPerRoastedKg + packagingPerKg);
+  const profitPerKgSold = r2(avgSalePerKg - costPerKgProduced);
+  const cafe = {
+    kgPurchased: r2(kgPurchased), kgSold: r2(kgSold), merma: r2(merma),
+    avgBuyPerKg, avgSalePerKg, packagingPerKg, costPerKgProduced, profitPerKgSold,
+  };
+  const cafetier = {
+    cash: cafetierBalance,
+    owesItza: r2(Number(itza.pending)),
+    dividends: r2(cafetierBalance - Number(itza.pending)),
+  };
   const openSales = Number(qVal("SELECT COUNT(*) AS v FROM sales_orders WHERE status NOT IN ('completado','cancelado')") ?? 0);
   const pendingPO = Number(qVal("SELECT COUNT(*) AS v FROM purchase_orders WHERE status IN ('sin_fondos','pendiente','parcial')") ?? 0);
   const partners = position.partners.map((p: any) => ({ ...p, div_available: p.dividends_available }));
@@ -320,6 +348,8 @@ api.get("/dashboard", c => {
     period,
     totals,
     itza,
+    cafe,
+    cafetier,
     settlement: position.settlement,
     finance: f,
     inv,
