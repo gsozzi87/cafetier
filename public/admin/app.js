@@ -421,7 +421,7 @@ function productsCard(master) {
     <div class="card">
       <div class="row between"><h3>Productos</h3><button class="btn secondary sm" onclick="App.newProduct()">+ Producto</button></div>
       <div class="small muted" style="margin-bottom:6px">Aparecen al vender (mostrador y mayoreo). El precio acá es el de lista; se puede editar en cada venta sin cambiar el de lista.</div>
-      ${(master.products || []).length ? (master.products || []).map(p => `<div class="item"><div class="row between"><strong>${esc(p.name)}</strong><button class="btn red sm" onclick="App.deleteProduct(${p.id})">Eliminar</button></div><div class="small muted">${esc(p.presentation || "")} · ${kg(p.unit_weight_kg)} · ${money(p.price)}</div></div>`).join("") : `<div class="empty">Sin productos.</div>`}
+      ${(master.products || []).length ? (master.products || []).map(p => `<div class="item"><div class="row between"><strong>${esc(p.name)}</strong><div class="line-actions">${editIcon(`App.editProduct(${p.id})`)}${delIcon(`App.deleteProduct(${p.id})`)}</div></div><div class="small muted">${esc(p.presentation || "")} · ${kg(p.unit_weight_kg)} · ${money(p.price)}</div></div>`).join("") : `<div class="empty">Sin productos.</div>`}
     </div>`;
 }
 
@@ -598,9 +598,11 @@ async function renderPurchases() {
 
     <div class="card">
       <table class="table" id="poTable">
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Kg</th><th>Mercancía est.</th><th>Envío est.</th><th>Origen del dinero</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Kg</th><th>Monto total</th><th>Origen del dinero</th><th></th></tr></thead>
         <tbody>
-          ${rows.map(po => `
+          ${rows.map(po => {
+            const totalPO = Number(po.actual_cost || 0) > 0 ? Number(po.actual_cost || 0) : (Number(po.estimated_cost || 0) + Number(po.estimated_shipping_cost || 0));
+            return `
             <tr>
               <td>${esc((po.created_at || "").slice(0, 10))}</td>
               <td><strong>${esc(po.po_no)}</strong></td>
@@ -608,11 +610,11 @@ async function renderPurchases() {
               <td>${esc(po.supplier || "—")}</td>
               <td>${statusBadge(po.status)}</td>
               <td>${kg(po.requested_green_kg)}</td>
-              <td class="money">${money(po.estimated_cost)}</td>
-              <td class="money">${money(po.estimated_shipping_cost || 0)}</td>
+              <td class="money">${money(totalPO)}<div class="tiny muted">${Number(po.actual_cost || 0) > 0 ? "real (con envío)" : "estimado (con envío)"}</div></td>
               <td>${po.paid_from ? esc(po.paid_from) : `<span class="muted">— sin recibir —</span>`}</td>
               <td><div class="line-actions">${["cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
-            </tr>`).join("")}
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
       ${rows.length ? "" : `<div class="empty">No hay órdenes de compra.</div>`}
@@ -711,7 +713,7 @@ async function renderCashbook() {
 
     <div class="card">
       <table class="table" id="cashbookTable">
-        <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Persona</th><th>Entrada</th><th>Salida</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Entrada</th><th>Salida</th><th></th></tr></thead>
         <tbody>
           ${data.movements.map(m => `
             <tr>
@@ -719,7 +721,6 @@ async function renderCashbook() {
               <td>${esc(m.type)}</td>
               <td>${esc(m.detail || "")}</td>
               <td>${esc(m.account || "")}</td>
-              <td>${esc(m.person || "")}</td>
               <td class="money">${m.signed_amount > 0 ? money(m.amount) : ""}</td>
               <td class="money">${m.signed_amount < 0 ? money(m.amount) : ""}</td>
               <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Editar</button><button class="btn red sm" onclick="App.deleteCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Borrar</button></div></td>
@@ -2599,6 +2600,44 @@ function newProduct() {
   }]);
 }
 
+function editProduct(id) {
+  const p = (state.master.products || []).find(x => Number(x.id) === Number(id));
+  if (!p) { toast("Producto no encontrado.", "error"); return; }
+  const opts = (list, sel) => `<option value="">-</option>${(list || []).map(o => `<option value="${o.id}" ${Number(sel) === Number(o.id) ? "selected" : ""}>${esc(o.name)}</option>`).join("")}`;
+  openModal("Editar producto", `
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input class="input" id="eprName" value="${esc(p.name || "")}" /></div>
+      <div class="field"><label>Presentación</label><input class="input" id="eprPresentation" value="${esc(p.presentation || "")}" placeholder="250g / 500g / 1kg / granel" /></div>
+      <div class="field"><label>Peso unitario kg</label><input class="input" id="eprWeight" type="number" step="0.01" value="${esc(p.unit_weight_kg || 0)}" /></div>
+      <div class="field"><label>Precio</label><input class="input" id="eprPrice" type="number" step="0.01" value="${esc(p.price || 0)}" /></div>
+      <div class="field"><label>Origen</label><select class="select" id="eprOrigin">${opts(state.master.origins, p.origin_id)}</select></div>
+      <div class="field"><label>Variedad</label><select class="select" id="eprVar">${opts(state.master.varieties, p.variety_id)}</select></div>
+      <div class="field"><label>Perfil</label><select class="select" id="eprProfile">${opts(state.master.roastProfiles, p.roast_profile_id)}</select></div>
+    </div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/products/${id}`, {
+        method: "PUT",
+        body: {
+          name: val("eprName"),
+          presentation: val("eprPresentation") || null,
+          unit_weight_kg: Number(val("eprWeight")),
+          price: Number(val("eprPrice")),
+          origin_id: val("eprOrigin") || null,
+          variety_id: val("eprVar") || null,
+          roast_profile_id: val("eprProfile") || null,
+        },
+      });
+      modal.remove();
+      await refreshMaster(true);
+      toast("Producto actualizado.", "ok");
+      setView("maestros", { mdTab: "productos" });
+    }
+  }]);
+}
+
 function deleteProduct(id) {
   if (!confirm("¿Eliminar producto?")) return;
   api(`/products/${id}`, { method: "DELETE" })
@@ -2786,6 +2825,7 @@ const App = {
   editClient,
   deleteClient,
   newProduct,
+  editProduct,
   deleteProduct,
   newCatalogItem,
   editCatalogItem,
