@@ -1059,10 +1059,14 @@ async function renderInventoryHistory() {
   document.getElementById("content").innerHTML = `
     ${inventoryHeader}
     ${inventoryTabs("history")}
-    <div class="notice ok" style="margin-bottom:14px">Historial de <strong>toda la bodega</strong> por fecha: entradas y salidas de todos los ítems. No es el stock actual (ese está en "Existencias actuales").</div>
+    <div class="row between" style="margin-bottom:12px">
+      <button class="btn primary" onclick="App.addInventoryMovement()">+ Movimiento</button>
+      <span class="pill">${moves.length} movimiento${moves.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="notice ok" style="margin-bottom:14px">Historial de <strong>toda la bodega</strong> por fecha. Podés agregar, editar o borrar movimientos: el stock se recalcula solo a partir de este historial.</div>
     <div class="card">
       <table class="table">
-        <thead><tr><th>Fecha</th><th>Ítem</th><th>Movimiento</th><th>Cantidad</th><th>Razón</th><th>Por</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Ítem</th><th>Movimiento</th><th>Cantidad</th><th>Razón</th><th>Por</th><th></th></tr></thead>
         <tbody>
           ${moves.map(m => `<tr>
             <td>${esc((m.created_at || "").slice(0, 10))}</td>
@@ -1071,6 +1075,7 @@ async function renderInventoryHistory() {
             <td>${sign[m.direction] || ""}${numFmt.format(m.quantity)} ${esc(m.unit || "")}</td>
             <td>${esc(m.reason || "")}</td>
             <td>${esc(m.registered_by || "")}</td>
+            <td><div class="line-actions">${editIcon(`App.editInventoryMovement(${m.id})`)}${delIcon(`App.deleteInventoryMovement(${m.id})`)}</div></td>
           </tr>`).join("")}
         </tbody>
       </table>
@@ -1398,10 +1403,11 @@ async function newWholesaleSale() {
 
 function openSale(id) { setView("salesDetail", { id }); }
 
-function addPayment(orderId) {
+async function addPayment(orderId) {
+  const { order } = await api(`/sales-orders/${orderId}`);
   openModal("Registrar pago", `
     <div class="form-grid">
-      <div class="field"><label>Fecha</label><input class="input" id="payDate" type="date" value="${todayStr()}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="payDate" type="date" value="${esc((order.created_at || todayStr()).slice(0, 10))}" /></div>
       <div class="field"><label>Monto</label><input class="input" id="payAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Método</label><select class="select" id="payMethod"><option>transferencia</option><option>efectivo</option><option>tarjeta</option></select></div>
       <div class="field"><label>Cuenta que recibió</label><select class="select" id="payAccount">${accountOptions("Axel")}</select></div>
@@ -1468,7 +1474,7 @@ async function addShipment(orderId) {
   const pending = Math.max(0, Number(order.total_weight_kg || 0) - shipped);
   openModal("Registrar envío", `
     <div class="form-grid">
-      <div class="field"><label>Fecha</label><input class="input" id="shipDate" type="date" value="${todayStr()}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="shipDate" type="date" value="${esc((order.created_at || todayStr()).slice(0, 10))}" /></div>
       <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="shipKg" type="number" step="0.01" value="${pending ? esc(pending) : ""}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
@@ -1670,7 +1676,7 @@ async function receivePurchase(poId) {
       <div class="field"><label>Gastos de envío</label><input class="input" id="rcvShipCost" type="number" step="0.01" value="${esc(estShip)}" /></div>
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="rcvSource">${moneySourceOptions()}</select></div>
       <div class="field"><label>Quién registra</label><select class="select" id="rcvBy">${personOptions()}</select></div>
-      <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${todayStr()}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${esc((po.created_at || todayStr()).slice(0, 10))}" /></div>
       <div class="field"><label>Proveedor</label>${supplierField("rcvSupplier", po.supplier || "")}</div>
     </div>
     <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Detalles del café (opcional)</summary>
@@ -2289,33 +2295,97 @@ function deleteInventoryCatalogItem(id) {
   api(`/inventory-catalog/${id}`, { method: "DELETE" }).then(async () => { await refreshMaster(true); toast("Ítem eliminado.", "ok"); setView("maestros", { mdTab: "items" }); }).catch(err => toast(err.message, "error"));
 }
 
+function movementTypeOptions(sel = "in") {
+  return [["in", "Entrada (suma)"], ["out", "Salida (resta)"], ["adjust", "Ajuste a cantidad exacta"]].map(([v, l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
+}
+
 function newInventoryMovement(itemId, itemName) {
   openModal(`Entrada / salida · ${itemName}`, `
     <p class="muted" style="margin-top:0">Registrá una <strong>entrada</strong> (compra/producción) o <strong>salida</strong> (venta/uso). Queda en el historial y ajusta el stock.</p>
     <div class="form-grid">
-      <div class="field"><label>Movimiento</label><select class="select" id="mvType"><option value="in">Entrada (suma)</option><option value="out">Salida (resta)</option><option value="adjust">Ajuste a cantidad exacta</option></select></div>
+      <div class="field"><label>Movimiento</label><select class="select" id="mvType">${movementTypeOptions()}</select></div>
       <div class="field"><label>Cantidad</label><input class="input" id="mvQty" type="number" step="0.01" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="mvDate" type="date" value="${todayStr()}" /></div>
+      <div class="field"><label>Registrado por</label><select class="select" id="mvBy">${personOptions()}</select></div>
     </div>
     <div class="field"><label>Razón</label><input class="input" id="mvReason" /></div>
-    <div class="field"><label>Registrado por</label><select class="select" id="mvBy">${personOptions()}</select></div>
   `, [{
     label: "Registrar",
     kind: "primary",
     onClick: async modal => {
       await api(`/inventory/${itemId}/movements`, {
         method: "POST",
-        body: {
-          direction: val("mvType"),
-          quantity: Number(val("mvQty")),
-          reason: val("mvReason") || "Movimiento manual",
-          registered_by: val("mvBy"),
-        },
+        body: { direction: val("mvType"), quantity: Number(val("mvQty")), date: val("mvDate"), reason: val("mvReason") || "Movimiento manual", registered_by: val("mvBy") },
       });
       modal.remove();
       toast("Movimiento guardado.", "ok");
       setView("inventory");
     }
   }]);
+}
+
+async function addInventoryMovement() {
+  const items = await api("/inventory");
+  if (!items.length) { toast("Primero cargá algún ítem al inventario.", "error"); return; }
+  openModal("Nuevo movimiento", `
+    <p class="muted" style="margin-top:0">Elegí el ítem y el movimiento. El stock se recalcula a partir del historial.</p>
+    <div class="form-grid">
+      <div class="field"><label>Ítem</label><select class="select" id="amItem">${items.map(i => `<option value="${i.id}">${esc(i.item_name)} · ${numFmt.format(i.quantity)} ${esc(i.unit || "")}</option>`).join("")}</select></div>
+      <div class="field"><label>Movimiento</label><select class="select" id="amType">${movementTypeOptions()}</select></div>
+      <div class="field"><label>Cantidad</label><input class="input" id="amQty" type="number" step="0.01" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="amDate" type="date" value="${todayStr()}" /></div>
+      <div class="field"><label>Registrado por</label><select class="select" id="amBy">${personOptions()}</select></div>
+    </div>
+    <div class="field"><label>Razón</label><input class="input" id="amReason" /></div>
+  `, [{
+    label: "Agregar",
+    kind: "primary",
+    onClick: async modal => {
+      await api("/inventory-movements", {
+        method: "POST",
+        body: { item_id: Number(val("amItem")), direction: val("amType"), quantity: Number(val("amQty")), date: val("amDate"), reason: val("amReason") || "Movimiento manual", registered_by: val("amBy") },
+      });
+      modal.remove();
+      toast("Movimiento agregado.", "ok");
+      setView("inventory", { invTab: "history" });
+    }
+  }]);
+}
+
+async function editInventoryMovement(id) {
+  const moves = await api("/inventory-movements");
+  const m = moves.find(x => Number(x.id) === Number(id));
+  if (!m) { toast("Movimiento no encontrado.", "error"); return; }
+  const ppl = parseListSetting("individual_people", ["Itza", "Axel"]);
+  if (m.registered_by && !ppl.includes(m.registered_by)) ppl.unshift(m.registered_by);
+  openModal(`Editar movimiento · ${m.item_name}`, `
+    <div class="form-grid">
+      <div class="field"><label>Movimiento</label><select class="select" id="emType">${movementTypeOptions(m.direction)}</select></div>
+      <div class="field"><label>Cantidad</label><input class="input" id="emQty" type="number" step="0.01" value="${esc(m.quantity)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="emDate" type="date" value="${esc((m.created_at || todayStr()).slice(0, 10))}" /></div>
+      <div class="field"><label>Registrado por</label><select class="select" id="emBy">${ppl.map(n => `<option value="${esc(n)}" ${n === m.registered_by ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label>Razón</label><input class="input" id="emReason" value="${esc(m.reason || "")}" /></div>
+  `, [{
+    label: "Guardar cambios",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/inventory-movements/${id}`, {
+        method: "PUT",
+        body: { direction: val("emType"), quantity: Number(val("emQty")), date: val("emDate"), reason: val("emReason") || "Movimiento manual", registered_by: val("emBy") },
+      });
+      modal.remove();
+      toast("Movimiento actualizado.", "ok");
+      setView("inventory", { invTab: "history" });
+    }
+  }]);
+}
+
+function deleteInventoryMovement(id) {
+  if (!confirm("¿Borrar este movimiento? El stock se recalcula.")) return;
+  api(`/inventory-movements/${id}`, { method: "DELETE" })
+    .then(() => { toast("Movimiento borrado.", "ok"); setView("inventory", { invTab: "history" }); })
+    .catch(err => toast(err.message, "error"));
 }
 
 function deleteInventoryItem(id) {
@@ -2849,6 +2919,9 @@ const App = {
   editInventoryCatalogItem,
   deleteInventoryCatalogItem,
   newInventoryMovement,
+  addInventoryMovement,
+  editInventoryMovement,
+  deleteInventoryMovement,
   editInventoryItem,
   deleteInventoryItem,
   newExpense,
