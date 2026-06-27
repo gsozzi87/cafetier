@@ -148,6 +148,7 @@ function openModal(title, html, actions = []) {
   `;
   back.appendChild(modal);
   document.body.appendChild(back);
+  decorateTables(modal);
   modal.querySelector("#closeModalBtn").onclick = () => back.remove();
   back.addEventListener("click", e => { if (e.target === back) back.remove(); });
 
@@ -168,9 +169,23 @@ function openModal(title, html, actions = []) {
   return back;
 }
 
+// On phones the tables render as stacked cards (CSS), so each cell needs its column label.
+function decorateTables(root) {
+  (root || document).querySelectorAll("table.table").forEach(tbl => {
+    const heads = [...tbl.querySelectorAll("thead th")].map(th => th.textContent.trim());
+    if (!heads.length) return;
+    tbl.querySelectorAll("tbody tr").forEach(tr => {
+      [...tr.children].forEach((td, i) => {
+        if (heads[i] != null) td.setAttribute("data-label", heads[i]);
+      });
+    });
+  });
+}
+
 function setView(view, params = {}) {
   state.view = view;
   state.params = params;
+  document.body.classList.remove("nav-open");
   document.getElementById("pageTitle").textContent = VIEWS[view] || "CAFETIER";
   document.querySelectorAll(".nav-item").forEach(node => {
     node.classList.toggle("active", node.dataset.view === (view === "salesDetail" ? "sales" : view === "purchaseDetail" ? "purchases" : view === "roastingDetail" ? "roasting" : view));
@@ -2874,11 +2889,17 @@ window.App = App;
 document.querySelectorAll(".nav-item").forEach(node => {
   node.addEventListener("click", () => setView(node.dataset.view));
 });
+// Mobile drawer nav.
+document.getElementById("menuBtn")?.addEventListener("click", () => document.body.classList.toggle("nav-open"));
+document.getElementById("navBackdrop")?.addEventListener("click", () => document.body.classList.remove("nav-open"));
 // Ordenar cualquier tabla al hacer clic en el encabezado de columna (asc/desc).
-document.getElementById("content").addEventListener("click", e => {
+const contentEl = document.getElementById("content");
+contentEl.addEventListener("click", e => {
   const th = e.target.closest("table.table thead th");
   if (th) sortTableByColumn(th);
 });
+// Keep table cells labelled for the mobile card layout after every render.
+new MutationObserver(() => decorateTables(contentEl)).observe(contentEl, { childList: true, subtree: true });
 document.getElementById("reloadBtn").addEventListener("click", async () => {
   state.master = null;
   await refreshMaster(true);
