@@ -1272,13 +1272,14 @@ function fundingSourceOptions() {
 function expenseCategoryOptions(selected = "") {
   return (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${Number(c.id) === Number(selected) ? "selected" : ""}>${esc(c.name)}</option>`).join("");
 }
+// Mostrador: el precio viene del producto pero se puede editar en cada venta (no cambia el de lista).
 function productQtyRows() {
   return (state.master.products || []).map(p => `
     <tr>
       <td>${esc(p.name)}</td>
       <td>${esc(p.presentation || "")}</td>
       <td>${kg(p.unit_weight_kg)}</td>
-      <td>${money(p.price)}</td>
+      <td><input class="input" style="max-width:110px" type="number" min="0" step="0.01" value="${esc(p.price)}" data-product-price data-product-id="${p.id}" /></td>
       <td><input class="input" style="max-width:90px" type="number" min="0" step="1" data-product-id="${p.id}" data-product-qty /></td>
     </tr>`).join("");
 }
@@ -1340,6 +1341,8 @@ async function newRetailSale() {
         const qty = Number(input.value || 0);
         if (qty > 0) {
           const prod = state.master.products.find(p => p.id === Number(input.dataset.productId));
+          const priceEl = document.querySelector(`[data-product-price][data-product-id="${prod.id}"]`);
+          const price = Number(priceEl?.value ?? prod.price);
           lines.push({
             product_id: prod.id,
             description: prod.name,
@@ -1347,7 +1350,7 @@ async function newRetailSale() {
             quantity: qty,
             unit: "unit",
             unit_weight_kg: Number(prod.unit_weight_kg),
-            unit_price: Number(prod.price),
+            unit_price: price,
           });
         }
       });
