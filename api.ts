@@ -390,7 +390,15 @@ for (const table of ["roast_profiles", "origins", "varieties", "expense_categori
       return c.json(ok(qGet(`SELECT * FROM ${table} WHERE id=?`, Number(r.lastInsertRowid))));
     } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe")); throw e; }
   });
-  api.put(`/${table}/:id`, async c => { const b = await body(c); qRun(`UPDATE ${table} SET name=? WHERE id=?`, b.name, c.req.param("id")); return c.json(ok(true)); });
+  api.put(`/${table}/:id`, async c => {
+    const id = Number(c.req.param("id"));
+    const b = await body(c); req(b.name, "Nombre obligatorio");
+    const old = qVal<string>(`SELECT name FROM ${table} WHERE id=?`, id);
+    qRun(`UPDATE ${table} SET name=? WHERE id=?`, b.name, id);
+    // Las paqueterías se referencian por nombre en los envíos: renombrar también ahí.
+    if (table === "carriers" && old && old !== b.name) qRun("UPDATE sales_shipments SET carrier=? WHERE carrier=?", b.name, old);
+    return c.json(ok(true));
+  });
   api.delete(`/${table}/:id`, c => { qRun(`UPDATE ${table} SET active=0 WHERE id=?`, c.req.param("id")); return c.json(ok(true)); });
 }
 
@@ -404,10 +412,19 @@ api.post("/suppliers", async c => {
   } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un proveedor con ese nombre")); throw e; }
 });
 api.put("/suppliers/:id", async c => {
+  const id = Number(c.req.param("id"));
   const b = await body(c); req(b.name, "Nombre obligatorio");
+  const old = qVal<string>("SELECT name FROM suppliers WHERE id=?", id);
   try {
-    qRun("UPDATE suppliers SET name=?,contact_name=?,phone=?,email=?,address=?,notes=? WHERE id=?", b.name, b.contact_name || null, b.phone || null, b.email || null, b.address || null, b.notes || null, c.req.param("id"));
-    return c.json(ok(qGet("SELECT * FROM suppliers WHERE id=?", c.req.param("id"))));
+    qRun("UPDATE suppliers SET name=?,contact_name=?,phone=?,email=?,address=?,notes=? WHERE id=?", b.name, b.contact_name || null, b.phone || null, b.email || null, b.address || null, b.notes || null, id);
+    // Renombrar en toda la base donde el proveedor aparece por nombre.
+    if (old && old !== b.name) {
+      qRun("UPDATE purchase_orders SET supplier=? WHERE supplier=?", b.name, old);
+      qRun("UPDATE purchase_entries SET supplier=? WHERE supplier=?", b.name, old);
+      qRun("UPDATE expenses SET supplier=? WHERE supplier=?", b.name, old);
+      qRun("UPDATE inventory_catalog SET supplier=? WHERE supplier=?", b.name, old);
+    }
+    return c.json(ok(qGet("SELECT * FROM suppliers WHERE id=?", id)));
   } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un proveedor con ese nombre")); throw e; }
 });
 api.delete("/suppliers/:id", c => { qRun("UPDATE suppliers SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
@@ -467,7 +484,15 @@ api.delete("/clients/:id", c => { qRun("UPDATE clients SET active=0 WHERE id=?",
 // ===== PRODUCTS =====
 api.get("/products", c => c.json(ok(qAll("SELECT p.*, o.name AS origin_name, v.name AS variety_name, rp.name AS roast_name FROM products p LEFT JOIN origins o ON o.id=p.origin_id LEFT JOIN varieties v ON v.id=p.variety_id LEFT JOIN roast_profiles rp ON rp.id=p.roast_profile_id WHERE p.active=1 ORDER BY p.name"))));
 api.post("/products", async c => { const b = await body(c); req(b.name, "Nombre obligatorio"); const r = qRun("INSERT INTO products(name,origin_id,variety_id,roast_profile_id,presentation,unit_weight_kg,price,active) VALUES (?,?,?,?,?,?,?,1)", b.name, b.origin_id||null, b.variety_id||null, b.roast_profile_id||null, b.presentation||null, num(b.unit_weight_kg,1), num(b.price)); return c.json(ok(qGet("SELECT * FROM products WHERE id=?", Number(r.lastInsertRowid)))); });
-api.put("/products/:id", async c => { const b = await body(c); qRun("UPDATE products SET name=?,origin_id=?,variety_id=?,roast_profile_id=?,presentation=?,unit_weight_kg=?,price=? WHERE id=?", b.name, b.origin_id||null, b.variety_id||null, b.roast_profile_id||null, b.presentation||null, num(b.unit_weight_kg,1), num(b.price), c.req.param("id")); return c.json(ok(true)); });
+api.put("/products/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const b = await body(c); req(b.name, "Nombre obligatorio");
+  const old = qVal<string>("SELECT name FROM products WHERE id=?", id);
+  qRun("UPDATE products SET name=?,origin_id=?,variety_id=?,roast_profile_id=?,presentation=?,unit_weight_kg=?,price=? WHERE id=?", b.name, b.origin_id||null, b.variety_id||null, b.roast_profile_id||null, b.presentation||null, num(b.unit_weight_kg,1), num(b.price), id);
+  // Renombrar el producto en las líneas de venta (snapshot por nombre) sin tocar precios históricos.
+  if (old && old !== b.name) qRun("UPDATE sales_order_items SET description=? WHERE product_id=? AND description=?", b.name, id, old);
+  return c.json(ok(true));
+});
 api.delete("/products/:id", c => { qRun("UPDATE products SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== INVENTORY CATALOG (items definidos) =====
@@ -488,7 +513,20 @@ api.post("/inventory-catalog", async c => {
     return c.json(ok(qGet("SELECT * FROM inventory_catalog WHERE id=?", Number(r.lastInsertRowid))));
   } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un ítem con ese nombre")); throw e; }
 });
-api.put("/inventory-catalog/:id", async c => { const b = await body(c); ensureSupplier(b.supplier); qRun("UPDATE inventory_catalog SET name=?,item_type=?,category=?,unit=?,supplier=?,min_stock=? WHERE id=?", b.name, catalogTypeFromCategory(b.category, b.item_type), b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock), c.req.param("id")); return c.json(ok(true)); });
+api.put("/inventory-catalog/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const b = await body(c); req(b.name, "Nombre obligatorio");
+  ensureSupplier(b.supplier);
+  const old = qVal<string>("SELECT name FROM inventory_catalog WHERE id=?", id);
+  qRun("UPDATE inventory_catalog SET name=?,item_type=?,category=?,unit=?,supplier=?,min_stock=? WHERE id=?", b.name, catalogTypeFromCategory(b.category, b.item_type), b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock), id);
+  // Renombrar el ítem en toda la base donde aparece por nombre.
+  if (old && old !== b.name) {
+    qRun("UPDATE inventory_items SET item_name=? WHERE item_name=?", b.name, old);
+    qRun("UPDATE sales_shipment_packaging SET item_name=? WHERE item_name=?", b.name, old);
+    qRun("UPDATE purchase_orders SET description=? WHERE description=?", b.name, old);
+  }
+  return c.json(ok(true));
+});
 api.delete("/inventory-catalog/:id", c => { qRun("UPDATE inventory_catalog SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== INVENTORY =====

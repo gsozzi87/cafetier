@@ -646,7 +646,7 @@ async function renderPurchaseDetail(id) {
     </div>
 
     <div class="grid cards">
-      <div class="card metric"><div class="label">Kg solicitados</div><div class="value">${kg(po.requested_green_kg)}</div><small>Recibidos ${kg(po.received_green_kg)}</small></div>
+      <div class="card metric"><div class="label">Cantidad solicitada</div><div class="value">${numFmt.format(po.requested_green_kg)} ${esc(po.unit || "kg")}</div><small>Recibido ${numFmt.format(po.received_green_kg)} ${esc(po.unit || "kg")}</small></div>
       <div class="card metric"><div class="label">Mercancía estimada</div><div class="value money">${money(po.estimated_cost)}</div><small>Real mercancía ${money((po.actual_cost || 0) - (po.actual_shipping_cost || 0))}</small></div>
       <div class="card metric"><div class="label">Proveedor</div><div class="value" style="font-size:22px">${esc(po.supplier || "Sin proveedor")}</div><small>${esc(po.source_type)}</small></div>
       <div class="card metric"><div class="label">Envío compra</div><div class="value money">${money(po.actual_shipping_cost || po.estimated_shipping_cost || 0)}</div><small>Est. ${money(po.estimated_shipping_cost || 0)} · Real ${money(po.actual_shipping_cost || 0)}</small></div>
