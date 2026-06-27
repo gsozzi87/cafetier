@@ -18,7 +18,6 @@ const VIEWS = {
   roastingDetail: "Detalle de sesión",
   inventory: "Inventario",
   expenses: "Gastos",
-  machine: "Máquina",
   config: "Configuración",
 };
 
@@ -210,7 +209,6 @@ async function render() {
     if (state.view === "roastingDetail") return await renderRoastingDetail(state.params.id);
     if (state.view === "inventory") return await renderInventory();
     if (state.view === "expenses") return await renderExpenses();
-    if (state.view === "machine") return await renderMachine();
     if (state.view === "config") return await renderConfig();
   } catch (err) {
     renderError(err);
@@ -1062,33 +1060,6 @@ async function renderExpenses() {
 function applyExpenseMonth() { setView("expenses", { expMonth: val("expMonth") }); }
 function toggleAllExpenses() { setView("expenses", state.params.expMonth ? {} : { expMonth: new Date().toISOString().slice(0, 7) }); }
 
-async function renderMachine() {
-  const rows = await api("/machine-logs");
-  document.getElementById("content").innerHTML = `
-    <div class="row between" style="margin-bottom:12px">
-      <div class="row wrap">
-        <button class="btn primary" onclick="App.newMachineLog()">Nuevo registro</button>
-      </div>
-    </div>
-    <div class="card">
-      <table class="table">
-        <thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Costo</th><th></th></tr></thead>
-        <tbody>
-          ${rows.map(r => `
-            <tr>
-              <td>${esc(r.log_date)}</td>
-              <td>${esc(r.log_type)}</td>
-              <td>${esc(r.description)}</td>
-              <td class="money">${money(r.cost)}</td>
-              <td><div class="line-actions">${editIcon(`App.editMachineLog(${r.id})`)}${delIcon(`App.deleteMachineLog(${r.id})`)}</div></td>
-            </tr>`).join("")}
-        </tbody>
-      </table>
-      ${rows.length ? "" : `<div class="empty">Sin bitácora.</div>`}
-    </div>
-  `;
-}
-
 async function renderConfig() {
   const master = await refreshMaster(true);
   const settings = master.settings || {};
@@ -1102,8 +1073,6 @@ async function renderConfig() {
             <div class="field"><label>Nombre del negocio</label><input class="input" id="cfgBusiness" value="${esc(settings.business_name || "CAFETIER")}" /></div>
             <div class="field"><label>Slogan</label><input class="input" id="cfgTagline" value="${esc(settings.business_tagline || "Culto por el café")}" /></div>
             <div class="field"><label>Merma estándar %</label><input class="input" id="cfgLoss" type="number" step="0.01" value="${esc(settings.default_loss_pct || "20")}" /><small class="muted">Merma estimada actual (últimos tuestes): <strong>${loss.estimatedLossPct != null ? pct(loss.estimatedLossPct) : "—"}</strong></small></div>
-            <div class="field"><label>kW máquina</label><input class="input" id="cfgKw" type="number" step="0.01" value="${esc(settings.machine_kw || "0")}" /></div>
-            <div class="field"><label>$ por kWh</label><input class="input" id="cfgKwh" type="number" step="0.01" value="${esc(settings.kwh_price || "0")}" /></div>
             <div class="field"><label>Costo verde/kg por defecto</label><input class="input" id="cfgGreen" type="number" step="0.01" value="${esc(settings.default_green_cost_per_kg || "0")}" /></div>
             <div class="field"><label>Claude API key</label><input class="input" id="cfgClaude" value="${esc(settings.claude_api_key || "")}" placeholder="sk-ant-..." /></div>
           </div>
@@ -2377,7 +2346,7 @@ async function editExpense(id) {
   const all = await api("/expenses");
   const e = all.find(x => Number(x.id) === Number(id));
   if (!e) { toast("Gasto no encontrado.", "error"); return; }
-  if (e.auto_generated) { toast("Este gasto se generó automáticamente; editá su origen (envío/compra/máquina).", "error"); return; }
+  if (e.auto_generated) { toast("Este gasto se generó automáticamente; editá su origen (envío o compra).", "error"); return; }
   const sel = (cur, v) => String(cur) === String(v) ? "selected" : "";
   const cats = (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${sel(e.category_id, c.id)}>${esc(c.name)}</option>`).join("");
   const currentSource = e.from_cashbox ? "Dinero Cafetier" : (e.paid_from_account || "Axel");
@@ -2419,79 +2388,6 @@ async function editExpense(id) {
   }]);
 }
 
-function newMachineLog() {
-  openModal("Nuevo registro de máquina", `
-    <div class="notice warn">Si el registro tiene costo, se generará también el gasto correspondiente. Si la fuente es un socio, primero se registra el aporte de capital.</div>
-    <div class="form-grid">
-      <div class="field"><label>Fecha</label><input class="input" id="mlDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
-      <div class="field"><label>Tipo</label><select class="select" id="mlType"><option value="mantenimiento">mantenimiento</option><option value="mejora">mejora</option><option value="pieza">pieza</option><option value="incidencia">incidencia</option></select></div>
-      <div class="field"><label>Costo</label><input class="input" id="mlCost" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Registrado por</label><select class="select" id="mlBy">${personOptions()}</select></div>
-      <div class="field"><label>Fuente del dinero</label><select class="select" id="mlFunding">${fundingSourceOptions()}</select></div>
-      <div class="field"><label>Cuenta / socio</label><select class="select" id="mlAccount">${accountOptions("Axel")}</select></div>
-    </div>
-    <div class="field"><label>Descripción</label><textarea class="textarea" id="mlDesc"></textarea></div>
-  `, [{
-    label: "Guardar",
-    kind: "primary",
-    onClick: async modal => {
-      await api("/machine-logs", {
-        method: "POST",
-        body: {
-          log_date: val("mlDate"),
-          log_type: val("mlType"),
-          cost: Number(val("mlCost")),
-          registered_by: val("mlBy"),
-          funding_source: val("mlFunding"),
-          paid_from_account: val("mlAccount"),
-          partner_name: val("mlAccount"),
-          description: val("mlDesc"),
-        },
-      });
-      modal.remove();
-      toast("Registro guardado.", "ok");
-      setView("machine");
-    }
-  }]);
-}
-
-function deleteMachineLog(id) {
-  if (!confirm("¿Eliminar este registro?")) return;
-  api(`/machine-logs/${id}`, { method: "DELETE" })
-    .then(() => { toast("Registro eliminado.", "ok"); setView("machine"); })
-    .catch(err => toast(err.message, "error"));
-}
-
-async function editMachineLog(id) {
-  const all = await api("/machine-logs");
-  const m = all.find(x => Number(x.id) === Number(id));
-  if (!m) { toast("Registro no encontrado.", "error"); return; }
-  const types = ["mantenimiento", "mejora", "pieza", "incidencia"];
-  const ppl = parseListSetting("individual_people", ["Itza", "Axel"]);
-  if (m.registered_by && !ppl.includes(m.registered_by)) ppl.unshift(m.registered_by);
-  openModal("Editar registro de máquina", `
-    <div class="form-grid">
-      <div class="field"><label>Fecha</label><input class="input" id="emlDate" type="date" value="${esc((m.log_date || "").slice(0, 10))}" /></div>
-      <div class="field"><label>Tipo</label><select class="select" id="emlType">${types.map(t => `<option value="${t}" ${t === m.log_type ? "selected" : ""}>${t}</option>`).join("")}</select></div>
-      <div class="field"><label>Costo</label><input class="input" id="emlCost" type="number" step="0.01" value="${esc(m.cost || 0)}" /></div>
-      <div class="field"><label>Registrado por</label><select class="select" id="emlBy">${ppl.map(n => `<option value="${esc(n)}" ${n === m.registered_by ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
-    </div>
-    <div class="field"><label>Descripción</label><textarea class="textarea" id="emlDesc">${esc(m.description || "")}</textarea></div>
-    ${m.expense_id ? `<div class="notice warn">Editar acá no cambia el gasto ya generado por este registro.</div>` : ""}
-  `, [{
-    label: "Guardar cambios",
-    kind: "primary",
-    onClick: async modal => {
-      await api(`/machine-logs/${id}`, {
-        method: "PUT",
-        body: { log_date: val("emlDate"), log_type: val("emlType"), description: val("emlDesc"), cost: Number(val("emlCost")), registered_by: val("emlBy") },
-      });
-      modal.remove();
-      toast("Registro actualizado.", "ok");
-      setView("machine");
-    }
-  }]);
-}
 
 async function saveSettings() {
   await api("/settings", {
@@ -2500,8 +2396,6 @@ async function saveSettings() {
       business_name: val("cfgBusiness"),
       business_tagline: val("cfgTagline"),
       default_loss_pct: val("cfgLoss"),
-      machine_kw: val("cfgKw"),
-      kwh_price: val("cfgKwh"),
       default_green_cost_per_kg: val("cfgGreen"),
       claude_api_key: val("cfgClaude"),
     },
@@ -2855,9 +2749,6 @@ const App = {
   newExpense,
   editExpense,
   deleteExpense,
-  newMachineLog,
-  editMachineLog,
-  deleteMachineLog,
   openResetModal,
   saveSettings,
   addRoastOperator,

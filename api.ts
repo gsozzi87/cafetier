@@ -237,8 +237,6 @@ api.get("/dashboard", c => {
   const avgLoss = Number(qVal("SELECT COALESCE(AVG(rb.loss_pct),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=? AND rb.loss_pct IS NOT NULL", month) ?? 0);
   const openSales = Number(qVal("SELECT COUNT(*) AS v FROM sales_orders WHERE status NOT IN ('completado','cancelado')") ?? 0);
   const pendingPO = Number(qVal("SELECT COUNT(*) AS v FROM purchase_orders WHERE status IN ('sin_fondos','pendiente','parcial')") ?? 0);
-  const mkw = getNum("machine_kw"); const kwp = getNum("kwh_price");
-  const elecCost = r2(mkw * kwp * (minMonth / 60));
   const partners = position.partners.map((p: any) => ({ ...p, div_available: p.dividends_available }));
   const lastSales = qAll("SELECT so.*, c.name AS client_name, COALESCE((SELECT SUM(amount) FROM sales_payments WHERE order_id=so.id),0) AS paid_amount, COALESCE((SELECT SUM(weight_kg) FROM sales_shipments WHERE order_id=so.id),0) AS shipped_kg FROM sales_orders so LEFT JOIN clients c ON c.id=so.client_id ORDER BY so.id DESC LIMIT 8");
   const lastPO = qAll<any>("SELECT * FROM purchase_orders ORDER BY id DESC LIMIT 8").map(purchaseOrderView);
@@ -261,7 +259,6 @@ api.get("/dashboard", c => {
     pendingPO,
     pendingPurchaseOrders: pendingPO,
     openCapitalRequests,
-    elecCost,
     partners,
     partnerBreakdown: partners,
     accounts: position.accounts,
@@ -1151,32 +1148,6 @@ api.get("/uploads/:name", c => {
   const abs = path.join(UPLOAD_DIR, c.req.param("name"));
   if (!fs.existsSync(abs)) return c.json(fail("No encontrado"), 404);
   return new Response(Bun.file(abs));
-});
-
-// ===== MACHINE LOGS =====
-api.get("/machine-logs", c => c.json(ok(qAll("SELECT * FROM machine_logs ORDER BY log_date DESC, id DESC"))));
-api.post("/machine-logs", async c => {
-  const b = await body(c); req(b.log_date, "Fecha obligatoria"); req(b.log_type, "Tipo obligatorio"); req(b.description, "Descripción obligatoria");
-  const cost = r2(num(b.cost));
-  const funding = expenseFunding(b);
-  const create = tx(() => {
-    // Sin bloqueo por fondos: la cuenta puede quedar en negativo.
-    if (cost > 0) registerDirectFunding(funding.partner, cost, b.log_date, `Máquina pagada por ${funding.partner}: ${b.description}`, funding.partner);
-    const r = qRun("INSERT INTO machine_logs(log_date,log_type,description,cost,registered_by,expense_id,created_at) VALUES (?,?,?,?,?,NULL,?)", b.log_date, b.log_type, b.description, cost, b.registered_by||null, now());
-    const logId = Number(r.lastInsertRowid);
-    if (cost > 0) {
-      const expId = autoExpense("Mantenimiento", cost, `Máquina · ${b.log_type} · ${b.description}`, funding.paidBy || b.registered_by || "Dinero Cafetier", "machine_log", logId, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount);
-      qRun("UPDATE machine_logs SET expense_id=? WHERE id=?", expId, logId);
-    }
-    return qGet("SELECT * FROM machine_logs WHERE id=?", logId);
-  });
-  return c.json(ok(create()));
-});
-api.put("/machine-logs/:id", async c => { const b = await body(c); qRun("UPDATE machine_logs SET log_date=?,log_type=?,description=?,cost=?,registered_by=? WHERE id=?", b.log_date, b.log_type, b.description, r2(num(b.cost)), b.registered_by, c.req.param("id")); return c.json(ok(true)); });
-api.delete("/machine-logs/:id", c => {
-  const row = qGet<any>("SELECT * FROM machine_logs WHERE id=?", c.req.param("id"));
-  if (row?.expense_id) qRun("DELETE FROM expenses WHERE id=?", row.expense_id);
-  qRun("DELETE FROM machine_logs WHERE id=?", c.req.param("id")); return c.json(ok(true));
 });
 
 // ===== ADMIN =====
