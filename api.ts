@@ -273,12 +273,15 @@ api.get("/dashboard", c => {
     profitPerRoastedKg: roasted > 0 ? r2(periodProfit / roasted) : 0,
   };
   // Totales desde el inicio (no dependen del mes elegido).
-  const kgPurchased = Number(qVal("SELECT COALESCE(SUM(pe.quantity_kg),0) AS v FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='green_coffee'") ?? 0);
+  // Compras desde purchase_entries (la fuente real, no depende de cómo se categorizó el gasto).
+  const peAll = qGet<any>("SELECT COALESCE(SUM(total_cost),0) AS cost, COALESCE(SUM(shipping_cost),0) AS ship FROM purchase_entries");
+  const peGreen = qGet<any>("SELECT COALESCE(SUM(pe.total_cost),0) AS cost, COALESCE(SUM(pe.quantity_kg),0) AS qty FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='green_coffee'");
+  const kgPurchased = Number(peGreen?.qty || 0);
   const kgSold = Number(qVal("SELECT COALESCE(SUM(total_weight_kg),0) AS v FROM sales_orders WHERE status != 'cancelado'") ?? 0);
-  const purchasesMerch = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE ref_type='purchase_entry'") ?? 0);
-  const purchasesGreen = Number(qVal("SELECT COALESCE(SUM(e.amount),0) AS v FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE e.ref_type='purchase_entry' AND ec.name='Café verde'") ?? 0);
+  const purchasesMerch = Number(peAll?.cost || 0);
+  const purchasesGreen = Number(peGreen?.cost || 0);
   const purchasesPackaging = r2(purchasesMerch - purchasesGreen); // empaques y consumibles
-  const purchasesShipping = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE ref_type='purchase_entry_ship'") ?? 0);
+  const purchasesShipping = Number(peAll?.ship || 0);
   const purchasesTotal = r2(purchasesMerch + purchasesShipping);
   const expensesAll = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM expenses") ?? 0);
   const expensesOperating = r2(expensesAll - purchasesTotal); // gastos que no son compras
@@ -334,7 +337,12 @@ api.get("/dashboard", c => {
   };
   const cafetier = {
     cash: cafetierBalance,
-    owesItza: r2(Number(itza.pending)),
+    revenue: r2(f.revenue),                       // cobrado por ventas
+    spent: r2(expensesAll),                        // salió en gastos y compras
+    profit: r2(f.revenue - expensesAll),           // ganancia de Cafetier
+    itzaIn: r2(Number(itza.contributed)),          // lo que puso Itza
+    itzaReturned: r2(Number(itza.returned)),       // lo que se le transfirió
+    owesItza: r2(Number(itza.pending)),            // lo que se le debe
     dividends: r2(cafetierBalance - Number(itza.pending)),
   };
   const openSales = Number(qVal("SELECT COUNT(*) AS v FROM sales_orders WHERE status NOT IN ('completado','cancelado')") ?? 0);
@@ -945,6 +953,37 @@ api.delete("/sales-shipments/:id", c => {
     rev(); recalcSO(row.order_id);
   }
   return c.json(ok(true));
+});
+
+// Empaques (y envío) de una venta de mostrador: se pueden editar después de creada la venta.
+// El café ya se descontó en la venta, así que el "envío" va con peso 0: solo empaques + costo.
+api.post("/sales-orders/:id/packaging", async c => {
+  const orderId = Number(c.req.param("id"));
+  const order = qGet<any>("SELECT * FROM sales_orders WHERE id=?", orderId);
+  req(order, "Pedido no encontrado");
+  const b = await body(c);
+  const pkg = Array.isArray(b.packaging) ? b.packaging : [];
+  const shipCost = r2(num(b.shipping_cost));
+  ensureCarrier(b.carrier);
+  const run = tx(() => {
+    let ship = qGet<any>("SELECT * FROM sales_shipments WHERE order_id=? AND weight_kg=0 ORDER BY id LIMIT 1", orderId);
+    if (ship?.expense_id) { deleteExpenseAndMirrorRows(Number(ship.expense_id)); }
+    let expId: number | null = null;
+    if (shipCost > 0) expId = autoExpense("Envíos", shipCost, `Envío venta ${order.order_no}`, b.registered_by || "Sistema", "shipment", orderId, 1, 0, "Dinero Cafetier", today());
+    if (ship) {
+      reverseShipmentPackaging(Number(ship.id), b.registered_by || "Sistema");
+      qRun("UPDATE sales_shipments SET shipping_cost=?,carrier=?,expense_id=? WHERE id=?", shipCost, b.carrier || ship.carrier || null, expId, ship.id);
+    } else {
+      const r = qRun("INSERT INTO sales_shipments(order_id,weight_kg,destination_address,carrier,tracking_number,shipping_cost,registered_by,notes,expense_id,funding_source,paid_from_account,created_at) VALUES (?,0,?,?,?,?,?,?,?,?,?,?)", orderId, null, b.carrier || null, null, shipCost, b.registered_by || "Sistema", null, expId, "business_account", "Dinero Cafetier", now());
+      ship = { id: Number(r.lastInsertRowid) };
+    }
+    applyShipmentPackaging(Number(ship.id), orderId, pkg, b.registered_by || "Sistema", now());
+    // Si quedó sin empaques ni envío, borramos el registro vacío.
+    const remaining = Number(qVal("SELECT COUNT(*) AS v FROM sales_shipment_packaging WHERE shipment_id=?", ship.id) ?? 0);
+    if (remaining === 0 && shipCost <= 0) qRun("DELETE FROM sales_shipments WHERE id=?", ship.id);
+  });
+  run();
+  return c.json(ok(recalcSO(orderId)));
 });
 
 // ===== PURCHASE ORDERS =====

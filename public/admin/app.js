@@ -240,13 +240,17 @@ async function renderDashboard() {
       <div class="card metric ${cf.profitPerKgSold >= 0 ? "accent" : ""}"><div class="label">Ganancia /kg vendido</div><div class="value money">${money(cf.profitPerKgSold)}</div><small>Precio venta − costo producido</small></div>
     </div>
 
-    <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Cafetier</h3></div>
+    <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Cuentas</h3></div>
     <div class="grid cards">
-      <div class="card metric accent"><div class="label">En la cuenta de Cafetier</div><div class="value money">${money(caf.cash)}</div><small>Dinero disponible</small></div>
-      <div class="card metric"><div class="label">Debe devolver a Itza</div><div class="value money">${money(caf.owesItza)}</div><small>Capital pendiente</small></div>
-      <div class="card metric"><div class="label">Dividendos de Cafetier</div><div class="value money">${money(caf.dividends)}</div><small>Caja − lo que se le debe a Itza</small></div>
-      <div class="card metric"><div class="label">Entró por ventas</div><div class="value money">${money(t.salesRevenue)}</div><small>Total cobrado</small></div>
-      <div class="card metric"><div class="label">Salió en compras</div><div class="value money">${money(t.purchasesTotal)}</div><small>Café + empaques + envío</small></div>
+      <div class="card metric"><div class="label">Cobrado por ventas</div><div class="value money">${money(caf.revenue)}</div><small>Todo lo que cobró Cafetier</small></div>
+      <div class="card metric"><div class="label">Salió en gastos y compras</div><div class="value money">${money(caf.spent)}</div><small>Compras + gastos</small></div>
+      <div class="card metric ${caf.profit >= 0 ? "accent" : ""}"><div class="label">Ganancia de Cafetier</div><div class="value money">${money(caf.profit)}</div><small>Cobrado − salido</small></div>
+      <div class="card metric"><div class="label">En la cuenta de Cafetier</div><div class="value money">${money(caf.cash)}</div><small>Dinero disponible hoy</small></div>
+    </div>
+    <div class="grid cards" style="margin-top:10px">
+      <div class="card metric"><div class="label">Itza puso</div><div class="value money">${money(caf.itzaIn)}</div><small>Capital aportado</small></div>
+      <div class="card metric"><div class="label">Se le transfirió a Itza</div><div class="value money">${money(caf.itzaReturned)}</div><small>Devoluciones de capital</small></div>
+      <div class="card metric"><div class="label">Se le debe a Itza</div><div class="value money">${money(caf.owesItza)}</div><small>Capital pendiente</small></div>
     </div>
 
     <div class="split" style="margin-top:14px">
@@ -555,7 +559,16 @@ async function renderSalesDetail(id) {
               <div class="small muted">${esc((s.created_at || "").slice(0, 10))} ${s.destination_address ? "· " + esc(s.destination_address) : ""} ${s.shipping_cost ? "· " + money(s.shipping_cost) : ""} ${shipmentFundingLabel(s) ? "· " + esc(shipmentFundingLabel(s)) : ""}</div>
               ${(s.packaging && s.packaging.length) ? `<div class="small muted">📦 ${s.packaging.map(p => esc(p.item_name) + " ×" + esc(p.quantity)).join(" · ")}</div>` : ""}
             </div>`).join("") : `<div class="empty">Sin envíos.</div>`}
-        </div>` : ""}
+        </div>` : `
+        <div class="card">
+          <div class="row between"><h3>Empaques y envío</h3><button class="btn ghost sm" onclick="App.editRetailPackaging(${order.id})">Editar</button></div>
+          ${(() => {
+            const sh = shipments[0];
+            const pk = (sh && sh.packaging) || [];
+            if (!pk.length && !(sh && sh.shipping_cost)) return `<div class="empty">Sin empaques cargados. Tocá "Editar" para descontar las cajas/bolsas que usaste.</div>`;
+            return `${pk.length ? `<div class="small">📦 ${pk.map(p => esc(p.item_name) + " ×" + esc(p.quantity)).join(" · ")}</div>` : ""}${(sh && sh.shipping_cost) ? `<div class="small muted">Envío ${money(sh.shipping_cost)}${sh.carrier ? " · " + esc(sh.carrier) : ""}</div>` : ""}`;
+          })()}
+        </div>`}
       </div>
 
       <div class="stack">
@@ -1604,6 +1617,34 @@ function deleteShipment(shipmentId, orderId) {
   api(`/sales-shipments/${shipmentId}`, { method: "DELETE" })
     .then(() => { toast("Envío eliminado.", "ok"); openSale(orderId); })
     .catch(err => toast(err.message, "error"));
+}
+
+// Empaques (y envío) de una venta de mostrador, editables después de creada la venta.
+async function editRetailPackaging(orderId) {
+  const { shipments } = await api(`/sales-orders/${orderId}`);
+  const sh = shipments[0];
+  const current = (sh && sh.packaging && sh.packaging.length) ? sh.packaging.map(p => ({ item_name: p.item_name, quantity: p.quantity })) : [{}];
+  openModal("Empaques y envío", `
+    <p class="muted" style="margin-top:0">Cargá las cajas/bolsas que usaste en esta venta. Se descuentan del inventario.</p>
+    <div class="form-grid">
+      <div class="field"><label>Costo de envío</label><input class="input" id="rpkShip" type="number" step="0.01" value="${esc((sh && sh.shipping_cost) || 0)}" /></div>
+      <div class="field"><label>Paquetería</label>${carrierField("rpkCarrier", (sh && sh.carrier) || "")}</div>
+    </div>
+    ${packagingPicker("rpkRows", current)}
+  `, [{
+    label: "Guardar",
+    kind: "primary",
+    onClick: async modal => {
+      await api(`/sales-orders/${orderId}/packaging`, {
+        method: "POST",
+        body: { packaging: readPkgRows("rpkRows"), shipping_cost: Number(val("rpkShip")) || 0, carrier: val("rpkCarrier") || null },
+      });
+      modal.remove();
+      await refreshMaster(true);
+      toast("Empaques actualizados.", "ok");
+      openSale(orderId);
+    }
+  }]);
 }
 
 async function editSale(id) {
@@ -2919,6 +2960,7 @@ const App = {
   addShipment,
   editShipment,
   deleteShipment,
+  editRetailPackaging,
   addPkgRow,
   newManualPurchase,
   openPurchase,
