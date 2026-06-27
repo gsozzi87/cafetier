@@ -350,6 +350,33 @@ export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: numbe
   qRun("INSERT INTO inventory_movements (item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, dir, r2(qty), reason, by ?? "Sistema", movedAt || now());
 }
 
+// El stock de un ítem es el resultado de reproducir su historial de movimientos (la fuente de verdad).
+export function inventoryReplay(itemId: number) {
+  let qty = 0;
+  for (const m of qAll<any>("SELECT direction, quantity FROM inventory_movements WHERE item_id=? ORDER BY created_at ASC, id ASC", itemId)) {
+    if (m.direction === "in") qty += Number(m.quantity || 0);
+    else if (m.direction === "out") qty -= Number(m.quantity || 0);
+    else qty = Number(m.quantity || 0); // adjust = valor absoluto
+  }
+  return r2(qty);
+}
+export function recomputeItemQuantity(itemId: number) {
+  const qty = inventoryReplay(itemId);
+  qRun("UPDATE inventory_items SET quantity=? WHERE id=?", qty, itemId);
+  return qty;
+}
+// Para datos viejos (ítems con cantidad pero sin movimientos que la expliquen): se agrega un
+// movimiento de saldo para que el historial reproduzca exactamente el stock actual.
+function reconcileInventoryLedger() {
+  for (const it of qAll<any>("SELECT id, quantity, created_at FROM inventory_items")) {
+    const diff = r2(Number(it.quantity || 0) - inventoryReplay(it.id));
+    if (Math.abs(diff) <= 0.0001) continue;
+    const hasMov = Number(qVal("SELECT COUNT(*) AS v FROM inventory_movements WHERE item_id=?", it.id) ?? 0) > 0;
+    const when = hasMov ? now() : (it.created_at || now());
+    qRun("INSERT INTO inventory_movements (item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", it.id, diff >= 0 ? "in" : "out", Math.abs(diff), hasMov ? "Ajuste de saldo" : "Saldo inicial", "Sistema", when);
+  }
+}
+
 export function recalcSO(id: number) {
   const o = qGet<any>("SELECT * FROM sales_orders WHERE id=?", id);
   if (!o) return null;
@@ -509,6 +536,8 @@ export function initDB() {
   migrateInventoryTypes();
   migrateStatusSchema();
   ensureInvItem({ item_type: "roasted_coffee", item_name: "Café tostado disponible", unit: "kg" });
+  // Asegura que el historial de movimientos explique exactamente el stock de cada ítem.
+  reconcileInventoryLedger();
 
   // One-shot data reset via env var (set RESET_DB_ON_BOOT=operativo|todo in the host,
   // redeploy once). A marker prevents it from wiping again on later restarts.

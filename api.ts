@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, partnerCapital, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, resetData, thisMonth, today, tx } from "./db";
+import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, partnerCapital, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, recomputeItemQuantity, resetData, thisMonth, today, tx } from "./db";
 
 const api = new Hono();
 const ok = (d: any = null) => ({ success: true, data: d });
@@ -536,15 +536,76 @@ api.get("/inventory/summary", c => c.json(ok({ verde: invTotal("green_coffee"), 
 api.post("/inventory", async c => {
   const b = await body(c); req(b.item_name, "Nombre obligatorio");
   const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE active=1 AND name=?", b.item_name);
-  req(cat, "Ese ítem no está definido. Creálo primero en Configuración → Items del inventario.");
-  const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,?,?,?,?,?,?)", cat.item_type, cat.name, num(b.quantity), b.unit || cat.unit || "kg", num(b.min_stock ?? cat.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null);
-  return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", Number(r.lastInsertRowid))));
+  req(cat, "Ese ítem no está definido. Creálo primero en Datos → Ítems.");
+  const r = qRun("INSERT INTO inventory_items(item_type,item_name,quantity,unit,min_stock,origin_id,variety_id,lot_label) VALUES (?,?,0,?,?,?,?,?)", cat.item_type, cat.name, b.unit || cat.unit || "kg", num(b.min_stock ?? cat.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null);
+  const id = Number(r.lastInsertRowid);
+  // La cantidad inicial entra como un movimiento (el historial es la fuente de verdad).
+  const initial = r2(num(b.quantity));
+  if (initial !== 0) {
+    qRun("INSERT INTO inventory_movements(item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", id, initial >= 0 ? "in" : "out", Math.abs(initial), "Carga inicial", b.registered_by || "Sistema", now());
+    recomputeItemQuantity(id);
+  }
+  return c.json(ok(qGet("SELECT * FROM inventory_items WHERE id=?", id)));
 });
-api.put("/inventory/:id", async c => { const b = await body(c); qRun("UPDATE inventory_items SET item_name=?,quantity=?,unit=?,min_stock=?,origin_id=?,variety_id=?,lot_label=? WHERE id=?", b.item_name, num(b.quantity), b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null, c.req.param("id")); return c.json(ok(true)); });
-api.post("/inventory/:id/movements", async c => { const b = await body(c); req(["in","out","adjust"].includes(b.direction), "Dirección inválida"); const m = tx(() => { invMove(Number(c.req.param("id")), b.direction, num(b.quantity), b.reason || "Manual", b.registered_by); }); m(); return c.json(ok(true)); });
+api.put("/inventory/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const b = await body(c);
+  const cur = r2(Number(qVal("SELECT quantity FROM inventory_items WHERE id=?", id) ?? 0));
+  qRun("UPDATE inventory_items SET item_name=?,unit=?,min_stock=?,origin_id=?,variety_id=?,lot_label=? WHERE id=?", b.item_name, b.unit||"kg", num(b.min_stock), b.origin_id||null, b.variety_id||null, b.lot_label||null, id);
+  // Cambiar la cantidad acá queda registrado como un ajuste en el historial.
+  if (b.quantity !== undefined && r2(num(b.quantity)) !== cur) {
+    qRun("INSERT INTO inventory_movements(item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", id, "adjust", r2(num(b.quantity)), "Ajuste manual", b.registered_by || "Sistema", now());
+    recomputeItemQuantity(id);
+  }
+  return c.json(ok(true));
+});
+api.post("/inventory/:id/movements", async c => {
+  const itemId = Number(c.req.param("id"));
+  const b = await body(c); req(["in","out","adjust"].includes(b.direction), "Dirección inválida");
+  const move = tx(() => {
+    qRun("INSERT INTO inventory_movements(item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, b.direction, r2(num(b.quantity)), b.reason || "Movimiento manual", b.registered_by || "Sistema", setIsoDate(now(), b.date || today()));
+    recomputeItemQuantity(itemId);
+  });
+  move();
+  return c.json(ok(true));
+});
 api.get("/inventory/:id/movements", c => c.json(ok(qAll("SELECT * FROM inventory_movements WHERE item_id=? ORDER BY id DESC", c.req.param("id")))));
 // Global movements ledger for the whole warehouse, ordered by date (oldest first).
 api.get("/inventory-movements", c => c.json(ok(qAll("SELECT m.*, i.item_name, i.item_type, i.unit FROM inventory_movements m JOIN inventory_items i ON i.id=m.item_id ORDER BY m.created_at ASC, m.id ASC"))));
+// Agregar un movimiento eligiendo el ítem (desde el historial global).
+api.post("/inventory-movements", async c => {
+  const b = await body(c); req(b.item_id, "Elegí el ítem"); req(["in","out","adjust"].includes(b.direction), "Dirección inválida");
+  const itemId = Number(b.item_id);
+  const move = tx(() => {
+    qRun("INSERT INTO inventory_movements(item_id,direction,quantity,reason,registered_by,created_at) VALUES (?,?,?,?,?,?)", itemId, b.direction, r2(num(b.quantity)), b.reason || "Movimiento manual", b.registered_by || "Sistema", setIsoDate(now(), b.date || today()));
+    recomputeItemQuantity(itemId);
+  });
+  move();
+  return c.json(ok(true));
+});
+api.put("/inventory-movements/:id", async c => {
+  const id = Number(c.req.param("id"));
+  const m = qGet<any>("SELECT * FROM inventory_movements WHERE id=?", id);
+  if (!m) return c.json(fail("Movimiento no encontrado"), 404);
+  const b = await body(c);
+  const direction = ["in","out","adjust"].includes(b.direction) ? b.direction : m.direction;
+  const date = b.date || String(m.created_at || today()).slice(0, 10);
+  const edit = tx(() => {
+    qRun("UPDATE inventory_movements SET direction=?,quantity=?,reason=?,registered_by=?,created_at=? WHERE id=?", direction, r2(num(b.quantity ?? m.quantity)), b.reason ?? m.reason, b.registered_by ?? m.registered_by, setIsoDate(m.created_at, date), id);
+    recomputeItemQuantity(Number(m.item_id));
+  });
+  edit();
+  return c.json(ok(true));
+});
+api.delete("/inventory-movements/:id", c => {
+  const id = Number(c.req.param("id"));
+  const m = qGet<any>("SELECT * FROM inventory_movements WHERE id=?", id);
+  if (m) {
+    const del = tx(() => { qRun("DELETE FROM inventory_movements WHERE id=?", id); recomputeItemQuantity(Number(m.item_id)); });
+    del();
+  }
+  return c.json(ok(true));
+});
 api.delete("/inventory/:id", c => {
   const id = Number(c.req.param("id"));
   const inBatches = Number(qVal("SELECT COUNT(*) AS v FROM roasting_batches WHERE green_inventory_item_id=?", id) ?? 0);
