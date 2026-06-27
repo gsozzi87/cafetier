@@ -358,7 +358,7 @@ async function renderSales() {
     <div class="card">
       <table class="table" id="salesTable">
         <thead>
-          <tr><th>Fecha</th><th>Folio</th><th>Tipo</th><th>Cliente / Proveedor</th><th>Estado</th><th>Kg</th><th>Total</th><th>Pagado</th><th>Enviado</th><th></th></tr>
+          <tr><th>Fecha</th><th>Folio</th><th>Tipo</th><th>Cliente / Proveedor</th><th>Estado</th><th>Kg</th><th>Precio/kg</th><th>Total</th><th>Pagado</th><th>Enviado</th><th></th></tr>
         </thead>
         <tbody>
           ${rows.map(order => {
@@ -371,6 +371,7 @@ async function renderSales() {
                 <td>${esc(order.client_name || "Mostrador")}</td>
                 <td>${statusBadge(order.status)}</td>
                 <td>${kg(order.total_weight_kg)}</td>
+                <td class="money">${money(order.price_per_kg)}</td>
                 <td class="money">${money(order.total_amount)}</td>
                 <td class="money">${money(t.paid)}</td>
                 <td>${kg(t.shipped)}</td>
@@ -598,10 +599,14 @@ async function renderPurchases() {
 
     <div class="card">
       <table class="table" id="poTable">
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Kg</th><th>Monto total</th><th>Origen del dinero</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Descripción</th><th>Proveedor</th><th>Estado</th><th>Cantidad</th><th>Costo unit.</th><th>Monto total</th><th>Origen del dinero</th><th></th></tr></thead>
         <tbody>
           ${rows.map(po => {
+            const recibido = Number(po.received_green_kg || 0) > 0;
             const totalPO = Number(po.actual_cost || 0) > 0 ? Number(po.actual_cost || 0) : (Number(po.estimated_cost || 0) + Number(po.estimated_shipping_cost || 0));
+            const cantRef = recibido ? Number(po.received_green_kg) : Number(po.requested_green_kg || 0);
+            const merca = Number(po.actual_cost || 0) > 0 ? (Number(po.actual_cost) - Number(po.actual_shipping_cost || 0)) : Number(po.estimated_cost || 0);
+            const costoUnit = cantRef > 0 ? merca / cantRef : 0;
             return `
             <tr>
               <td>${esc((po.created_at || "").slice(0, 10))}</td>
@@ -610,6 +615,7 @@ async function renderPurchases() {
               <td>${esc(po.supplier || "—")}</td>
               <td>${statusBadge(po.status)}</td>
               <td>${kg(po.requested_green_kg)}</td>
+              <td class="money">${money(costoUnit)}</td>
               <td class="money">${money(totalPO)}<div class="tiny muted">${Number(po.actual_cost || 0) > 0 ? "real (con envío)" : "estimado (con envío)"}</div></td>
               <td>${po.paid_from ? esc(po.paid_from) : `<span class="muted">— sin recibir —</span>`}</td>
               <td><div class="line-actions">${["cancelled","cancelada"].includes(po.status) ? "" : editIcon(`App.editPurchase(${po.id})`)}${delIcon(`App.deletePurchase(${po.id})`, "Eliminar / cancelar")}<button class="btn ghost sm" onclick="App.openPurchase(${po.id})">Abrir</button></div></td>
@@ -657,11 +663,11 @@ async function renderPurchaseDetail(id) {
         <h3>Entradas recibidas</h3>
         ${entries.length ? `
         <table class="table">
-          <thead><tr><th>Fecha</th><th>Lote</th><th>Kg</th><th>Costo/kg</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Origen del dinero</th><th>Proveedor</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Ítem</th><th>Cantidad</th><th>Costo/u</th><th>Mercancía</th><th>Envío</th><th>Total</th><th>Origen del dinero</th><th>Proveedor</th><th></th></tr></thead>
           <tbody>${entries.map(e => `
             <tr>
               <td>${esc((e.created_at || "").slice(0, 10))}</td>
-              <td>${esc(e.lot_label || e.item_name)}</td>
+              <td>${esc(e.item_name)}</td>
               <td>${kg(e.quantity_kg)}</td>
               <td class="money">${money(e.unit_cost || 0)}</td>
               <td class="money">${money(e.total_cost)}</td>
@@ -1010,7 +1016,7 @@ async function renderInventory() {
     <div class="card" style="margin-bottom:14px">
       <div class="row between" style="margin-bottom:8px"><h3 style="margin:0">${esc(g.label)}</h3><span class="pill">${g.items.length} ítem${g.items.length === 1 ? "" : "s"}</span></div>
       <table class="table">
-        <thead><tr><th>Ítem</th><th>Lote</th><th>Cantidad actual</th><th>Mínimo</th><th></th></tr></thead>
+        <thead><tr><th>Ítem</th><th>Cantidad actual</th><th>Mínimo</th><th></th></tr></thead>
         <tbody>
           ${g.items.map(i => {
             const safeName = esc(i.item_name).replace(/'/g, "&#39;");
@@ -1020,7 +1026,6 @@ async function renderInventory() {
             const neg = Number(i.quantity) < 0;
             return `<tr>
               <td><strong>${esc(i.item_name)}</strong>${sub ? `<div class="tiny muted">${sub}</div>` : ""}</td>
-              <td>${esc(i.lot_label || "-")}</td>
               <td><strong ${neg ? `style="color:var(--red)"` : ""}>${numFmt.format(i.quantity)}</strong> ${esc(i.unit)} ${low && !neg ? `<span class="badge sin_fondos" title="Por debajo del mínimo">bajo</span>` : ""} ${neg ? `<span class="badge" style="background:var(--red-soft);color:var(--red)" title="Stock negativo: falta cargar entradas">negativo</span>` : ""}</td>
               <td>${numFmt.format(i.min_stock)} ${esc(i.unit)}</td>
               <td><div class="line-actions">${editIcon(`App.editInventoryItem(${i.id})`)}<button class="btn ghost sm" onclick="App.newInventoryMovement(${i.id},'${safeName}')">Entrada / salida</button>${delIcon(`App.deleteInventoryItem(${i.id})`)}</div></td>
@@ -1650,9 +1655,8 @@ async function receivePurchase(poId) {
       <div class="field"><label>Fecha</label><input class="input" id="rcvDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Proveedor</label><select class="select" id="rcvSupplier">${supplierOptions(po.supplier || "")}</select></div>
     </div>
-    <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Detalles del lote (opcional)</summary>
+    <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Detalles del café (opcional)</summary>
       <div class="form-grid" style="margin-top:8px">
-        <div class="field"><label>Lote</label><input class="input" id="rcvLot" /></div>
         <div class="field"><label>Origen</label><select class="select" id="rcvOrigin"><option value="">-</option>${o.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
         <div class="field"><label>Variedad</label><select class="select" id="rcvVar"><option value="">-</option>${v.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div>
       </div>
@@ -1672,7 +1676,6 @@ async function receivePurchase(poId) {
           total_cost: Number(val("rcvCost")),
           shipping_cost: Number(val("rcvShipCost")),
           supplier: val("rcvSupplier") || null,
-          lot_label: val("rcvLot") || null,
           origin_id: val("rcvOrigin") || null,
           variety_id: val("rcvVar") || null,
           registered_by: val("rcvBy"),
@@ -2191,11 +2194,10 @@ function newInventoryItem() {
   const cat = state.master.inventoryCatalog || [];
   if (!cat.length) { toast("Primero definí ítems en Datos → Ítems.", "error"); setView("maestros", { mdTab: "items" }); return; }
   openModal("Agregar al inventario", `
-    <div class="notice ok">Solo se cargan ítems definidos en Configuración → Items del inventario. Lote/origen/variedad aplican solo a café.</div>
+    <div class="notice ok">Solo se cargan ítems definidos en Datos → Ítems. Origen y variedad aplican solo a café.</div>
     <div class="form-grid">
       <div class="field"><label>Ítem</label><select class="select" id="invCatalog">${cat.map(it => `<option value="${esc(it.name)}">${esc(it.name)}${it.category ? " · " + esc(it.category) : ""}</option>`).join("")}</select></div>
       <div class="field"><label>Cantidad inicial</label><input class="input" id="invQty" type="number" step="0.01" value="0" /></div>
-      <div class="field"><label>Lote (café)</label><input class="input" id="invLot" /></div>
       <div class="field"><label>Origen (café)</label><select class="select" id="invOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Variedad (café)</label><select class="select" id="invVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join("")}</select></div>
     </div>
@@ -2208,7 +2210,6 @@ function newInventoryItem() {
         body: {
           item_name: val("invCatalog"),
           quantity: Number(val("invQty")),
-          lot_label: val("invLot") || null,
           origin_id: val("invOrigin") || null,
           variety_id: val("invVar") || null,
         },
@@ -2315,7 +2316,6 @@ async function editInventoryItem(id) {
       <div class="field"><label>Cantidad</label><input class="input" id="eiQty" type="number" step="0.01" value="${esc(item.quantity || 0)}" /></div>
       <div class="field"><label>Unidad</label><input class="input" id="eiUnit" value="${esc(item.unit || "kg")}" /></div>
       <div class="field"><label>Stock mínimo</label><input class="input" id="eiMin" type="number" step="0.01" value="${esc(item.min_stock || 0)}" /></div>
-      <div class="field"><label>Lote</label><input class="input" id="eiLot" value="${esc(item.lot_label || "")}" /></div>
       <div class="field"><label>Origen</label><select class="select" id="eiOrigin"><option value="">-</option>${state.master.origins.map(o => `<option value="${o.id}" ${Number(item.origin_id) === Number(o.id) ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Variedad</label><select class="select" id="eiVar"><option value="">-</option>${state.master.varieties.map(v => `<option value="${v.id}" ${Number(item.variety_id) === Number(v.id) ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
     </div>
@@ -2331,7 +2331,7 @@ async function editInventoryItem(id) {
           quantity: Number(val("eiQty")),
           unit: val("eiUnit") || "kg",
           min_stock: Number(val("eiMin")),
-          lot_label: val("eiLot") || null,
+          lot_label: item.lot_label || null,
           origin_id: val("eiOrigin") || null,
           variety_id: val("eiVar") || null,
         },
