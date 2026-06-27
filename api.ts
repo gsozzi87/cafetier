@@ -68,6 +68,7 @@ function purchaseOrderView(row: any) {
     estimated_shipping_cost: row.estimated_shipping_cost || 0,
     capital_missing: row.status === "sin_fondos" ? r2(missing) : 0,
     paid_from: qVal<string>("SELECT GROUP_CONCAT(DISTINCT paid_from_account) AS v FROM purchase_entries WHERE purchase_order_id=? AND paid_from_account IS NOT NULL AND paid_from_account<>''", row.id) || "",
+    unit: qVal<string>("SELECT unit FROM inventory_catalog WHERE name=? AND active=1", row.description) || "kg",
   };
 }
 // Maps a catalog item to a sensible expense category when receiving a non-coffee purchase.
@@ -86,6 +87,21 @@ function entryExpenseCategory(itemId: number) {
   if (it.item_type === "green_coffee") return "Café verde";
   const cat = qGet<any>("SELECT * FROM inventory_catalog WHERE name=?", it.item_name);
   return purchaseExpenseCategory(cat || { item_type: it.item_type, category: "" });
+}
+// Crea el proveedor/paquetería si el nombre no está en la lista (lo agrega al vuelo).
+function ensureSupplier(name?: string | null) {
+  const n = String(name || "").trim();
+  if (!n) return;
+  const row = qGet<any>("SELECT id, active FROM suppliers WHERE name=?", n);
+  if (!row) qRun("INSERT INTO suppliers(name,active) VALUES (?,1)", n);
+  else if (!row.active) qRun("UPDATE suppliers SET active=1 WHERE id=?", row.id);
+}
+function ensureCarrier(name?: string | null) {
+  const n = String(name || "").trim();
+  if (!n) return;
+  const row = qGet<any>("SELECT id, active FROM carriers WHERE name=?", n);
+  if (!row) qRun("INSERT INTO carriers(name,active) VALUES (?,1)", n);
+  else if (!row.active) qRun("UPDATE carriers SET active=1 WHERE id=?", row.id);
 }
 // Undo everything a received entry produced: inventory, its expenses (+mirrors) and partner funding.
 function reversePurchaseEntry(entry: any, po: any) {
@@ -465,13 +481,14 @@ function catalogTypeFromCategory(category: string, fallback?: string) {
 api.get("/inventory-catalog", c => c.json(ok(qAll("SELECT * FROM inventory_catalog WHERE active=1 ORDER BY category, name"))));
 api.post("/inventory-catalog", async c => {
   const b = await body(c); req(b.name, "Nombre obligatorio");
+  ensureSupplier(b.supplier);
   const itemType = catalogTypeFromCategory(b.category, b.item_type);
   try {
     const r = qRun("INSERT INTO inventory_catalog(name,item_type,category,unit,supplier,min_stock,active) VALUES (?,?,?,?,?,?,1)", b.name, itemType, b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock));
     return c.json(ok(qGet("SELECT * FROM inventory_catalog WHERE id=?", Number(r.lastInsertRowid))));
   } catch (e: any) { if (e.message?.includes("UNIQUE")) return c.json(fail("Ya existe un ítem con ese nombre")); throw e; }
 });
-api.put("/inventory-catalog/:id", async c => { const b = await body(c); qRun("UPDATE inventory_catalog SET name=?,item_type=?,category=?,unit=?,supplier=?,min_stock=? WHERE id=?", b.name, catalogTypeFromCategory(b.category, b.item_type), b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock), c.req.param("id")); return c.json(ok(true)); });
+api.put("/inventory-catalog/:id", async c => { const b = await body(c); ensureSupplier(b.supplier); qRun("UPDATE inventory_catalog SET name=?,item_type=?,category=?,unit=?,supplier=?,min_stock=? WHERE id=?", b.name, catalogTypeFromCategory(b.category, b.item_type), b.category || null, b.unit || "kg", b.supplier || null, num(b.min_stock), c.req.param("id")); return c.json(ok(true)); });
 api.delete("/inventory-catalog/:id", c => { qRun("UPDATE inventory_catalog SET active=0 WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 // ===== INVENTORY =====
@@ -652,6 +669,7 @@ api.post("/sales-orders/:id/shipments", async c => {
   const orderId = Number(c.req.param("id"));
   const b = await body(c);
   req(num(b.weight_kg) > 0, "Peso invalido");
+  ensureCarrier(b.carrier);
   const shippingCost = r2(num(b.shipping_cost));
   const shipmentDate = b.shipment_date || b.date || today();
   const shipmentCreatedAt = setIsoDate(now(), shipmentDate);
@@ -685,6 +703,7 @@ api.put("/sales-shipments/:id", async c => {
   const row = qGet<any>("SELECT * FROM sales_shipments WHERE id=?", id);
   req(row, "Envio no encontrado");
   const b = await body(c);
+  ensureCarrier(b.carrier);
   const weight = r2(num(b.weight_kg ?? row.weight_kg));
   req(weight > 0, "Peso invalido");
   const shippingCost = r2(num(b.shipping_cost ?? row.shipping_cost));
@@ -750,6 +769,7 @@ api.post("/purchase-orders", async c => {
   // Only catalog items can be purchased.
   req(qGet("SELECT id FROM inventory_catalog WHERE active=1 AND name=?", b.description), "Solo podés comprar ítems definidos en Datos → Ítems.");
   req(requestedKg > 0, "Cantidad requerida");
+  ensureSupplier(b.supplier);
   const purchaseDate = b.purchase_date || b.date || today();
   return c.json(ok(purchaseOrderView(createPO({
     sourceType: "manual",
@@ -766,7 +786,7 @@ api.get("/purchase-orders", c => c.json(ok(qAll<any>("SELECT * FROM purchase_ord
 api.get("/purchase-orders/:id", c => {
   const id = Number(c.req.param("id"));
   const po = purchaseOrderView(qGet("SELECT * FROM purchase_orders WHERE id=?", id));
-  const entries = qAll("SELECT pe.*, i.item_name FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE pe.purchase_order_id=? ORDER BY pe.id DESC", id);
+  const entries = qAll("SELECT pe.*, i.item_name, i.unit AS item_unit FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE pe.purchase_order_id=? ORDER BY pe.id DESC", id);
   const capitalRequests = qAll("SELECT * FROM capital_requests WHERE notes LIKE ? ORDER BY id DESC", `%${po?.po_no || ""}%`);
   return c.json(ok({ po, purchaseOrder: po, entries, capitalRequests }));
 });
@@ -777,6 +797,7 @@ api.post("/purchase-orders/:id/receive", async c => {
   const entryCreatedAt = setIsoDate(now(), entryDate);
   if (!po) return c.json(fail("No encontrada"), 404);
   req(num(b.quantity_kg)>0, "Cantidad inválida");
+  ensureSupplier(b.supplier);
   const qty = r2(num(b.quantity_kg));
   const cost = r2(num(b.total_cost));
   const ship = r2(num(b.shipping_cost));
@@ -821,6 +842,7 @@ api.put("/purchase-entries/:id", async c => {
   if (!entry) return c.json(fail("Entrada no encontrada"), 404);
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", entry.purchase_order_id);
   const b = await body(c);
+  ensureSupplier(b.supplier);
   const qty = r2(num(b.quantity_kg ?? entry.quantity_kg));
   req(qty > 0, "Cantidad inválida");
   const cost = r2(num(b.total_cost ?? entry.total_cost));
@@ -863,6 +885,7 @@ api.put("/purchase-orders/:id", async c => {
   const po = qGet<any>("SELECT * FROM purchase_orders WHERE id=?", id);
   if (!po) return c.json(fail("No encontrada"), 404);
   const b = await body(c);
+  ensureSupplier(b.supplier);
   const description = b.description ?? po.description;
   req(description, "Descripción obligatoria");
   const requestedKg = r2(num(b.requested_kg ?? b.requested_green_kg ?? po.requested_kg));
