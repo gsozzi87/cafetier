@@ -748,7 +748,7 @@ api.post("/purchase-orders", async c => {
   const requestedKg = num(b.requested_kg || b.requested_green_kg);
   req(b.description, "Descripcion obligatoria");
   // Only catalog items can be purchased.
-  req(qGet("SELECT id FROM inventory_catalog WHERE active=1 AND name=?", b.description), "Solo podés comprar ítems definidos en Datos maestros → Ítems.");
+  req(qGet("SELECT id FROM inventory_catalog WHERE active=1 AND name=?", b.description), "Solo podés comprar ítems definidos en Datos → Ítems.");
   req(requestedKg > 0, "Cantidad requerida");
   const purchaseDate = b.purchase_date || b.date || today();
   return c.json(ok(purchaseOrderView(createPO({
@@ -795,9 +795,10 @@ api.post("/purchase-orders/:id/receive", async c => {
     let itemId: number;
     let lotLabel: string | null = null;
     if (itemType === "green_coffee") {
-      lotLabel = b.lot_label || `${entryDate}-${po.po_no}`;
-      const itemName = b.item_name && cat ? cat.name : ([b.origin_name, b.variety_name, `Lote ${lotLabel}`].filter(Boolean).join(" · ") || `Café verde ${lotLabel}`);
-      itemId = ensureInvItem({ item_type: "green_coffee", item_name: itemName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: lotLabel });
+      lotLabel = b.lot_label || `${entryDate}-${po.po_no}`; // se guarda en la entrada (uso interno), no en el nombre
+      // Nombre limpio sin lote; el café verde se consolida por nombre (origen/variedad o catálogo).
+      const greenName = ([b.origin_name, b.variety_name].filter(Boolean).join(" · ")) || cat?.name || "Café verde";
+      itemId = ensureInvItem({ item_type: "green_coffee", item_name: greenName, unit: "kg", origin_id: b.origin_id||null, variety_id: b.variety_id||null, lot_label: null });
     } else {
       // Supplies / packaging / roasted: go straight into their catalog item, no lot.
       itemId = ensureInvItem({ item_type: itemType, item_name: cat.name, unit: cat.unit || "pz" });
