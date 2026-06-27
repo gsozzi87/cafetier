@@ -1017,9 +1017,18 @@ api.post("/expenses", async c => {
   return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", id)));
 });
 api.put("/expenses/:id", async c => {
+  const id = Number(c.req.param("id"));
   const b = await body(c);
   const funding = expenseFunding(b);
-  qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=?,paid_from_account=? WHERE id=?", b.expense_date, b.category_id, r2(num(b.amount)), b.description, funding.paidBy, b.supplier, b.notes, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount, c.req.param("id"));
+  const amount = r2(num(b.amount));
+  const date = b.expense_date || today();
+  const edit = tx(() => {
+    qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=?,paid_from_account=? WHERE id=?", date, b.category_id, amount, b.description ?? null, funding.paidBy, b.supplier ?? null, b.notes ?? null, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount, id);
+    // Re-sync the mirror capital contribution so changing the money source keeps the books right.
+    qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", id);
+    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${b.description || "sin descripción"}`, funding.partner, null, "expense", id);
+  });
+  edit();
   return c.json(ok(true));
 });
 api.delete("/expenses/:id", c => { deleteExpenseWithMirror(Number(c.req.param("id"))); return c.json(ok(true)); });
