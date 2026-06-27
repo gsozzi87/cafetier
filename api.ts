@@ -671,7 +671,9 @@ api.post("/sales-orders", async c => {
     if (type === "mostrador" && totalAmount > 0) {
       qRun("INSERT INTO sales_payments(order_id,amount,method,notes,registered_by,received_account,created_at) VALUES (?,?,?,?,?,?,?)", orderId, totalAmount, b.payment_method||"efectivo", "Venta mostrador", b.registered_by||"Sistema", normAccount(b.received_account || "Axel"), now());
       const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
-      if (ri && totalKg > 0) invMove(ri.id, "out", totalKg, `Venta ${orderNo}`, b.registered_by||"Sistema");
+      // No bloqueamos la venta de mostrador por falta de stock: si no alcanza, el café tostado
+      // queda en negativo y se acomoda después con la carga de inventario (allowNegative).
+      if (ri && totalKg > 0) invMove(ri.id, "out", totalKg, `Venta ${orderNo}`, b.registered_by||"Sistema", true);
     }
 
     // Wholesale: check green stock
