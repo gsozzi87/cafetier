@@ -35,7 +35,8 @@ function setStatus(text) { document.getElementById("statusPill").textContent = t
 function statusBadge(status) { return `<span class="badge ${status}">${esc(status)}</span>`; }
 function titleize(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
 function moneySourceOptions(selected = "Dinero Cafetier") {
-  const opts = [["Dinero Cafetier", "Dinero Cafetier (usa dividendos del negocio)"], ["Axel", "Axel (se le devuelve)"], ["Itza", "Itza (se le devuelve)"]];
+  if (selected === "Axel") selected = "Dinero Cafetier"; // la cuenta de Axel es la del negocio
+  const opts = [["Dinero Cafetier", "Dinero Cafetier (dinero del negocio)"], ["Itza", "Itza (se le devuelve)"]];
   return opts.map(([v, l]) => `<option value="${v}" ${v === selected ? "selected" : ""}>${l}</option>`).join("");
 }
 // Ordena una tabla por la columna del encabezado clickeado, alternando asc/desc.
@@ -219,6 +220,8 @@ async function renderDashboard() {
   const dm = state.params.dashMonth || null;
   const d = await api(`/dashboard${dm ? "?month=" + encodeURIComponent(dm) : ""}`);
   const per = d.period || { isAllTime: true, rev: 0, exp: 0, profit: 0, roasted: 0, shipped: 0, avgLoss: 0, profitPerRoastedKg: 0 };
+  const t = d.totals || { salesRevenue: 0, kgPurchased: 0, kgSold: 0, purchasesTotal: 0, purchasesGreen: 0, purchasesPackaging: 0, purchasesShipping: 0, expensesOperating: 0 };
+  const it = d.itza || { contributed: 0, returned: 0, pending: 0, cafetierToItza: 0 };
   const plabel = per.isAllTime ? "(total)" : "· " + per.month;
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
@@ -234,11 +237,26 @@ async function renderDashboard() {
       <div class="card metric"><div class="label">Ingresos ${plabel}</div><div class="value money">${money(per.rev)}</div><small>Ventas cobradas</small></div>
       <div class="card metric"><div class="label">Gastos ${plabel}</div><div class="value money">${money(per.exp)}</div><small>Incluye compras y costos</small></div>
       <div class="card metric"><div class="label">Resultado ${plabel}</div><div class="value money">${money(per.profit)}</div><small>Ingresos - gastos</small></div>
-      <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(d.finance.availableCash)}</div><small>Total del negocio (3 cuentas)</small></div>
+      <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(d.finance.availableCash)}</div><small>Dinero Cafetier + Itza</small></div>
       <div class="card metric accent"><div class="label">Dinero Cafetier</div><div class="value money">${money(d.cafetierBalance)}</div><small>Saldo en la cuenta del negocio</small></div>
       <div class="card metric"><div class="label">Utilidad repartible</div><div class="value money">${money(d.equityPool)}</div><small>${d.totalUnrecovered > 0 ? "Después de devolver aportes" : "Lista para repartir"}</small></div>
       <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(d.receivables || 0)}</div><small>Ventas pendientes de pago</small></div>
       <div class="card metric"><div class="label">Utilidad/kg tostado ${plabel}</div><div class="value money">${money(per.profitPerRoastedKg)}</div><small>${kg(per.roasted)} tostados</small></div>
+    </div>
+
+    <div class="row between" style="margin:18px 0 8px"><h3 style="margin:0">Totales desde el inicio</h3><span class="pill">Histórico</span></div>
+    <div class="grid cards">
+      <div class="card metric accent"><div class="label">Entró por ventas</div><div class="value money">${money(t.salesRevenue)}</div><small>Todo lo cobrado por ventas</small></div>
+      <div class="card metric"><div class="label">Café comprado</div><div class="value">${kg(t.kgPurchased)}</div><small>Café verde recibido</small></div>
+      <div class="card metric"><div class="label">Café vendido</div><div class="value">${kg(t.kgSold)}</div><small>Kg en pedidos de venta</small></div>
+      <div class="card metric"><div class="label">Usado en compras</div><div class="value money">${money(t.purchasesTotal)}</div><small>Verde ${money(t.purchasesGreen)} · empaques/insumos ${money(t.purchasesPackaging)}${t.purchasesShipping ? " · envío " + money(t.purchasesShipping) : ""}</small></div>
+      <div class="card metric"><div class="label">Gastos operativos</div><div class="value money">${money(t.expensesOperating)}</div><small>Gastos que no son compras</small></div>
+    </div>
+
+    <div class="grid cards" style="margin-top:10px">
+      <div class="card metric"><div class="label">Café verde comprado</div><div class="value money">${money(t.purchasesGreen)}</div><small>Solo café verde</small></div>
+      <div class="card metric"><div class="label">Empaques e insumos</div><div class="value money">${money(t.purchasesPackaging)}</div><small>Cajas, bolsas, etiquetas, consumibles</small></div>
+      ${t.purchasesShipping ? `<div class="card metric"><div class="label">Envío de compras</div><div class="value money">${money(t.purchasesShipping)}</div><small>Flete de las compras</small></div>` : ""}
     </div>
 
     <div class="split" style="margin-top:12px">
@@ -259,13 +277,22 @@ async function renderDashboard() {
         </div>
 
         <div class="card">
+          <div class="row between"><h3>Itza (socia)</h3><button class="btn ghost sm" onclick="App.setView('capital')">Capital</button></div>
+          <div class="kpi-strip">
+            <div><div class="muted tiny">Puso (aportó)</div><div class="value money">${money(it.contributed)}</div></div>
+            <div><div class="muted tiny">Se le devolvió</div><div class="value money">${money(it.returned)}</div></div>
+            <div><div class="muted tiny">Falta pasarle</div><div class="value money">${money(it.pending)}</div></div>
+          </div>
+          <div class="tiny muted" style="margin-top:6px">${it.pending > 0 ? `Falta pasarle ${money(it.pending)} de Dinero Cafetier${it.cafetierToItza < it.pending ? ` (hoy la caja alcanza para ${money(it.cafetierToItza)})` : " (la caja alcanza)"}.` : "El capital de Itza está totalmente devuelto."}</div>
+        </div>
+
+        <div class="card">
           <div class="row between"><h3>Dinero por cuenta</h3><button class="btn ghost sm" onclick="App.setView('cashbook')">Libro de caja</button></div>
           <div class="kpi-strip">
             <div><div class="muted tiny">Dinero Cafetier</div><div class="value money">${money(d.accounts?.["Dinero Cafetier"] || 0)}</div></div>
-            <div><div class="muted tiny">En cuenta de Axel</div><div class="value money">${money(d.accounts?.Axel || 0)}</div></div>
             <div><div class="muted tiny">En cuenta de Itza</div><div class="value money">${money(d.accounts?.Itza || 0)}</div></div>
           </div>
-          <div class="tiny muted" style="margin-top:6px">Dónde está físicamente el dinero del negocio. La cuenta de un socio en negativo significa que el negocio le debe.</div>
+          <div class="tiny muted" style="margin-top:6px">Si la cuenta de Itza queda en negativo, el negocio le debe ese dinero.</div>
         </div>
 
         <div class="card">
@@ -540,7 +567,7 @@ async function renderSalesDetail(id) {
           ${payments.length ? payments.map(p => `
             <div class="item">
               <div class="row between"><strong>${money(p.amount)}</strong><div class="line-actions"><span class="pill">${esc(p.method || "-")}</span>${editIcon(`App.editPayment(${p.id},${order.id})`)}<button class="btn red sm" onclick="App.deletePayment(${p.id},${order.id})">Eliminar</button></div></div>
-              <div class="small muted">${esc((p.created_at || "").slice(0, 10))} · ${esc(p.received_account || "Axel")} ${p.notes ? "· " + esc(p.notes) : ""}</div>
+              <div class="small muted">${esc((p.created_at || "").slice(0, 10))} · ${esc(p.received_account || "Dinero Cafetier")} ${p.notes ? "· " + esc(p.notes) : ""}</div>
             </div>`).join("") : `<div class="empty">Sin pagos.</div>`}
         </div>
 
@@ -783,7 +810,7 @@ async function editCashbookMovement(source, id) {
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="cbDate" type="date" value="${esc(movement.date)}" /></div>
       <div class="field"><label>Monto</label><input class="input" id="cbAmount" type="number" step="0.01" value="${esc(movement.amount)}" /></div>
-      <div class="field"><label>Cuenta</label><select class="select" id="cbAccount">${accountOptions(movement.account || "Axel")}</select></div>
+      <div class="field"><label>Cuenta</label><select class="select" id="cbAccount">${accountOptions(movement.account || "Dinero Cafetier")}</select></div>
       <div class="field"><label>${isPartnerRow ? "Socio" : "Persona"}</label>${isPartnerRow ? `<select class="select" id="cbPerson">${partnerOptions(movement.person)}</select>` : `<input class="input" id="cbPerson" value="${esc(movement.person || "")}" />`}</div>
       ${isExpense ? `<div class="field"><label>Categoría</label><select class="select" id="cbCategory">${expenseCategoryOptions(expenseDetail?.category_id)}</select></div><div class="field"><label>Proveedor</label><input class="input" id="cbSupplier" value="${esc(expenseDetail?.supplier || "")}" /></div>` : ""}
     </div>
@@ -841,7 +868,7 @@ async function renderCapital() {
       <div class="card metric"><div class="label">Capital aportado</div><div class="value money">${money(summary.finance.totalContributed)}</div><small>Recuperado ${money(summary.finance.capitalRecovered)}</small></div>
       <div class="card metric"><div class="label">Capital pendiente</div><div class="value money">${money(summary.finance.unrecoveredCapital)}</div><small>${summary.finance.unrecoveredCapital > 0 ? "Bloquea dividendos" : "Capital totalmente recuperado"}</small></div>
       <div class="card metric"><div class="label">Dividendos distribuibles</div><div class="value money">${money(summary.finance.distributableDividends)}</div><small>Solo al recuperar el capital</small></div>
-      <div class="card metric accent"><div class="label">Axel → Itza sugerido</div><div class="value money">${money(summary.settlement?.axelToItza || 0)}</div><small>${esc(summary.settlement?.reason || "")}</small></div>
+      <div class="card metric accent"><div class="label">Falta pasar a Itza</div><div class="value money">${money(summary.settlement?.cafetierToItza ?? summary.settlement?.axelToItza ?? 0)}</div><small>${esc(summary.settlement?.reason || "")}</small></div>
       <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(summary.receivables || 0)}</div><small>Pedidos aún no pagados</small></div>
       <div class="card metric"><div class="label">Utilidad/kg tostado</div><div class="value money">${money(summary.monthly?.profitPerRoastedKg || 0)}</div><small>${kg(summary.monthly?.roastedKg || 0)} tostados en ${esc(summary.monthly?.month || "")}</small></div>
       <div class="card metric"><div class="label">Dividendos pagados</div><div class="value money">${money(summary.dividendAdvice?.alreadyPaid || 0)}</div><small>${summary.dividendAdvice?.canDistribute ? "Puede evaluarse reparto" : esc(summary.dividendAdvice?.blockedReason || "")}</small></div>
@@ -1249,8 +1276,10 @@ function personOptions() {
 function roastOperatorOptions() {
   return parseListSetting("roast_operators", ["Axel"]).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
 }
-function accountOptions(selected = "Axel") {
-  const accounts = ["Axel", "Itza", "Dinero Cafetier"];
+function accountOptions(selected = "Dinero Cafetier") {
+  if (selected === "Axel") selected = "Dinero Cafetier"; // la cuenta de Axel es la del negocio
+  const accounts = ["Dinero Cafetier", "Itza"];
+  if (selected && !accounts.includes(selected)) accounts.push(selected);
   return accounts.map(name => `<option value="${esc(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`).join("");
 }
 function fundingSourceOptions() {
@@ -1303,7 +1332,7 @@ async function newRetailSale() {
     <div class="notice ok">Se descontará café tostado disponible y se registrará el pago al momento.</div>
     <div class="field"><label>Cliente opcional</label><select class="select" id="retClient"><option value="">Mostrador</option>${clientOptions()}</select></div>
     <div class="field"><label>Método de pago</label><select class="select" id="retMethod"><option>efectivo</option><option>transferencia</option><option>tarjeta</option></select></div>
-    <div class="field"><label>Cuenta que recibe</label><select class="select" id="retAccount">${accountOptions("Axel")}</select></div>
+    <div class="field"><label>Cuenta que recibe</label><select class="select" id="retAccount">${accountOptions("Dinero Cafetier")}</select></div>
     <div class="field"><label>Productos</label>
       <table class="table">
         <thead><tr><th>Producto</th><th>Presentación</th><th>Peso</th><th>Precio</th><th>Cant.</th></tr></thead>
@@ -1410,7 +1439,7 @@ async function addPayment(orderId) {
       <div class="field"><label>Fecha</label><input class="input" id="payDate" type="date" value="${esc((order.created_at || todayStr()).slice(0, 10))}" /></div>
       <div class="field"><label>Monto</label><input class="input" id="payAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Método</label><select class="select" id="payMethod"><option>transferencia</option><option>efectivo</option><option>tarjeta</option></select></div>
-      <div class="field"><label>Cuenta que recibió</label><select class="select" id="payAccount">${accountOptions("Axel")}</select></div>
+      <div class="field"><label>Cuenta que recibió</label><select class="select" id="payAccount">${accountOptions("Dinero Cafetier")}</select></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="payNotes" /></div>
   `, [{
@@ -1437,7 +1466,7 @@ async function editPayment(paymentId, orderId) {
       <div class="field"><label>Fecha</label><input class="input" id="epayDate" type="date" value="${esc((p.created_at || todayStr()).slice(0, 10))}" /></div>
       <div class="field"><label>Monto</label><input class="input" id="epayAmount" type="number" step="0.01" value="${esc(p.amount)}" /></div>
       <div class="field"><label>Método</label><select class="select" id="epayMethod"><option ${p.method === "transferencia" ? "selected" : ""}>transferencia</option><option ${p.method === "efectivo" ? "selected" : ""}>efectivo</option><option ${p.method === "tarjeta" ? "selected" : ""}>tarjeta</option></select></div>
-      <div class="field"><label>Cuenta que recibió</label><select class="select" id="epayAccount">${accountOptions(p.received_account || "Axel")}</select></div>
+      <div class="field"><label>Cuenta que recibió</label><select class="select" id="epayAccount">${accountOptions(p.received_account || "Dinero Cafetier")}</select></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="epayNotes" value="${esc(p.notes || "")}" /></div>
   `, [{
@@ -1475,7 +1504,7 @@ async function addShipment(orderId) {
   openModal("Registrar envío", `
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="shipDate" type="date" value="${esc((order.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Axel">Axel</option><option value="Itza">Itza</option></select></div>
+      <div class="field"><label>Quién pagó el envío</label><select class="select" id="shipPaidFrom"><option value="Dinero Cafetier">Dinero Cafetier</option><option value="Itza">Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="shipKg" type="number" step="0.01" value="${pending ? esc(pending) : ""}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="shipCost" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Paquetería</label>${carrierField("shipCarrier")}</div>
@@ -1517,11 +1546,12 @@ async function editShipment(shipmentId, orderId) {
   const { shipments } = await api(`/sales-orders/${orderId}`);
   const s = shipments.find(x => Number(x.id) === Number(shipmentId));
   if (!s) throw new Error("No pude encontrar ese envío.");
-  const paidFrom = s.funding_source === "partner_contribution" ? (s.paid_from_account || "Itza") : (s.paid_from_account || "Dinero Cafetier");
+  let paidFrom = s.funding_source === "partner_contribution" ? (s.paid_from_account || "Itza") : (s.paid_from_account || "Dinero Cafetier");
+  if (paidFrom === "Axel") paidFrom = "Dinero Cafetier"; // la cuenta de Axel es la del negocio
   openModal("Editar envío", `
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="eshipDate" type="date" value="${esc((s.created_at || todayStr()).slice(0, 10))}" /></div>
-      <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Dinero Cafetier" ${paidFrom === "Dinero Cafetier" ? "selected" : ""}>Dinero Cafetier</option><option value="Axel" ${paidFrom === "Axel" ? "selected" : ""}>Axel</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
+      <div class="field"><label>Quién pagó el envío</label><select class="select" id="eshipPaidFrom"><option value="Dinero Cafetier" ${paidFrom === "Dinero Cafetier" ? "selected" : ""}>Dinero Cafetier</option><option value="Itza" ${paidFrom === "Itza" ? "selected" : ""}>Itza</option></select></div>
       <div class="field"><label>Kg de este envío</label><input class="input" id="eshipKg" type="number" step="0.01" value="${esc(s.weight_kg || 0)}" /></div>
       <div class="field"><label>Costo de envío</label><input class="input" id="eshipCost" type="number" step="0.01" value="${esc(s.shipping_cost || 0)}" /></div>
       <div class="field"><label>Paquetería</label>${carrierField("eshipCarrier", s.carrier || "")}</div>
@@ -1776,7 +1806,7 @@ async function editPurchaseEntry(entryId, poId) {
   const e = entries.find(x => Number(x.id) === Number(entryId));
   if (!e) { toast("Entrada no encontrada.", "error"); return; }
   const unit = round2(Number(e.unit_cost || (e.quantity_kg ? e.total_cost / e.quantity_kg : 0)));
-  const source = e.funding_source === "partner_contribution" ? (e.paid_from_account || "Axel") : "Dinero Cafetier";
+  const source = e.funding_source === "partner_contribution" ? (e.paid_from_account === "Axel" ? "Dinero Cafetier" : (e.paid_from_account || "Itza")) : "Dinero Cafetier";
   const modal = openModal("Editar entrada recibida", `
     <div class="notice ok">Editás la recepción de <strong>${esc(po.description || "")}</strong> (${esc(po.po_no)}). Se ajustan inventario, gasto y aporte.</div>
     <div class="form-grid">
@@ -1854,7 +1884,7 @@ async function newContribution() {
       <div class="field"><label>Monto</label><input class="input" id="contribAmount" type="number" step="0.01" /></div>
       <div class="field"><label>Fecha</label><input class="input" id="contribDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
       <div class="field"><label>Orden de capital</label><select class="select" id="contribReq"><option value="">Sin ligar</option>${requests.filter(r => r.status !== "funded" && r.status !== "cancelled").map(r => `<option value="${r.id}">${esc(r.request_no)} · ${money(r.amount_requested - r.amount_funded)}</option>`).join("")}</select></div>
-      <div class="field"><label>Cuenta donde quedó</label><select class="select" id="contribAccount">${accountOptions("Axel")}</select></div>
+      <div class="field"><label>Cuenta donde quedó</label><select class="select" id="contribAccount">${accountOptions("Dinero Cafetier")}</select></div>
     </div>
     <div class="field"><label>Descripción</label><input class="input" id="contribDesc" /></div>
   `, [{
@@ -2434,7 +2464,7 @@ async function editInventoryItem(id) {
 
 function newExpense() {
   openModal("Nuevo gasto", `
-    <div class="notice ok">El dinero sale de una cuenta: <strong>Axel</strong> o <strong>Itza</strong> (queda como aporte para devolverles) o <strong>Dinero Cafetier</strong> (son utilidades del negocio).</div>
+    <div class="notice ok">El dinero sale de una cuenta: <strong>Itza</strong> (queda como aporte para devolverle) o <strong>Dinero Cafetier</strong> (dinero del negocio).</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="expDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="expCat">${expenseCategoryOptions()}</select></div>
@@ -2484,9 +2514,9 @@ async function editExpense(id) {
   if (e.auto_generated) { toast("Este gasto se generó automáticamente; editá su origen (envío o compra).", "error"); return; }
   const sel = (cur, v) => String(cur) === String(v) ? "selected" : "";
   const cats = (state.master.expenseCategories || []).map(c => `<option value="${c.id}" ${sel(e.category_id, c.id)}>${esc(c.name)}</option>`).join("");
-  const currentSource = e.from_cashbox ? "Dinero Cafetier" : (e.paid_from_account || "Axel");
+  const currentSource = e.from_cashbox ? "Dinero Cafetier" : (e.paid_from_account === "Axel" ? "Dinero Cafetier" : (e.paid_from_account || "Itza"));
   openModal("Editar gasto", `
-    <div class="notice ok">El dinero sale de una cuenta: <strong>Axel</strong> o <strong>Itza</strong> (queda como aporte para devolverles) o <strong>Dinero Cafetier</strong> (son utilidades).</div>
+    <div class="notice ok">El dinero sale de una cuenta: <strong>Itza</strong> (queda como aporte para devolverle) o <strong>Dinero Cafetier</strong> (dinero del negocio).</div>
     <div class="form-grid">
       <div class="field"><label>Fecha</label><input class="input" id="eeDate" type="date" value="${esc((e.expense_date || "").slice(0, 10))}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="eeCat">${cats}</select></div>

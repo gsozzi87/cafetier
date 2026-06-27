@@ -45,9 +45,11 @@ export function normAccount(name: string | null | undefined) {
   const raw = String(name || "").trim();
   if (!raw) return "Dinero Cafetier";
   const partner = normPartner(raw);
-  if (partner === "Itza" || partner === "Axel") return partner;
+  if (partner === "Itza") return "Itza";
+  // La cuenta de Axel es la misma que la del negocio: todo lo de Axel es Dinero Cafetier.
+  if (partner === "Axel") return "Dinero Cafetier";
   const k = raw.toLowerCase();
-  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja", "dinero cafetier", "caja cafetier"].includes(k)) return "Dinero Cafetier";
+  if (["caja", "caja chica", "cash", "efectivo", "dinero disponible en caja", "dinero cafetier", "caja cafetier", "axel"].includes(k)) return "Dinero Cafetier";
   return raw;
 }
 
@@ -110,14 +112,15 @@ export function finance() {
 }
 
 export function accountBalances() {
-  const balances: Record<string, number> = { Axel: 0, Itza: 0, "Dinero Cafetier": 0 };
+  // Solo dos cuentas: la del negocio (Dinero Cafetier, que incluye lo de Axel) y la de Itza.
+  const balances: Record<string, number> = { Itza: 0, "Dinero Cafetier": 0 };
   const add = (account: string | null | undefined, amount: number) => {
     const key = normAccount(account);
     balances[key] = r2((balances[key] || 0) + Number(amount || 0));
   };
 
   for (const r of qAll<any>("SELECT COALESCE(received_account, partner_name) AS account, amount FROM capital_contributions")) add(r.account, r.amount);
-  for (const r of qAll<any>("SELECT COALESCE(received_account, registered_by, 'Axel') AS account, amount FROM sales_payments")) add(r.account, r.amount);
+  for (const r of qAll<any>("SELECT COALESCE(received_account, registered_by, 'Dinero Cafetier') AS account, amount FROM sales_payments")) add(r.account, r.amount);
   for (const r of qAll<any>("SELECT COALESCE(paid_from_account, CASE WHEN from_cashbox=1 THEN 'Dinero Cafetier' ELSE paid_by END) AS account, amount FROM expenses")) add(r.account, -Number(r.amount || 0));
   for (const r of qAll<any>("SELECT COALESCE(paid_from_account, 'Dinero Cafetier') AS account, amount FROM withdrawals")) add(r.account, -Number(r.amount || 0));
 
@@ -169,10 +172,9 @@ export function financialPosition(month = thisMonth()) {
   const roastedMonth = Number(qVal("SELECT COALESCE(SUM(rb.roasted_kg),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id WHERE substr(rs.session_date,1,7)=?", month) ?? 0);
   const shippedMonth = Number(qVal("SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments WHERE substr(created_at,1,7)=?", month) ?? 0);
   const itza = partners.find(p => p.name === "Itza");
-  const axel = partners.find(p => p.name === "Axel");
-  const axelCash = Math.max(0, Number(accounts.Axel || 0));
+  const cafetierCash = Math.max(0, Number(accounts["Dinero Cafetier"] || 0));
   const itzaUnrecovered = Number(itza?.unrecovered || 0);
-  const axelToItza = r2(Math.min(axelCash, itzaUnrecovered));
+  const cafetierToItza = r2(Math.min(cafetierCash, itzaUnrecovered));
   const monthlyProfit = r2(revenueMonth - expenseMonth);
   return {
     finance: f,
@@ -197,16 +199,18 @@ export function financialPosition(month = thisMonth()) {
       profitPerShippedKg: shippedMonth > 0 ? r2(monthlyProfit / shippedMonth) : 0,
     },
     settlement: {
-      axel_to_itza: axelToItza,
-      axelToItza,
-      reason: axelToItza > 0
-        ? "Axel tiene dinero de la empresa y hay capital de Itza pendiente por recuperar."
+      cafetier_to_itza: cafetierToItza,
+      cafetierToItza,
+      axelToItza: cafetierToItza, // alias: la cuenta de Axel es la de Cafetier
+      reason: cafetierToItza > 0
+        ? "Cafetier tiene dinero y hay capital de Itza pendiente por devolver."
         : itzaUnrecovered > 0
-          ? "Itza tiene capital pendiente, pero no hay saldo positivo registrado en la cuenta de Axel."
-          : "No hay capital pendiente de Itza por recuperar.",
+          ? "Itza tiene capital pendiente, pero no hay saldo positivo en Dinero Cafetier."
+          : "No hay capital pendiente de Itza por devolver.",
+      itza_contributed: r2(Number(itza?.contributed || 0)),
+      itza_recovered: r2(Number(itza?.recovered || 0)),
       itza_unrecovered: r2(itzaUnrecovered),
-      axel_unrecovered: r2(Number(axel?.unrecovered || 0)),
-      axel_account_cash: r2(axelCash),
+      cafetier_cash: r2(cafetierCash),
     },
     dividendAdvice: {
       canDistribute: f.unrecovered <= 0 && f.distributable > 0,
