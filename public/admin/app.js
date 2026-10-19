@@ -87,6 +87,9 @@ async function api(path, options = {}) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(opts.body);
   }
+  if (!["GET", "HEAD", "OPTIONS"].includes((opts.method || "GET").toUpperCase())) {
+    opts.headers["X-Cafetier-Request"] = "1";
+  }
   const res = await fetch(`/api${path}`, opts);
   let payload = null;
   try {
@@ -1179,7 +1182,7 @@ async function renderConfig() {
             <div class="field"><label>Slogan</label><input class="input" id="cfgTagline" value="${esc(settings.business_tagline || "Culto por el café")}" /></div>
             <div class="field"><label>Merma estándar %</label><input class="input" id="cfgLoss" type="number" step="0.01" value="${esc(settings.default_loss_pct || "20")}" /><small class="muted">Merma estimada actual (últimos tuestes): <strong>${loss.estimatedLossPct != null ? pct(loss.estimatedLossPct) : "—"}</strong></small></div>
             <div class="field"><label>Costo verde/kg por defecto</label><input class="input" id="cfgGreen" type="number" step="0.01" value="${esc(settings.default_green_cost_per_kg || "0")}" /></div>
-            <div class="field"><label>Claude API key</label><input class="input" id="cfgClaude" value="${esc(settings.claude_api_key || "")}" placeholder="sk-ant-..." /></div>
+            <div class="field"><label>Claude</label><small class="muted">La API key se configura exclusivamente en Railway como ANTHROPIC_API_KEY. Nunca se muestra aquí.</small></div>
           </div>
           <div class="footer-actions">
             <button class="btn primary" onclick="App.saveSettings()">Guardar configuración</button>
@@ -2639,7 +2642,6 @@ async function saveSettings() {
       business_tagline: val("cfgTagline"),
       default_loss_pct: val("cfgLoss"),
       default_green_cost_per_kg: val("cfgGreen"),
-      claude_api_key: val("cfgClaude"),
     },
   });
   await refreshMaster(true);

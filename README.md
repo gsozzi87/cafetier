@@ -27,5 +27,17 @@ Las acciones pendientes aparecen en el Dashboard y en el detalle del pedido.
 ## Configuración de Electricidad
 En Configuración, ingresa kW de la máquina y precio por kWh (de tu factura CFE).
 
-## API Key de Claude
-En Configuración → API Key. Se usa para analizar curvas de Artisan con IA.
+## Seguridad y acceso al ERP
+
+La web comercial, `GET /api/site-content/:page` y `GET /api/site-media/:id` siguen públicos.
+Todo `/admin`, `/editor-sitio` y las demás rutas de `/api` requieren HTTP Basic Auth.
+
+**Variables obligatorias en Railway** (Settings → Variables):
+- `ADMIN_USER`: usuario para acceder (por defecto `admin`).
+- `ADMIN_PASSWORD`: contraseña aleatoria larga y única. Si no está definida, el acceso privado devuelve HTTP 503 (seguro por defecto).
+- `ANTHROPIC_API_KEY`: clave nueva de Claude, opcional. Se usa solo en el backend para analizar curvas de Artisan.
+
+Usar siempre HTTPS. El navegador pedirá usuario y contraseña al entrar en `/admin` o `/editor-sitio`.
+Las solicitudes de escritura del ERP deben incluir `X-Cafetier-Request: 1` (protección CSRF).
+**Rotar cualquier clave de Claude anteriormente guardada en el panel**: se elimina de la base SQLite al iniciar.
+No guardar credenciales en Git, el frontend, SQLite ni en el contenido público.

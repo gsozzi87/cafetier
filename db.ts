@@ -56,7 +56,11 @@ export function normAccount(name: string | null | undefined) {
 export function getSettings() {
   const rows = qAll<{ key: string; value: string }>("SELECT key, value FROM settings");
   const o: Record<string, string> = {};
-  for (const r of rows) o[r.key] = r.value;
+  // Defense in depth: never serialize legacy keys or other sensitive settings to the browser.
+  for (const r of rows) {
+    if (/(?:api[_-]?key|password|secret|token|credential|authorization|private[_-]?key)/i.test(r.key)) continue;
+    o[r.key] = r.value;
+  }
   return o;
 }
 
@@ -484,8 +488,10 @@ export function initDB() {
     INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',1),('Electricidad',1),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Impuestos',0),('Gastos fijos',0),('Servicios',0),('Sueldos',0),('Herramientas',0),('Repuestos',0),('Otros',0);
     INSERT OR IGNORE INTO carriers (name) VALUES ('Estafeta'),('DHL'),('FedEx'),('Paquetexpress'),('Correos de México'),('Retiro en local');
     INSERT OR IGNORE INTO inventory_catalog (name, item_type, category, unit) VALUES ('Café verde','green_coffee','Café verde','kg'),('Café tostado','roasted_coffee','Café tostado','kg'),('Café empaquetado','packaged_coffee','Café empaquetado','pz'),('Caja de cartón','supply','Empaque','pz'),('Bolsa','supply','Empaque','pz'),('Etiqueta','supply','Empaque','pz');
-    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','20'),('machine_kw','0'),('kwh_price','0'),('claude_api_key',''),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','20'),('machine_kw','0'),('kwh_price','0'),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
   `);
+  // Remove any API key previously persisted in SQLite (the new key lives in Railway).
+  qRun("DELETE FROM settings WHERE key='claude_api_key'");
   ensureColumn("clients", "cafe_name", "TEXT");
   ensureColumn("clients", "contact_name", "TEXT");
   ensureColumn("clients", "contact_phone", "TEXT");

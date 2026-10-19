@@ -450,7 +450,16 @@ api.delete("/cashbook/:source/:id", c => {
 
 // ===== SETTINGS =====
 api.get("/settings", c => c.json(ok(getSettings())));
-api.put("/settings", async c => { const b = await body(c); for (const [k, v] of Object.entries(b)) qRun("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", k, String(v)); return c.json(ok(getSettings())); });
+// Never allow arbitrary/secret settings to be written to the database.
+const editableSettings = new Set(["business_name", "business_tagline", "default_loss_pct", "default_green_cost_per_kg", "machine_kw", "kwh_price", "roast_operators"]);
+api.put("/settings", async c => {
+  const b = await body(c);
+  if (!b || typeof b !== "object" || Array.isArray(b)) return c.json(fail("Configuración inválida"), 400);
+  const entries = Object.entries(b);
+  if (entries.some(([key, value]) => !editableSettings.has(key) || (typeof value !== "string" && typeof value !== "number"))) return c.json(fail("Parámetro no permitido"), 400);
+  for (const [key, value] of entries) qRun("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", key, String(value));
+  return c.json(ok(getSettings()));
+});
 
 // ===== CATALOGS =====
 for (const table of ["roast_profiles", "origins", "varieties", "expense_categories", "carriers"]) {
@@ -1396,8 +1405,8 @@ api.post("/roasting-batches/:id/artisan", async c => {
   const fd = await c.req.formData(); const file = fd.get("file"); req(file && typeof file !== "string", "Adjuntá un archivo");
   const f = file as File; const payload = await f.text();
   qRun("UPDATE roasting_batches SET artisan_file_name=?, artisan_data=? WHERE id=?", f.name, payload, id);
-  const apiKey = getSettings().claude_api_key;
-  if (!apiKey) return c.json(ok({ artisan_file_name: f.name, ai_review: null, warning: "Configurá la API key de Claude" }));
+  const apiKey = process.env.ANTHROPIC_API_KEY || "";
+  if (!apiKey) return c.json(ok({ artisan_file_name: f.name, ai_review: null, warning: "Configurá ANTHROPIC_API_KEY en Railway" }));
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1400, messages: [{ role: "user", content: `Eres un maestro tostador. Analiza esta curva de Artisan.\nBatch: ${batch.batch_no}\nVerde: ${batch.green_kg}kg → Tostado: ${batch.roasted_kg??'N/D'}kg\nMerma: ${batch.loss_pct??'N/D'}%\nMinutos: ${batch.machine_minutes}\nPerfil: ${batch.roast_name||'N/D'}\n\nArchivo (${f.name}):\n${payload.slice(0,120000)}\n\nDame: 1)Resumen 2)Qué salió bien 3)Qué faltó 4)Problemas 5)Sabor esperado 6)Recomendación para el próximo batch. Español, directo.` }] }) });
     const data = await res.json() as any;

@@ -59,7 +59,11 @@ const Editor = (() => {
   };
 
   async function api(path, options = {}) {
-    const response = await fetch(`/api${path}`, options);
+    const opts = { ...options, headers: { ...(options.headers || {}) } };
+    if (!["GET", "HEAD", "OPTIONS"].includes((opts.method || "GET").toUpperCase())) {
+      opts.headers["X-Cafetier-Request"] = "1";
+    }
+    const response = await fetch(`/api${path}`, opts);
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || "No se pudo completar la operacion");
     return payload.data;
