@@ -328,12 +328,23 @@ api.get("/dashboard", c => {
   const shipped = Number(qVal(`SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments${mc}`, ...arg) ?? 0);
   const avgLoss = Number(qVal(`SELECT COALESCE(AVG(rb.loss_pct),0) AS v FROM roasting_batches rb JOIN roasting_sessions rs ON rs.id=rb.session_id${mr ? mr + " AND" : " WHERE"} rb.loss_pct IS NOT NULL`, ...arg) ?? 0);
   const periodProfit = r2(rev - exp);
+  // Ventas, envíos y gastos del periodo (lo que importa en el día a día).
+  const pm = monthParam ? " AND substr(so.created_at,1,7)=?" : "";
+  const sales = qGet<any>(`SELECT COUNT(*) AS n, COALESCE(SUM(so.total_weight_kg),0) AS kg, COALESCE(SUM(so.total_amount),0) AS amount FROM sales_orders so WHERE so.status != 'cancelado'${pm}`, ...arg);
+  const sm = monthParam ? " AND substr(ss.created_at,1,7)=?" : "";
+  const shipping = Number(qVal(`SELECT COALESCE(SUM(ss.shipping_cost),0) AS v FROM sales_shipments ss JOIN sales_orders so ON so.id=ss.order_id WHERE so.status != 'cancelado'${sm}`, ...arg) ?? 0);
+  const shipments = Number(qVal(`SELECT COUNT(*) AS v FROM sales_shipments ss JOIN sales_orders so ON so.id=ss.order_id WHERE so.status != 'cancelado' AND (ss.weight_kg > 0 OR ss.shipping_cost > 0)${sm}`, ...arg) ?? 0);
+  const ee = monthParam ? " WHERE substr(e.expense_date,1,7)=?" : "";
+  const byCategory = qAll<any>(`SELECT ec.name AS name, COALESCE(SUM(e.amount),0) AS amount, COUNT(*) AS n FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id${ee} GROUP BY ec.name ORDER BY amount DESC`, ...arg).map(r => ({ ...r, amount: r2(Number(r.amount)) }));
   const period = {
     isAllTime: !monthParam,
     month: monthParam,
     rev: r2(rev), exp: r2(exp), profit: periodProfit,
     roasted: r2(roasted), shipped: r2(shipped), avgLoss: r2(avgLoss),
     profitPerRoastedKg: roasted > 0 ? r2(periodProfit / roasted) : 0,
+    orders: Number(sales?.n || 0), kgSold: r2(Number(sales?.kg || 0)), salesAmount: r2(Number(sales?.amount || 0)),
+    shipping: r2(shipping), shipments,
+    byCategory,
   };
   // Totales desde el inicio (no dependen del mes elegido).
   // Compras desde purchase_entries (la fuente real, no depende de cómo se categorizó el gasto).
@@ -404,6 +415,7 @@ api.get("/dashboard", c => {
   const cafe = {
     kgPurchased: r2(kgPurchased), kgSold: r2(kgSold), merma: r2(merma),
     avgBuyPerKg, greenLandedPerKg, greenPerRoastedKg, avgSalePerKg, packagingPerKg, shippingPerKg, costPerKgProduced, profitPerKgSold,
+    salesShipping: r2(salesShipping), salesAmount: r2(salesAmount),
   };
   const cafetier = {
     cash: cafetierBalance,

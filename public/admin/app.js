@@ -24,7 +24,21 @@ const VIEWS = {
 const moneyFmt = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 2 });
 const numFmt = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 });
 
-function money(n) { return moneyFmt.format(Number(n || 0)); }
+// Negativos con signo menos tipográfico (−) para que no quede separado del número.
+function money(n) { return moneyFmt.format(Number(n || 0)).replace(/^-/, "\u2212"); }
+// Positivo → verde, negativo → rojo, cero → neutro. Salidas y deudas se pasan con signo menos.
+function signCls(n) { const v = Number(n || 0); return v > 0.004 ? "pos" : v < -0.004 ? "neg" : ""; }
+// Colorea por signo todos los importes de las tarjetas y franjas de KPI de la vista actual.
+function colorizeAmounts(root) {
+  if (!root) return;
+  root.querySelectorAll(".metric .value.money, .kpi-strip .value.money, [data-sign]").forEach(el => {
+    if (el.closest("[data-nosign]")) return;
+    const t = (el.textContent || "").trim();
+    el.classList.remove("pos", "neg");
+    if (/^[-−]/.test(t)) el.classList.add("neg");
+    else if (/[1-9]/.test(t)) el.classList.add("pos");
+  });
+}
 function kg(n) { return `${numFmt.format(Number(n || 0))} kg`; }
 function pct(n) { return `${numFmt.format(Number(n || 0))}%`; }
 function round2(n) { return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100; }
@@ -57,7 +71,7 @@ function sortTableByColumn(th) {
     const t = (row.children[idx]?.textContent || "").trim();
     const dm = t.match(/\d{4}-\d{2}-\d{2}/);
     if (dm) return new Date(dm[0]).getTime();
-    const cleaned = t.replace(/[^\d.\-]/g, "");
+    const cleaned = t.replace(/\u2212/g, "-").replace(/[^\d.\-]/g, "");
     if (cleaned && /\d/.test(t) && !isNaN(parseFloat(cleaned))) return parseFloat(cleaned);
     return t.toLowerCase();
   };
@@ -202,137 +216,126 @@ async function render() {
   loading();
   try {
     if (!state.master) await refreshMaster();
-    if (state.view === "dashboard") return await renderDashboard();
-    if (state.view === "sales") return await renderSales();
-    if (state.view === "maestros" || state.view === "clients") return await renderMaestros();
-    if (state.view === "salesDetail") return await renderSalesDetail(state.params.id);
-    if (state.view === "purchases") return await renderPurchases();
-    if (state.view === "purchaseDetail") return await renderPurchaseDetail(state.params.id);
-    if (state.view === "cashbook") return await renderCashbook();
-    if (state.view === "capital") return await renderCapital();
-    if (state.view === "roasting") return await renderRoasting();
-    if (state.view === "roastingDetail") return await renderRoastingDetail(state.params.id);
-    if (state.view === "inventory") return await renderInventory();
-    if (state.view === "expenses") return await renderExpenses();
-    if (state.view === "config") return await renderConfig();
+    const views = {
+      dashboard: () => renderDashboard(),
+      sales: () => renderSales(),
+      maestros: () => renderMaestros(),
+      clients: () => renderMaestros(),
+      salesDetail: () => renderSalesDetail(state.params.id),
+      purchases: () => renderPurchases(),
+      purchaseDetail: () => renderPurchaseDetail(state.params.id),
+      cashbook: () => renderCashbook(),
+      capital: () => renderCapital(),
+      roasting: () => renderRoasting(),
+      roastingDetail: () => renderRoastingDetail(state.params.id),
+      inventory: () => renderInventory(),
+      expenses: () => renderExpenses(),
+      config: () => renderConfig(),
+    };
+    if (views[state.view]) await views[state.view]();
+    colorizeAmounts(document.getElementById("content"));
   } catch (err) {
     renderError(err);
   }
 }
 
 async function renderDashboard() {
-  // Top siempre histórico; el mes solo afecta el panel "Por mes".
+  // Arriba: dinero hoy. Después: el mes elegido (ventas, gastos, envíos). Abajo: por kilo y acumulados.
+  // Convención de signo: entradas y lo que se tiene en positivo (verde); salidas y deudas con menos (rojo).
   const dm = state.params.dashMonth || todayStr().slice(0, 7);
   const d = await api(`/dashboard?month=${encodeURIComponent(dm)}`);
-  const per = d.period || { rev: 0, exp: 0, profit: 0, month: dm };
-  const t = d.totals || { salesRevenue: 0, kgPurchased: 0, kgSold: 0, purchasesTotal: 0, purchasesGreen: 0, purchasesPackaging: 0, purchasesShipping: 0, expensesOperating: 0 };
-  const cf = d.cafe || { kgPurchased: 0, kgSold: 0, merma: 0, avgBuyPerKg: 0, avgSalePerKg: 0, packagingPerKg: 0, costPerKgProduced: 0, profitPerKgSold: 0 };
-  const caf = d.cafetier || { cash: 0, owesItza: 0, dividends: 0 };
+  const per = d.period || {};
+  const cf = d.cafe || {};
+  const caf = d.cafetier || {};
+  const cats = per.byCategory || [];
+  const maxCat = Math.max(1, ...cats.map(c => Number(c.amount || 0)));
+  const card = (label, value, small, extra = "") => `<div class="card metric ${extra}"><div class="label">${label}</div><div class="value money">${money(value)}</div><small>${small}</small></div>`;
+  const pending = row => Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0) - Number(row.isr_amount || 0));
+
   document.getElementById("content").innerHTML = `
-    <div class="row between" style="margin:0 0 8px"><h3 style="margin:0">Café (desde el inicio)</h3></div>
-    <div class="grid cards">
-      <div class="card metric"><div class="label">Café comprado</div><div class="value">${kg(cf.kgPurchased)}</div><small>Compra promedio ${money(cf.avgBuyPerKg)}/kg</small></div>
-      <div class="card metric"><div class="label">Café vendido</div><div class="value">${kg(cf.kgSold)}</div><small>Venta promedio ${money(cf.avgSalePerKg)}/kg</small></div>
-      <div class="card metric"><div class="label">Merma promedio</div><div class="value">${pct(cf.merma)}</div><small>Pérdida al tostar</small></div>
+    <div class="section-title"><h3>Dinero hoy</h3><small>${d.openSales} pedidos abiertos</small></div>
+    <div class="grid cards three">
+      ${card("En la cuenta de Cafetier", caf.cash, "Disponible hoy")}
+      ${card("Por cobrar", d.receivables || 0, "Ventas todavía no pagadas")}
+      ${card("Libre para utilidades", caf.dividends, Number(caf.dividends) > 0 ? `Cuenta Cafetier − deuda con Itza · 50% c/u ${money(caf.dividends / 2)}` : "Cuenta Cafetier − deuda con Itza", "accent")}
     </div>
 
-    <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Costos y ganancia por kilo (estimado)</h3></div>
-    <div class="grid cards">
-      <div class="card metric"><div class="label">Costo /kg comprado</div><div class="value money">${money(cf.greenLandedPerKg ?? cf.avgBuyPerKg)}</div><small>Café verde + flete de compra</small></div>
-      <div class="card metric"><div class="label">Precio /kg vendido</div><div class="value money">${money(cf.avgSalePerKg)}</div><small>Promedio al vender</small></div>
-      <div class="card metric"><div class="label">Costo /kg producido</div><div class="value money">${money(cf.costPerKgProduced)}</div><small>Verde con merma ${money(cf.greenPerRoastedKg || 0)} + empaque ${money(cf.packagingPerKg)} + envío ${money(cf.shippingPerKg || 0)}</small></div>
-      <div class="card metric ${cf.profitPerKgSold >= 0 ? "accent" : ""}"><div class="label">Ganancia /kg vendido</div><div class="value money">${money(cf.profitPerKgSold)}</div><small>Precio venta − costo producido</small></div>
+    <div class="section-title">
+      <h3>Por mes</h3>
+      <input class="input" id="dashMonth" type="month" value="${esc(dm)}" style="max-width:160px" onchange="App.applyDashMonth()" />
     </div>
-
-    <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Cuentas</h3></div>
     <div class="grid cards">
-      <div class="card metric"><div class="label">Cobrado por ventas</div><div class="value money">${money(caf.revenue)}</div><small>Todo lo que cobró Cafetier</small></div>
-      <div class="card metric"><div class="label">Salió en gastos y compras</div><div class="value money">${money(caf.spent)}</div><small>Compras + gastos</small></div>
-      <div class="card metric ${caf.profit >= 0 ? "accent" : ""}"><div class="label">Ganancia de Cafetier</div><div class="value money">${money(caf.profit)}</div><small>Cobrado − salido</small></div>
-      <div class="card metric"><div class="label">En la cuenta de Cafetier</div><div class="value money">${money(caf.cash)}</div><small>Dinero disponible hoy</small></div>
-    </div>
-    <div class="grid cards" style="margin-top:10px">
-      <div class="card metric"><div class="label">Itza puso</div><div class="value money">${money(caf.itzaIn)}</div><small>Capital aportado</small></div>
-      <div class="card metric"><div class="label">Se le transfirió a Itza</div><div class="value money">${money(caf.itzaReturned)}</div><small>Devoluciones de capital</small></div>
-      <div class="card metric"><div class="label">Se le debe a Itza</div><div class="value money">${money(caf.owesItza)}</div><small>Capital pendiente</small></div>
+      ${card("Cobrado", per.rev, `Vendido ${money(per.salesAmount)} en ${per.orders || 0} pedido${per.orders === 1 ? "" : "s"} · ${kg(per.kgSold)}`)}
+      ${card("Gastos y compras", -Number(per.exp || 0), "Todo lo que salió en el mes")}
+      ${card("Envíos a clientes", -Number(per.shipping || 0), `${per.shipments || 0} envío${per.shipments === 1 ? "" : "s"} · ${kg(per.shipped)} · incluido en gastos`)}
+      ${card("Resultado del mes", per.profit, "Cobrado − gastos y compras", "accent")}
     </div>
 
     <div class="split" style="margin-top:14px">
-      <div class="stack">
-        <div class="card">
-          <div class="row between"><h3>Inventario</h3><button class="btn ghost sm" onclick="App.setView('inventory')">Ver</button></div>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Verde</div><div class="value">${kg(d.inventory.green)}</div></div>
-            <div><div class="muted tiny">Tostado</div><div class="value">${kg(d.inventory.roasted)}</div></div>
-            <div><div class="muted tiny">Empaquetado</div><div class="value">${kg(d.inventory.packaged)}</div></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>En qué se gastó en compras</h3>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Café verde</div><div class="value money">${money(t.purchasesGreen)}</div></div>
-            <div><div class="muted tiny">Empaques e insumos</div><div class="value money">${money(t.purchasesPackaging)}</div></div>
-            ${t.purchasesShipping ? `<div><div class="muted tiny">Envío de compras</div><div class="value money">${money(t.purchasesShipping)}</div></div>` : ""}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="row between"><h3>Últimas ventas</h3><button class="btn ghost sm" onclick="App.setView('sales')">Ver ventas</button></div>
-          ${d.lastSales.length ? `
-          <table class="table">
-            <thead><tr><th>Pedido</th><th>Cliente</th><th>Estado</th><th>Monto</th></tr></thead>
-            <tbody>
-              ${d.lastSales.map(row => `
-                <tr onclick="App.openSale(${row.id})" style="cursor:pointer">
-                  <td>${esc(row.order_no)}</td>
-                  <td>${esc(row.client_name || "Mostrador")}</td>
-                  <td>${statusBadge(row.status)}</td>
-                  <td class="money">${money(row.total_amount)}</td>
-                </tr>`).join("")}
-            </tbody>
-          </table>` : `<div class="empty">Sin ventas todavía</div>`}
-        </div>
+      <div class="card">
+        <div class="row between"><h3>Gastos del mes por categoría</h3><button class="btn ghost sm" onclick="App.setView('expenses', { expMonth: '${esc(dm)}' })">Ver gastos</button></div>
+        ${cats.length ? cats.map(c => `
+          <div class="cat-row">
+            <div><strong>${esc(c.name)}</strong> <span class="tiny muted">· ${c.n} mov.</span><div class="cat-bar"><span style="width:${Math.round((Number(c.amount) / maxCat) * 100)}%"></span></div></div>
+            <div class="money" data-sign>${money(-Number(c.amount || 0))}</div>
+          </div>`).join("") : `<div class="empty">Sin gastos este mes</div>`}
       </div>
-
-      <div class="stack">
-        <div class="card">
-          <div class="row between">
-            <h3>Por mes</h3>
-            <div class="row wrap" style="gap:6px">
-              <input class="input" id="dashMonth" type="month" value="${esc(dm)}" style="max-width:150px" onchange="App.applyDashMonth()" />
-            </div>
-          </div>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Entró (${esc(per.month || dm)})</div><div class="value money">${money(per.rev)}</div></div>
-            <div><div class="muted tiny">Salió</div><div class="value money">${money(per.exp)}</div></div>
-            <div><div class="muted tiny">Resultado</div><div class="value money">${money(per.profit)}</div></div>
-          </div>
-          <div class="hr"></div>
-          <div class="kpi-strip">
-            <div><div class="muted tiny">Pedidos abiertos</div><div class="value number">${d.openSales}</div></div>
-            <div><div class="muted tiny">Compras pendientes</div><div class="value number">${d.pendingPurchaseOrders}</div></div>
-            <div><div class="muted tiny">Por cobrar</div><div class="value money">${money(d.receivables || 0)}</div></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="row between"><h3>Últimas compras</h3><button class="btn ghost sm" onclick="App.setView('purchases')">Ver compras</button></div>
-          ${d.lastPurchaseOrders.length ? `
-          <table class="table">
-            <thead><tr><th>OC</th><th>Descripción</th><th>Estado</th><th>Costo</th></tr></thead>
-            <tbody>
-              ${d.lastPurchaseOrders.map(row => `
-                <tr onclick="App.openPurchase(${row.id})" style="cursor:pointer">
-                  <td>${esc(row.po_no)}</td>
-                  <td>${esc(row.description || "")}</td>
-                  <td>${statusBadge(row.status)}</td>
-                  <td class="money">${money(row.actual_cost || row.estimated_cost)}</td>
-                </tr>`).join("")}
-            </tbody>
-          </table>` : `<div class="empty">Sin órdenes de compra</div>`}
-        </div>
+      <div class="card">
+        <div class="row between"><h3>Últimas ventas</h3><button class="btn ghost sm" onclick="App.setView('sales')">Ver ventas</button></div>
+        ${d.lastSales.length ? `
+        <table class="table">
+          <thead><tr><th>Pedido</th><th>Cliente</th><th>Estado</th><th>Total</th><th>Falta cobrar</th></tr></thead>
+          <tbody>
+            ${d.lastSales.map(row => `
+              <tr onclick="App.openSale(${row.id})" style="cursor:pointer">
+                <td>${esc(row.order_no)}</td>
+                <td>${esc(row.client_name || "Mostrador")}</td>
+                <td>${statusBadge(row.status)}</td>
+                <td class="money">${money(row.total_amount)}</td>
+                <td class="money">${row.status === "cancelado" || pending(row) <= 0.004 ? `<span class="muted">—</span>` : money(pending(row))}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>` : `<div class="empty">Sin ventas todavía</div>`}
       </div>
+    </div>
+
+    <div class="section-title"><h3>Por kilo vendido</h3><small>Desde el inicio · ${kg(cf.kgSold)} vendidos</small></div>
+    <div class="grid cards three">
+      ${card("Precio de venta /kg", cf.avgSalePerKg, "Promedio de todas las ventas")}
+      ${card("Costo /kg", -Number(cf.costPerKgProduced || 0), `Verde con merma ${money(cf.greenPerRoastedKg)} + empaque ${money(cf.packagingPerKg)} + envío ${money(cf.shippingPerKg)}`)}
+      ${card("Ganancia /kg", cf.profitPerKgSold, "Precio − costo", "accent")}
+    </div>
+
+    <div class="section-title"><h3>Desde el inicio</h3></div>
+    <div class="grid cards">
+      ${card("Cobrado por ventas", caf.revenue, "Todo lo que cobró Cafetier")}
+      ${card("Gastos y compras", -Number(caf.spent || 0), "Todo lo que salió")}
+      ${card("Envíos a clientes", -Number(cf.salesShipping || 0), "Incluido en gastos")}
+      ${card("Ganancia de Cafetier", caf.profit, "Cobrado − gastos y compras", "accent")}
+    </div>
+
+    <div class="section-title"><h3>Capital de Itza</h3></div>
+    <div class="grid cards three">
+      ${card("Itza puso", caf.itzaIn, "Capital aportado")}
+      ${card("Se le devolvió", -Number(caf.itzaReturned || 0), "Devoluciones de capital")}
+      ${card("Se le debe", -Number(caf.owesItza || 0), Number(caf.owesItza) > 0 ? "Capital pendiente de devolver" : "No se le debe nada")}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="row between"><h3>Últimas compras</h3><button class="btn ghost sm" onclick="App.setView('purchases')">Ver compras</button></div>
+      ${d.lastPurchaseOrders.length ? `
+      <table class="table">
+        <thead><tr><th>OC</th><th>Descripción</th><th>Estado</th><th>Costo</th></tr></thead>
+        <tbody>
+          ${d.lastPurchaseOrders.map(row => `
+            <tr onclick="App.openPurchase(${row.id})" style="cursor:pointer">
+              <td>${esc(row.po_no)}</td>
+              <td>${esc(row.description || "")}</td>
+              <td>${statusBadge(row.status)}</td>
+              <td class="money">${money(row.actual_cost || row.estimated_cost)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>` : `<div class="empty">Sin órdenes de compra</div>`}
     </div>
   `;
 }
@@ -690,9 +693,9 @@ async function renderPurchaseDetail(id) {
 
     <div class="grid cards">
       <div class="card metric"><div class="label">Cantidad solicitada</div><div class="value">${numFmt.format(po.requested_green_kg)} ${esc(po.unit || "kg")}</div><small>Recibido ${numFmt.format(po.received_green_kg)} ${esc(po.unit || "kg")}</small></div>
-      <div class="card metric"><div class="label">Mercancía estimada</div><div class="value money">${money(po.estimated_cost)}</div><small>Real mercancía ${money((po.actual_cost || 0) - (po.actual_shipping_cost || 0))}</small></div>
+      <div class="card metric"><div class="label">Mercancía estimada</div><div class="value money">${money(-Number(po.estimated_cost || 0))}</div><small>Real mercancía ${money((po.actual_cost || 0) - (po.actual_shipping_cost || 0))}</small></div>
       <div class="card metric"><div class="label">Proveedor</div><div class="value" style="font-size:22px">${esc(po.supplier || "Sin proveedor")}</div><small>${esc(po.source_type)}</small></div>
-      <div class="card metric"><div class="label">Envío compra</div><div class="value money">${money(po.actual_shipping_cost || po.estimated_shipping_cost || 0)}</div><small>Est. ${money(po.estimated_shipping_cost || 0)} · Real ${money(po.actual_shipping_cost || 0)}</small></div>
+      <div class="card metric"><div class="label">Envío compra</div><div class="value money">${money(-Number(po.actual_shipping_cost || po.estimated_shipping_cost || 0))}</div><small>Est. ${money(po.estimated_shipping_cost || 0)} · Real ${money(po.actual_shipping_cost || 0)}</small></div>
       <div class="card metric"><div class="label">Progreso</div><div class="value">${pct(po.requested_green_kg ? (po.received_green_kg / po.requested_green_kg) * 100 : 0)}</div><small>${esc(po.status)}</small></div>
     </div>
 
@@ -779,7 +782,7 @@ async function renderCashbook() {
     <div class="grid cards" style="margin-bottom:12px">
       <div class="card metric"><div class="label">Saldo inicial</div><div class="value money">${money(data.opening_balance)}</div><small>Antes del ${esc(start)}</small></div>
       <div class="card metric"><div class="label">Entradas</div><div class="value money">${money(data.total_in)}</div><small>Aportes + cobros</small></div>
-      <div class="card metric"><div class="label">Salidas</div><div class="value money">${money(data.total_out)}</div><small>Gastos + compras + envíos + retiros</small></div>
+      <div class="card metric"><div class="label">Salidas</div><div class="value money">${money(-Number(data.total_out || 0))}</div><small>Gastos + compras + envíos + retiros</small></div>
       <div class="card metric ${data.closing_balance >= 0 ? "accent" : ""}"><div class="label">Saldo final</div><div class="value money">${money(data.closing_balance)}</div><small>Al ${esc(end)}</small></div>
     </div>
 
@@ -787,7 +790,7 @@ async function renderCashbook() {
       <table class="table" id="cashbookTable">
         <thead><tr><th>Fecha</th><th>Clase</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Entrada</th><th>Salida</th><th>Saldo</th><th></th></tr></thead>
         <tbody>
-          ${data.movements.length ? `<tr class="muted"><td colspan="7">Saldo inicial</td><td class="money">${money(data.opening_balance)}</td><td></td></tr>` : ""}
+          ${data.movements.length ? `<tr class="muted"><td colspan="7">Saldo inicial</td><td class="money ${signCls(data.opening_balance)}">${money(data.opening_balance)}</td><td></td></tr>` : ""}
           ${data.movements.map(m => `
             <tr>
               <td><strong>${esc(m.date)}</strong></td>
@@ -795,15 +798,15 @@ async function renderCashbook() {
               <td>${esc(m.type)}</td>
               <td>${esc(cashDetail(m))}</td>
               <td>${esc(m.account || "")}</td>
-              <td class="money">${m.signed_amount > 0 ? money(m.amount) : ""}</td>
-              <td class="money">${m.signed_amount < 0 ? money(m.amount) : ""}</td>
-              <td class="money"><strong ${m.balance < 0 ? `style="color:var(--red)"` : ""}>${money(m.balance)}</strong></td>
+              <td class="money pos">${m.signed_amount > 0 ? money(m.amount) : ""}</td>
+              <td class="money neg">${m.signed_amount < 0 ? money(-Number(m.amount || 0)) : ""}</td>
+              <td class="money ${signCls(m.balance)}"><strong>${money(m.balance)}</strong></td>
               <td>${m.editable
                 ? `<div class="line-actions"><button class="btn ghost sm" onclick="App.editCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Editar</button><button class="btn red sm" onclick="App.deleteCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Borrar</button></div>`
                 : `<span class="tiny muted" title="Se edita desde ${esc(m.locked_by || "su origen")}">Desde ${esc(m.locked_by || "su origen")}</span>`}</td>
             </tr>`).join("")}
         </tbody>
-        ${data.movements.length ? `<tfoot><tr class="total-row"><td colspan="5">Total del periodo · neto ${money(data.net)}</td><td class="money">${money(data.total_in)}</td><td class="money">${money(data.total_out)}</td><td class="money">${money(data.closing_balance)}</td><td></td></tr></tfoot>` : ""}
+        ${data.movements.length ? `<tfoot><tr class="total-row"><td colspan="5">Total del periodo · neto <span class="${signCls(data.net)}">${money(data.net)}</span></td><td class="money pos">${money(data.total_in)}</td><td class="money neg">${money(-Number(data.total_out || 0))}</td><td class="money ${signCls(data.closing_balance)}">${money(data.closing_balance)}</td><td></td></tr></tfoot>` : ""}
       </table>
       ${data.movements.length ? "" : `<div class="empty">No hay movimientos en este rango.</div>`}
     </div>
@@ -887,12 +890,12 @@ async function renderCapital() {
     <div class="grid cards">
       <div class="card metric"><div class="label">Caja disponible</div><div class="value money">${money(summary.finance.availableCash)}</div><small>Liquidez actual</small></div>
       <div class="card metric"><div class="label">Capital aportado</div><div class="value money">${money(summary.finance.totalContributed)}</div><small>Recuperado ${money(summary.finance.capitalRecovered)}</small></div>
-      <div class="card metric"><div class="label">Capital pendiente</div><div class="value money">${money(summary.finance.unrecoveredCapital)}</div><small>${summary.finance.unrecoveredCapital > 0 ? "Bloquea dividendos" : "Capital totalmente recuperado"}</small></div>
+      <div class="card metric"><div class="label">Capital pendiente</div><div class="value money">${money(-Number(summary.finance.unrecoveredCapital || 0))}</div><small>${summary.finance.unrecoveredCapital > 0 ? "Bloquea dividendos" : "Capital totalmente recuperado"}</small></div>
       <div class="card metric"><div class="label">Dividendos distribuibles</div><div class="value money">${money(summary.finance.distributableDividends)}</div><small>Solo al recuperar el capital</small></div>
-      <div class="card metric accent"><div class="label">Falta pasar a Itza</div><div class="value money">${money(summary.settlement?.cafetierToItza ?? summary.settlement?.axelToItza ?? 0)}</div><small>${esc(summary.settlement?.reason || "")}</small></div>
+      <div class="card metric accent"><div class="label">Falta pasar a Itza</div><div class="value money">${money(-Number(summary.settlement?.cafetierToItza ?? summary.settlement?.axelToItza ?? 0))}</div><small>${esc(summary.settlement?.reason || "")}</small></div>
       <div class="card metric"><div class="label">Cuentas por cobrar</div><div class="value money">${money(summary.receivables || 0)}</div><small>Pedidos aún no pagados</small></div>
-      <div class="card metric"><div class="label">Utilidad/kg tostado</div><div class="value money">${money(summary.monthly?.profitPerRoastedKg || 0)}</div><small>${kg(summary.monthly?.roastedKg || 0)} tostados en ${esc(summary.monthly?.month || "")}</small></div>
-      <div class="card metric"><div class="label">Dividendos pagados</div><div class="value money">${money(summary.dividendAdvice?.alreadyPaid || 0)}</div><small>${summary.dividendAdvice?.canDistribute ? "Puede evaluarse reparto" : esc(summary.dividendAdvice?.blockedReason || "")}</small></div>
+      <div class="card metric"><div class="label">Resultado del mes</div><div class="value money">${money(summary.monthly?.profit || 0)}</div><small>Cobrado − gastos y compras del mes</small></div>
+      <div class="card metric"><div class="label">Dividendos pagados</div><div class="value money">${money(-Number(summary.dividendAdvice?.alreadyPaid || 0))}</div><small>${summary.dividendAdvice?.canDistribute ? "Puede evaluarse reparto" : esc(summary.dividendAdvice?.blockedReason || "")}</small></div>
     </div>
 
     <div class="split" style="margin-top:12px">

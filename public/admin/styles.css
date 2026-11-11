@@ -186,9 +186,23 @@ body{background:radial-gradient(1100px 560px at 72% -12%, #fdfaf3, var(--bg))}
 .metric{position:relative;overflow:hidden;padding-left:18px}
 .metric::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--accent),var(--accent2))}
 .metric .label{letter-spacing:.8px}
-.metric .value{font-family:var(--font-display);font-size:27px;font-weight:800;color:var(--text)}
-.metric .value.money{color:var(--accent)}
+/* Números: sans-serif con cifras alineadas (la serif de títulos tiene cifras "old-style" difíciles de leer). */
+.metric .value{font-family:var(--font);font-size:25px;font-weight:700;letter-spacing:-.4px;color:var(--text);font-variant-numeric:tabular-nums lining-nums}
+.metric .value.money{color:var(--text);font-variant-numeric:lining-nums}
+.kpi-strip .value{font-family:var(--font);font-weight:700;font-variant-numeric:tabular-nums lining-nums}
 .metric.accent{box-shadow:0 10px 28px rgba(138,101,18,.14)}
+/* Signo: positivos en verde, negativos en rojo (salidas y deudas se muestran con signo menos). */
+.value.pos,.money.pos,.pos{color:var(--green) !important}
+.value.neg,.money.neg,.neg{color:var(--red) !important}
+.metric.pos-card::before{background:var(--green)}
+.metric.neg-card::before{background:var(--red)}
+.section-title{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:18px 0 8px}
+.section-title h3{margin:0;font-family:var(--font-display);font-size:19px}
+.section-title small{color:var(--muted)}
+.cat-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
+.cat-row:last-child{border-bottom:none}
+.cat-bar{height:4px;background:var(--red-soft);border-radius:99px;overflow:hidden;margin-top:4px}
+.cat-bar span{display:block;height:100%;background:var(--red);border-radius:99px}
 
 /* ---- Tables ---- */
 .table th{font-weight:800;background:#faf6ec;position:sticky;top:0}
@@ -365,4 +379,12 @@ body{background:radial-gradient(1100px 560px at 72% -12%, #fdfaf3, var(--bg))}
 /* Very small phones: KPIs single column */
 @media (max-width: 460px){
   .grid.cards{grid-template-columns:1fr}
+}
+
+/* Filas de 3 tarjetas (dashboard): 3 columnas en escritorio y tablet, 1 en celular */
+.grid.cards.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.section-title input.input{padding:7px 10px}
+@media (max-width: 600px){
+  .grid.cards.three{grid-template-columns:1fr}
+  .section-title{flex-wrap:wrap}
 }
