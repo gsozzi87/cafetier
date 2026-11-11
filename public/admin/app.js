@@ -29,7 +29,8 @@ function kg(n) { return `${numFmt.format(Number(n || 0))} kg`; }
 function pct(n) { return `${numFmt.format(Number(n || 0))}%`; }
 function round2(n) { return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100; }
 function esc(v) { return String(v ?? "").replace(/[&<>"]/g, m => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[m])); }
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+// Fecha local del navegador (CDMX), no UTC: con toISOString después de las 6 pm salía el día siguiente.
+function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function val(id) { return document.getElementById(id)?.value; }
 function setStatus(text) { document.getElementById("statusPill").textContent = text; }
 function statusBadge(status) { return `<span class="badge ${status}">${esc(status)}</span>`; }
@@ -237,9 +238,9 @@ async function renderDashboard() {
 
     <div class="row between" style="margin:16px 0 8px"><h3 style="margin:0">Costos y ganancia por kilo (estimado)</h3></div>
     <div class="grid cards">
-      <div class="card metric"><div class="label">Costo /kg comprado</div><div class="value money">${money(cf.avgBuyPerKg)}</div><small>Café verde</small></div>
+      <div class="card metric"><div class="label">Costo /kg comprado</div><div class="value money">${money(cf.greenLandedPerKg ?? cf.avgBuyPerKg)}</div><small>Café verde + flete de compra</small></div>
       <div class="card metric"><div class="label">Precio /kg vendido</div><div class="value money">${money(cf.avgSalePerKg)}</div><small>Promedio al vender</small></div>
-      <div class="card metric"><div class="label">Costo /kg producido</div><div class="value money">${money(cf.costPerKgProduced)}</div><small>Verde + merma + empaques (${money(cf.packagingPerKg)}/kg)</small></div>
+      <div class="card metric"><div class="label">Costo /kg producido</div><div class="value money">${money(cf.costPerKgProduced)}</div><small>Verde con merma ${money(cf.greenPerRoastedKg || 0)} + empaque ${money(cf.packagingPerKg)} + envío ${money(cf.shippingPerKg || 0)}</small></div>
       <div class="card metric ${cf.profitPerKgSold >= 0 ? "accent" : ""}"><div class="label">Ganancia /kg vendido</div><div class="value money">${money(cf.profitPerKgSold)}</div><small>Precio venta − costo producido</small></div>
     </div>
 
@@ -517,6 +518,9 @@ async function renderSalesDetail(id) {
         <button class="btn secondary" onclick="App.addPayment(${order.id})">Registrar pago</button>
         ${isWholesale(order.order_type) ? `<button class="btn secondary" onclick="App.addShipment(${order.id})">Registrar envío</button>` : ""}
         <button class="btn ghost" onclick="App.editSale(${order.id})">✎ Editar</button>
+        ${order.status === "cancelado"
+          ? `<button class="btn secondary" onclick="App.reactivateSale(${order.id})">Reactivar</button>`
+          : `<button class="btn ghost" onclick="App.cancelSale(${order.id})">Cancelar pedido</button>`}
         <button class="btn red" onclick="App.deleteSale(${order.id})">🗑 Eliminar</button>
       </div>
     </div>
@@ -758,9 +762,8 @@ function cashDetail(m) {
 }
 
 async function renderCashbook() {
-  const nowDate = new Date();
   const start = state.params.start || "2000-01-01";
-  const end = state.params.end || nowDate.toISOString().slice(0, 10);
+  const end = state.params.end || todayStr();
   const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
   document.getElementById("content").innerHTML = `
     <div class="row between" style="margin-bottom:12px">
@@ -774,16 +777,17 @@ async function renderCashbook() {
     </div>
 
     <div class="grid cards" style="margin-bottom:12px">
+      <div class="card metric"><div class="label">Saldo inicial</div><div class="value money">${money(data.opening_balance)}</div><small>Antes del ${esc(start)}</small></div>
       <div class="card metric"><div class="label">Entradas</div><div class="value money">${money(data.total_in)}</div><small>Aportes + cobros</small></div>
-      <div class="card metric"><div class="label">Salidas</div><div class="value money">${money(data.total_out)}</div><small>Gastos + retiros</small></div>
-      <div class="card metric ${data.net >= 0 ? "accent" : ""}"><div class="label">Neto del periodo</div><div class="value money">${money(data.net)}</div><small>${esc(start)} a ${esc(end)}</small></div>
-      <div class="card metric"><div class="label">Rango</div><div class="value" style="font-size:20px">${esc(start)}</div><small>hasta ${esc(end)}</small></div>
+      <div class="card metric"><div class="label">Salidas</div><div class="value money">${money(data.total_out)}</div><small>Gastos + compras + envíos + retiros</small></div>
+      <div class="card metric ${data.closing_balance >= 0 ? "accent" : ""}"><div class="label">Saldo final</div><div class="value money">${money(data.closing_balance)}</div><small>Al ${esc(end)}</small></div>
     </div>
 
     <div class="card">
       <table class="table" id="cashbookTable">
-        <thead><tr><th>Fecha</th><th>Clase</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Entrada</th><th>Salida</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Clase</th><th>Tipo</th><th>Detalle</th><th>Cuenta</th><th>Entrada</th><th>Salida</th><th>Saldo</th><th></th></tr></thead>
         <tbody>
+          ${data.movements.length ? `<tr class="muted"><td colspan="7">Saldo inicial</td><td class="money">${money(data.opening_balance)}</td><td></td></tr>` : ""}
           ${data.movements.map(m => `
             <tr>
               <td><strong>${esc(m.date)}</strong></td>
@@ -793,10 +797,13 @@ async function renderCashbook() {
               <td>${esc(m.account || "")}</td>
               <td class="money">${m.signed_amount > 0 ? money(m.amount) : ""}</td>
               <td class="money">${m.signed_amount < 0 ? money(m.amount) : ""}</td>
-              <td><div class="line-actions"><button class="btn ghost sm" onclick="App.editCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Editar</button><button class="btn red sm" onclick="App.deleteCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Borrar</button></div></td>
+              <td class="money"><strong ${m.balance < 0 ? `style="color:var(--red)"` : ""}>${money(m.balance)}</strong></td>
+              <td>${m.editable
+                ? `<div class="line-actions"><button class="btn ghost sm" onclick="App.editCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Editar</button><button class="btn red sm" onclick="App.deleteCashbookMovement('${esc(m.source)}', ${Number(m.source_id)})">Borrar</button></div>`
+                : `<span class="tiny muted" title="Se edita desde ${esc(m.locked_by || "su origen")}">Desde ${esc(m.locked_by || "su origen")}</span>`}</td>
             </tr>`).join("")}
         </tbody>
-        ${data.movements.length ? `<tfoot><tr class="total-row"><td colspan="5">Total · neto ${money(data.net)}</td><td class="money">${money(data.total_in)}</td><td class="money">${money(data.total_out)}</td><td></td></tr></tfoot>` : ""}
+        ${data.movements.length ? `<tfoot><tr class="total-row"><td colspan="5">Total del periodo · neto ${money(data.net)}</td><td class="money">${money(data.total_in)}</td><td class="money">${money(data.total_out)}</td><td class="money">${money(data.closing_balance)}</td><td></td></tr></tfoot>` : ""}
       </table>
       ${data.movements.length ? "" : `<div class="empty">No hay movimientos en este rango.</div>`}
     </div>
@@ -808,12 +815,12 @@ function applyCashbookFilter() {
 }
 
 function cashbookAll() {
-  setView("cashbook", { start: "2000-01-01", end: new Date().toISOString().slice(0, 10) });
+  setView("cashbook", { start: "2000-01-01", end: todayStr() });
 }
 
 async function editCashbookMovement(source, id) {
   const start = state.params.start || "2000-01-01";
-  const end = state.params.end || new Date().toISOString().slice(0, 10);
+  const end = state.params.end || todayStr();
   const data = await api(`/cashbook?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
   const movement = data.movements.find(m => m.source === source && Number(m.source_id) === Number(id));
   if (!movement) throw new Error("No pude encontrar el movimiento en el rango actual.");
@@ -1013,15 +1020,11 @@ async function renderRoastingDetail(id) {
             <div class="row between"><strong>${esc(b.batch_no)}</strong><div class="line-actions">
               <span class="pill">${esc(b.roast_profile_name || "Sin perfil")}</span>
               <button class="btn ghost sm" onclick="App.editBatch(${b.id},${session.id})">Editar</button>
-              <label class="btn ghost sm file-btn">Curva Artisan<input type="file" accept=".alog,.csv,.json,.txt" onchange="App.uploadArtisan(${b.id}, ${session.id}, this)" hidden></label>
               <label class="btn ghost sm file-btn">Fotos<input type="file" accept="image/*" multiple onchange="App.uploadBatchPhoto(${b.id}, ${session.id}, this)" hidden></label>
               <button class="btn red sm" onclick="App.deleteBatch(${b.id},${session.id})">Eliminar</button>
             </div></div>
             <div class="small muted">${esc(b.green_item_name)} · ${kg(b.green_kg)} → ${kg(b.roasted_kg || 0)} · ${pct(b.loss_pct || 0)} · ${numFmt.format(b.machine_minutes || 0)} min</div>
             <div class="small muted">${b.order_no ? "Pedido " + esc(b.order_no) : "Sin pedido ligado"} ${b.notes ? "· " + esc(b.notes) : ""}</div>
-            ${b.ai_review ? `<div class="code" style="margin-top:10px"><strong>Reseña IA:</strong>
-${esc(b.ai_review)}</div>` : ``}
-            ${b.artisan_file_name ? `<div class="small muted" style="margin-top:8px">Curva cargada: ${esc(b.artisan_file_name)}</div>` : ``}
             ${(b.photos || []).length ? `<div class="photo-grid">${b.photos.map(p => `<div class="photo-card"><img src="/api/uploads/${encodeURIComponent(p.stored_name)}" alt="${esc(p.file_name)}" /><div class="photo-actions"><span class="tiny muted">${esc(p.file_name)}</span><button class="btn red sm" onclick="App.deleteBatchPhoto(${p.id}, ${b.id}, ${session.id})">Quitar</button></div></div>`).join("")}</div>` : ``}
           </div>`).join("") : `<div class="empty">Sin batches.</div>`}
       </div>
@@ -1128,7 +1131,7 @@ async function renderInventoryHistory() {
 
 async function renderExpenses() {
   const showAll = !state.params.expMonth;
-  const month = state.params.expMonth || new Date().toISOString().slice(0, 7);
+  const month = state.params.expMonth || todayStr().slice(0, 7);
   const all = await api(showAll ? "/expenses" : `/expenses?month=${month}`);
   // Solo gastos cargados a mano: compras y envíos se ven en el libro de caja.
   const rows = all.filter(e => !e.auto_generated);
@@ -1166,7 +1169,7 @@ async function renderExpenses() {
 }
 
 function applyExpenseMonth() { setView("expenses", { expMonth: val("expMonth") }); }
-function toggleAllExpenses() { setView("expenses", state.params.expMonth ? {} : { expMonth: new Date().toISOString().slice(0, 7) }); }
+function toggleAllExpenses() { setView("expenses", state.params.expMonth ? {} : { expMonth: todayStr().slice(0, 7) }); }
 
 async function renderConfig() {
   const master = await refreshMaster(true);
@@ -1182,7 +1185,6 @@ async function renderConfig() {
             <div class="field"><label>Slogan</label><input class="input" id="cfgTagline" value="${esc(settings.business_tagline || "Culto por el café")}" /></div>
             <div class="field"><label>Merma estándar %</label><input class="input" id="cfgLoss" type="number" step="0.01" value="${esc(settings.default_loss_pct || "20")}" /><small class="muted">Merma estimada actual (últimos tuestes): <strong>${loss.estimatedLossPct != null ? pct(loss.estimatedLossPct) : "—"}</strong></small></div>
             <div class="field"><label>Costo verde/kg por defecto</label><input class="input" id="cfgGreen" type="number" step="0.01" value="${esc(settings.default_green_cost_per_kg || "0")}" /></div>
-            <div class="field"><label>Claude</label><small class="muted">La API key se configura exclusivamente en Railway como ANTHROPIC_API_KEY. Nunca se muestra aquí.</small></div>
           </div>
           <div class="footer-actions">
             <button class="btn primary" onclick="App.saveSettings()">Guardar configuración</button>
@@ -1715,6 +1717,19 @@ async function editSale(id) {
   }
 }
 
+function cancelSale(id) {
+  if (!confirm("¿Cancelar este pedido? Queda cancelado aunque después se registren pagos o envíos. Los pagos y envíos que ya tiene NO se borran: si devolviste dinero o café, borralos a mano.")) return;
+  api(`/sales-orders/${id}/status`, { method: "PATCH", body: { status: "cancelado" } })
+    .then(() => { toast("Pedido cancelado.", "ok"); openSale(id); })
+    .catch(err => toast(err.message, "error"));
+}
+
+function reactivateSale(id) {
+  api(`/sales-orders/${id}/status`, { method: "PATCH", body: { status: "abierto" } })
+    .then(() => { toast("Pedido reactivado.", "ok"); openSale(id); })
+    .catch(err => toast(err.message, "error"));
+}
+
 function deleteSale(id) {
   if (!confirm("¿Eliminar este pedido? Se borran sus pagos y envíos; el inventario y los gastos de envío se revierten.")) return;
   api(`/sales-orders/${id}`, { method: "DELETE" })
@@ -1962,7 +1977,7 @@ async function newContribution() {
     <div class="form-grid">
       <div class="field"><label>Socio</label><select class="select" id="contribPartner">${partnerOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="contribAmount" type="number" step="0.01" /></div>
-      <div class="field"><label>Fecha</label><input class="input" id="contribDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="contribDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Orden de capital</label><select class="select" id="contribReq"><option value="">Sin ligar</option>${requests.filter(r => r.status !== "funded" && r.status !== "cancelled").map(r => `<option value="${r.id}">${esc(r.request_no)} · ${money(r.amount_requested - r.amount_funded)}</option>`).join("")}</select></div>
       <div class="field"><label>Cuenta donde quedó</label><select class="select" id="contribAccount">${accountOptions("Dinero Cafetier")}</select></div>
     </div>
@@ -2081,7 +2096,7 @@ function newDividendOrder() {
   openModal("Orden de dividendos fin de mes", `
     <div class="notice warn">Solo podés repartir dividendos cuando todo el capital fue recuperado y hay caja disponible.</div>
     <div class="form-grid">
-      <div class="field"><label>Mes</label><input class="input" id="divMonth" type="month" value="${new Date().toISOString().slice(0,7)}" /></div>
+      <div class="field"><label>Mes</label><input class="input" id="divMonth" type="month" value="${todayStr().slice(0, 7)}" /></div>
       <div class="field"><label>Monto total (opcional)</label><input class="input" id="divAmount" type="number" step="0.01" placeholder="Si queda vacío toma el máximo distribuible" /></div>
     </div>
     <div class="field"><label>Notas</label><input class="input" id="divNotes" /></div>
@@ -2118,7 +2133,7 @@ function newPartnerAsset() {
       <div class="field"><label>Activo</label><input class="input" id="assetName" placeholder="Ej: Selladora" /></div>
       <div class="field"><label>Dueño</label><select class="select" id="assetOwner">${partnerOptions()}</select></div>
       <div class="field"><label>Comprado por</label><select class="select" id="assetBuyer">${partnerOptions()}</select></div>
-      <div class="field"><label>Fecha</label><input class="input" id="assetDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="assetDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Monto referencial</label><input class="input" id="assetAmount" type="number" step="0.01" value="0" /></div>
       <div class="field"><label>Estado</label><select class="select" id="assetStatus"><option value="active">En uso</option><option value="returned">Devuelto</option><option value="sold">Vendido</option><option value="retired">Retirado</option></select></div>
     </div>
@@ -2149,7 +2164,7 @@ function newPartnerAsset() {
 function newRoastingSession() {
   openModal("Nueva sesión de tostado", `
     <div class="form-grid">
-      <div class="field"><label>Fecha</label><input class="input" id="rsDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="rsDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Operador</label><select class="select" id="rsOperator">${roastOperatorOptions()}</select></div>
     </div>
     <div class="field"><label>Notas</label><textarea class="textarea" id="rsNotes"></textarea></div>
@@ -2280,23 +2295,6 @@ function deleteRoastingSession(id) {
 }
 
 
-async function uploadArtisan(batchId, sessionId, input) {
-  const file = input?.files?.[0];
-  if (!file) return;
-  const fd = new FormData();
-  fd.append('file', file);
-  try {
-    const res = await fetch(`/api/roasting-batches/${batchId}/artisan`, { method: 'POST', body: fd });
-    const payload = await res.json().catch(() => ({ success:false, error:'Respuesta inválida' }));
-    if (!res.ok || payload.success === false) throw new Error(payload.error || 'No pude procesar la curva');
-    toast(payload.data?.ai_review ? 'Curva analizada con Claude.' : 'Curva cargada.', 'ok');
-    openRoasting(sessionId);
-  } catch (err) {
-    toast(err.message || String(err), 'error');
-  } finally {
-    input.value = '';
-  }
-}
 
 async function uploadBatchPhoto(batchId, sessionId, input) {
   const files = Array.from(input?.files || []);
@@ -2305,9 +2303,8 @@ async function uploadBatchPhoto(batchId, sessionId, input) {
     for (const file of files) {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`/api/roasting-batches/${batchId}/photos`, { method: 'POST', body: fd });
-      const payload = await res.json().catch(() => ({ success:false, error:'Respuesta inválida' }));
-      if (!res.ok || payload.success === false) throw new Error(payload.error || 'No pude subir la foto');
+      // api() agrega el header X-Cafetier-Request que exige el servidor (con fetch directo se rechazaba).
+      await api(`/roasting-batches/${batchId}/photos`, { method: 'POST', body: fd });
     }
     toast('Fotos cargadas.', 'ok');
     openRoasting(sessionId);
@@ -2546,7 +2543,7 @@ function newExpense() {
   openModal("Nuevo gasto", `
     <div class="notice ok">El dinero sale de una cuenta: <strong>Itza</strong> (queda como aporte para devolverle) o <strong>Dinero Cafetier</strong> (dinero del negocio).</div>
     <div class="form-grid">
-      <div class="field"><label>Fecha</label><input class="input" id="expDate" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="field"><label>Fecha</label><input class="input" id="expDate" type="date" value="${todayStr()}" /></div>
       <div class="field"><label>Categoría</label><select class="select" id="expCat">${expenseCategoryOptions()}</select></div>
       <div class="field"><label>Monto</label><input class="input" id="expAmount" type="number" step="0.01" /></div>
       <div class="field"><label>¿De dónde salió el dinero?</label><select class="select" id="expSource">${moneySourceOptions()}</select></div>
@@ -2979,6 +2976,8 @@ const App = {
   newRetailSale,
   newWholesaleSale,
   openSale,
+  cancelSale,
+  reactivateSale,
   editSale,
   deleteSale,
   addPayment,
@@ -3020,7 +3019,6 @@ const App = {
   newBatch,
   editBatch,
   deleteBatch,
-  uploadArtisan,
   uploadBatchPhoto,
   deleteBatchPhoto,
   newInventoryItem,

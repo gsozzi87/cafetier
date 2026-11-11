@@ -6,5 +6,5 @@ dockerfilePath = "Dockerfile"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 
-[[mounts]]
-mountPath = "/data"
+# El volumen persistente (/data) se crea desde el dashboard de Railway:
+# config-as-code no permite definir volúmenes.

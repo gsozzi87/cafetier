@@ -1,43 +1,34 @@
-# ☕ CAFETIER - Sistema de Gestión para Tostaduría de Café
+# ☕ CAFETIER — Sistema de gestión para tostaduría de café
+
+Sitio público + ERP interno (`/admin`) para ventas, compras, envíos, gastos, capital, inventario y tostado.
 
 ## Stack
 - **Runtime**: Bun
 - **Framework**: Hono
-- **Database**: SQLite (better-sqlite3)
-- **Deploy**: Railway con disco persistente
+- **Base de datos**: SQLite nativo de Bun (`bun:sqlite`)
+- **Deploy**: Railway con volumen persistente en `/data` (el volumen se crea desde el dashboard de Railway; `railway.toml` no puede definir volúmenes)
 
 ## Deploy en Railway
+1. Conectar este repo a un servicio de Railway (detecta el `Dockerfile`).
+2. Crear un volumen desde el dashboard con mount path `/data`.
+3. Configurar las variables de entorno (abajo). Cada push a `main` redespliega.
 
-1. Sube este repo a GitHub
-2. Crea proyecto en Railway → conecta el repo
-3. Railway detecta el Dockerfile
-4. Agrega disco persistente: Mount Path `/data`
-5. Deploy automático
+## Variables de entorno
+- `ADMIN_USER`: usuario de acceso (por defecto `admin`).
+- `ADMIN_PASSWORD`: **obligatoria**, larga y única. Sin ella, todo el acceso privado responde 503 (seguro por defecto). No hay límite de intentos de login, así que conviene que sea larga.
+- `APP_TZ` (opcional): zona horaria del negocio para fechas y cierres de mes. Por defecto `America/Mexico_City`.
+- `RESET_DB_ON_BOOT` (opcional, un solo uso): `operativo` o `todo` borra datos al arrancar. Quitarla después del deploy.
 
-## Lógica de Inventario Automática
+## Seguridad
+- La web comercial, `GET /api/site-content/:page` y `GET /api/site-media/:id` son públicos.
+- `/admin`, `/editor-sitio` y el resto de `/api` requieren HTTP Basic Auth (siempre por HTTPS).
+- Las escrituras del ERP exigen el header `X-Cafetier-Request: 1` y un `Origin` del mismo sitio (protección CSRF; funciona detrás del proxy de Railway usando `X-Forwarded-Host/Proto`).
+- No guardar credenciales en Git, el frontend, SQLite ni el contenido público.
 
-Cada venta o pedido verifica automáticamente:
-- ¿Hay café tostado suficiente? → Se descuenta del inventario
-- ¿No hay tostado pero sí verde? → Se genera **orden de tueste**
-- ¿No hay verde suficiente? → Se genera **orden de compra**
-- La merma máxima histórica (default 20%) se usa para calcular cuánto verde se necesita
-
-Las acciones pendientes aparecen en el Dashboard y en el detalle del pedido.
-
-## Configuración de Electricidad
-En Configuración, ingresa kW de la máquina y precio por kWh (de tu factura CFE).
-
-## Seguridad y acceso al ERP
-
-La web comercial, `GET /api/site-content/:page` y `GET /api/site-media/:id` siguen públicos.
-Todo `/admin`, `/editor-sitio` y las demás rutas de `/api` requieren HTTP Basic Auth.
-
-**Variables obligatorias en Railway** (Settings → Variables):
-- `ADMIN_USER`: usuario para acceder (por defecto `admin`).
-- `ADMIN_PASSWORD`: contraseña aleatoria larga y única. Si no está definida, el acceso privado devuelve HTTP 503 (seguro por defecto).
-- `ANTHROPIC_API_KEY`: clave nueva de Claude, opcional. Se usa solo en el backend para analizar curvas de Artisan.
-
-Usar siempre HTTPS. El navegador pedirá usuario y contraseña al entrar en `/admin` o `/editor-sitio`.
-Las solicitudes de escritura del ERP deben incluir `X-Cafetier-Request: 1` (protección CSRF).
-**Rotar cualquier clave de Claude anteriormente guardada en el panel**: se elimina de la base SQLite al iniciar.
-No guardar credenciales en Git, el frontend, SQLite ni en el contenido público.
+## Reglas de negocio
+- **Costo por kilo** = café verde (con su flete de compra y la merma) + empaques usados + envíos a clientes. Gas, luz y demás gastos son gastos comunes y no entran en el costo por kilo.
+- **Café verde**: el stock se muestra pero nunca bloquea ventas ni tostado, y no genera órdenes de compra automáticas. Las compras se cargan a mano.
+- **Pedidos cancelados** quedan cancelados aunque después se registren pagos o envíos; se reactivan a propósito desde el detalle del pedido.
+- **Gastos automáticos** (de compras, envíos o bitácora) y los aportes "espejo" (Itza pagó algo de su bolsillo) se editan desde su origen, nunca sueltos en Gastos o en el Libro de Caja.
+- **Devolución de capital**: no puede superar lo que el socio aportó y todavía no se le devolvió.
+- **Libro de caja**: muestra saldo inicial, saldo acumulado por movimiento y saldo final; el saldo coincide con la caja real.

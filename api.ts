@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, greenNeededForRoasted, invMove, invTotal, normAccount, normInvType, normPartner, now, partnerCapital, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, recomputeItemQuantity, resetData, thisMonth, today, tx } from "./db";
+import { autoExpense, createPO, docNo, ensureInvItem, estimatedLoss, finance, financialPosition, getNum, getSettings, invMove, invTotal, normAccount, normInvType, normPartner, now, partnerCapital, qAll, qGet, qRun, qVal, r2, recalcPO, recalcSO, recomputeItemQuantity, resetData, thisMonth, today, tx } from "./db";
 
 const api = new Hono();
 const ok = (d: any = null) => ({ success: true, data: d });
@@ -43,19 +43,72 @@ function refreshCapitalRequest(id: number) {
 // Delete an expense and the mirror capital contribution it generated when a
 // partner paid it (so the books stay balanced). New rows are linked by ref;
 // older rows are matched conservatively (only when exactly one matches).
-function deleteExpenseAndMirrorRows(id: number) {
-  const exp = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
-  qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", id);
-  if (exp && Number(exp.from_cashbox) === 0 && exp.paid_from_account) {
+function deleteExpenseMirrors(exp: any) {
+  if (!exp) return;
+  qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", exp.id);
+  if (Number(exp.from_cashbox) === 0 && exp.paid_from_account) {
     const desc = `Gasto pagado por ${exp.paid_from_account}: ${exp.description || "sin descripción"}`;
     const matches = qAll<any>("SELECT id FROM capital_contributions WHERE ref_id IS NULL AND partner_name=? AND amount=? AND description=?", normPartner(exp.paid_from_account), r2(Number(exp.amount)), desc);
     if (matches.length === 1) qRun("DELETE FROM capital_contributions WHERE id=?", matches[0].id);
   }
+}
+function deleteExpenseAndMirrorRows(id: number) {
+  deleteExpenseMirrors(qGet<any>("SELECT * FROM expenses WHERE id=?", id));
   qRun("DELETE FROM expenses WHERE id=?", id);
 }
 function deleteExpenseWithMirror(id: number) {
   const del = tx(() => deleteExpenseAndMirrorRows(id));
   del();
+}
+
+// Un gasto automático (envío, recepción de compra, bitácora) se edita/borra desde su origen, nunca
+// suelto: si no, el gasto y su origen quedan con montos distintos. Si el origen ya no existe (huérfano),
+// se puede tocar libremente. Devuelve dónde editarlo, o null si es un gasto manual.
+function expenseOrigin(exp: any): string | null {
+  if (!exp) return null;
+  const rt = String(exp.ref_type || "");
+  if (rt === "shipment") return qGet("SELECT id FROM sales_shipments WHERE expense_id=?", exp.id) ? "el envío de la venta" : null;
+  if (rt === "purchase_entry" || rt === "purchase_entry_ship") return qGet("SELECT id FROM purchase_entries WHERE id=?", exp.ref_id) ? "la recepción de la compra" : null;
+  if (rt === "purchase_order" || rt === "purchase_shipping") return qGet("SELECT id FROM purchase_entries WHERE purchase_order_id=? LIMIT 1", exp.ref_id) ? "la orden de compra" : null;
+  if (rt === "machine_log") return qGet("SELECT id FROM machine_logs WHERE expense_id=?", exp.id) ? "la bitácora de máquina" : null;
+  return null;
+}
+// Un aporte "espejo" (Itza pagó un gasto o una compra de su bolsillo) se mueve junto con ese gasto.
+function contributionOrigin(cc: any): string | null {
+  if (!cc) return null;
+  if (cc.ref_type === "expense") return qGet("SELECT id FROM expenses WHERE id=?", cc.ref_id) ? "el gasto que pagó" : null;
+  if (cc.ref_type === "purchase_entry") return qGet("SELECT id FROM purchase_entries WHERE id=?", cc.ref_id) ? "la compra que pagó" : null;
+  return null;
+}
+// Edita un gasto manual y resincroniza su aporte espejo (si lo pagó Itza), desde Gastos o desde el Libro de Caja.
+function updateManualExpense(id: number, b: any) {
+  const cur = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
+  req(cur, "Gasto no encontrado");
+  const origin = expenseOrigin(cur);
+  req(!origin, `Este gasto se generó desde ${origin}: editalo ahí.`);
+  const funding = expenseFunding(b);
+  const amount = r2(num(b.amount ?? cur.amount));
+  req(amount > 0, "Monto inválido");
+  const date = b.expense_date || cur.expense_date || today();
+  // Un campo enviado vacío se vacía; uno que no se envía conserva su valor.
+  const pick = (k: string) => (k in b ? b[k] || null : cur[k] ?? null);
+  const description = pick("description");
+  const edit = tx(() => {
+    deleteExpenseMirrors(cur);
+    qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=?,paid_from_account=? WHERE id=?", date, b.category_id || cur.category_id, amount, description, funding.paidBy, pick("supplier"), pick("notes"), funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount, id);
+    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${description || "sin descripción"}`, funding.partner, null, "expense", id);
+  });
+  edit();
+}
+// Capital de un socio que todavía falta devolverle (opcionalmente sin contar un retiro que se está editando).
+function pendingCapital(partner: string, excludeWithdrawalId = 0) {
+  const contributed = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM capital_contributions WHERE partner_name=?", partner) ?? 0);
+  const returned = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM withdrawals WHERE kind='capital_return' AND partner_name=? AND id<>?", partner, excludeWithdrawalId) ?? 0);
+  return r2(contributed - returned);
+}
+function checkCapitalReturn(partner: string, amount: number, excludeWithdrawalId = 0) {
+  const pending = pendingCapital(partner, excludeWithdrawalId);
+  req(amount <= pending + 0.005, `A ${partner} solo le falta devolver $${Math.max(0, pending).toFixed(2)} de capital. Lo que pase de eso es reparto de utilidades, no devolución.`);
 }
 function purchaseOrderView(row: any) {
   if (!row) return row;
@@ -129,16 +182,19 @@ function applyPurchaseEntryEffects(entryId: number, itemId: number, po: any, v: 
 }
 function cashbookRows(start?: string | null, end?: string | null) {
   const rows = qAll<any>(`
-    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date, 'Aporte de capital' AS type, 'Aporte' AS clase,
+    -- Se muestran TODOS los aportes, incluidos los "espejo" (Itza pagó un gasto de su bolsillo):
+    -- así el saldo del libro es exactamente la caja real (aportes + cobros - gastos - retiros).
+    SELECT 'capital_contribution' AS source, cc.id AS source_id, cc.contribution_date AS date,
+      CASE WHEN cc.ref_type IS NOT NULL OR cc.description LIKE 'Gasto pagado por%' OR cc.description LIKE 'Compra % pagada por%' THEN 'Aporte (pagó un gasto)' ELSE 'Aporte de capital' END AS type,
+      'Aporte' AS clase,
       cc.partner_name AS person, COALESCE(cc.received_account, cc.partner_name) AS account, cc.description AS detail,
-      cc.amount AS amount, cc.amount AS signed_amount, cc.created_at AS created_at
+      cc.amount AS amount, cc.amount AS signed_amount, cc.created_at AS created_at, cc.ref_type AS ref_type, cc.ref_id AS ref_id
     FROM capital_contributions cc
-    WHERE cc.description NOT LIKE '%pagado por%' AND cc.description NOT LIKE '%pagada por%'
     UNION ALL
     SELECT 'sales_payment' AS source, sp.id AS source_id, substr(sp.created_at,1,10) AS date, 'Cobro de venta' AS type, 'Venta' AS clase,
       COALESCE(sp.registered_by,'Sistema') AS person, COALESCE(sp.received_account,'Dinero Cafetier') AS account,
       'Pago ' || COALESCE(so.order_no, '#' || sp.order_id) || COALESCE(' · ' || sp.notes, '') AS detail,
-      sp.amount AS amount, sp.amount AS signed_amount, sp.created_at AS created_at
+      sp.amount AS amount, sp.amount AS signed_amount, sp.created_at AS created_at, NULL AS ref_type, NULL AS ref_id
     FROM sales_payments sp
     LEFT JOIN sales_orders so ON so.id=sp.order_id
     UNION ALL
@@ -148,7 +204,7 @@ function cashbookRows(start?: string | null, end?: string | null) {
            ELSE 'Gasto' END AS clase,
       e.paid_by AS person, COALESCE(e.paid_from_account, e.paid_by) AS account,
       COALESCE(e.description, ec.name) || COALESCE(' · ' || e.supplier, '') AS detail,
-      e.amount AS amount, -e.amount AS signed_amount, e.created_at AS created_at
+      e.amount AS amount, -e.amount AS signed_amount, e.created_at AS created_at, e.ref_type AS ref_type, e.ref_id AS ref_id
     FROM expenses e
     JOIN expense_categories ec ON ec.id=e.category_id
     UNION ALL
@@ -157,16 +213,23 @@ function cashbookRows(start?: string | null, end?: string | null) {
       CASE w.kind WHEN 'capital_return' THEN 'Retiro' ELSE 'Dividendo' END AS clase,
       w.partner_name AS person, COALESCE(w.paid_from_account,'Dinero Cafetier') AS account,
       COALESCE(w.notes,'') AS detail,
-      w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at
+      w.amount AS amount, -w.amount AS signed_amount, w.created_at AS created_at, NULL AS ref_type, NULL AS ref_id
     FROM withdrawals w
-  `).map(r => ({
-    ...r,
-    id: `${r.source}:${r.source_id}`,
-    amount: r2(Number(r.amount || 0)),
-    signed_amount: r2(Number(r.signed_amount || 0)),
-    editable: true,
-    deletable: true,
-  }));
+  `).map(r => {
+    // Las filas que vienen de una compra, un envío o un gasto pagado por Itza se editan desde su origen.
+    const lockedBy = r.source === "expense" ? expenseOrigin({ id: r.source_id, ref_type: r.ref_type, ref_id: r.ref_id })
+      : r.source === "capital_contribution" ? contributionOrigin({ ref_type: r.ref_type, ref_id: r.ref_id })
+      : null;
+    return {
+      ...r,
+      id: `${r.source}:${r.source_id}`,
+      amount: r2(Number(r.amount || 0)),
+      signed_amount: r2(Number(r.signed_amount || 0)),
+      editable: !lockedBy,
+      deletable: !lockedBy,
+      locked_by: lockedBy,
+    };
+  });
   return rows
     .filter(r => (!start || r.date >= start) && (!end || r.date <= end))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.created_at).localeCompare(String(b.created_at)));
@@ -315,11 +378,15 @@ api.get("/dashboard", c => {
   // Café: costos y márgenes estimados (desde el inicio).
   const salesAmount = Number(qVal("SELECT COALESCE(SUM(total_amount),0) AS v FROM sales_orders WHERE status != 'cancelado'") ?? 0);
   const merma = estimatedLoss();
+  // Costo por kilo = café verde (puesto en el tostador, con su flete) + empaques + envíos a clientes.
+  // Gas, luz y demás gastos NO entran: son gastos comunes del negocio.
   const avgBuyPerKg = kgPurchased > 0 ? r2(purchasesGreen / kgPurchased) : 0;
+  const greenShipping = Number(qVal("SELECT COALESCE(SUM(pe.shipping_cost),0) AS v FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='green_coffee'") ?? 0);
+  const greenLandedPerKg = kgPurchased > 0 ? r2((purchasesGreen + greenShipping) / kgPurchased) : 0;
   const avgSalePerKg = kgSold > 0 ? r2(salesAmount / kgSold) : 0;
-  // Valor unitario de cada empaque = costo promedio de compra por unidad.
+  // Valor unitario de cada empaque = costo promedio de compra por unidad (incluye su flete).
   const pkgUnitCost: Record<string, number> = {};
-  for (const r of qAll<any>("SELECT i.item_name AS name, COALESCE(SUM(pe.total_cost),0) AS cost, COALESCE(SUM(pe.quantity_kg),0) AS qty FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='supply' GROUP BY i.item_name")) {
+  for (const r of qAll<any>("SELECT i.item_name AS name, COALESCE(SUM(pe.total_cost + pe.shipping_cost),0) AS cost, COALESCE(SUM(pe.quantity_kg),0) AS qty FROM purchase_entries pe JOIN inventory_items i ON i.id=pe.inventory_item_id WHERE i.item_type='supply' GROUP BY i.item_name")) {
     pkgUnitCost[r.name] = Number(r.qty) > 0 ? Number(r.cost) / Number(r.qty) : 0;
   }
   let packagingValueUsed = 0;
@@ -327,13 +394,16 @@ api.get("/dashboard", c => {
     packagingValueUsed += Number(r.qty) * (pkgUnitCost[r.name] || 0);
   }
   const packagingPerKg = kgSold > 0 ? r2(packagingValueUsed / kgSold) : 0;
-  // 1 kg tostado necesita 1/(1-merma) kg verde, más el empaque por kg.
-  const greenPerRoastedKg = avgBuyPerKg / (1 - Math.min(0.95, merma / 100));
-  const costPerKgProduced = r2(greenPerRoastedKg + packagingPerKg);
+  // Envíos a clientes (de ventas no canceladas), repartidos por kg vendido.
+  const salesShipping = Number(qVal("SELECT COALESCE(SUM(ss.shipping_cost),0) AS v FROM sales_shipments ss JOIN sales_orders so ON so.id=ss.order_id WHERE so.status != 'cancelado'") ?? 0);
+  const shippingPerKg = kgSold > 0 ? r2(salesShipping / kgSold) : 0;
+  // 1 kg tostado necesita 1/(1-merma) kg verde.
+  const greenPerRoastedKg = r2(greenLandedPerKg / (1 - Math.min(0.95, merma / 100)));
+  const costPerKgProduced = r2(greenPerRoastedKg + packagingPerKg + shippingPerKg);
   const profitPerKgSold = r2(avgSalePerKg - costPerKgProduced);
   const cafe = {
     kgPurchased: r2(kgPurchased), kgSold: r2(kgSold), merma: r2(merma),
-    avgBuyPerKg, avgSalePerKg, packagingPerKg, costPerKgProduced, profitPerKgSold,
+    avgBuyPerKg, greenLandedPerKg, greenPerRoastedKg, avgSalePerKg, packagingPerKg, shippingPerKg, costPerKgProduced, profitPerKgSold,
   };
   const cafetier = {
     cash: cafetierBalance,
@@ -395,11 +465,19 @@ api.get("/cashbook", c => {
   const month = c.req.query("month");
   const start = c.req.query("start") || (month ? `${month}-01` : null);
   const end = c.req.query("end") || (month ? `${month}-31` : null);
-  const movements = cashbookRows(start, end);
+  // Saldo como en un Excel: saldo inicial (todo lo anterior al rango) + saldo acumulado en cada fila.
+  const all = cashbookRows(null, null);
+  const opening = r2(all.filter(r => start && r.date < start).reduce((s, r) => s + r.signed_amount, 0));
+  let balance = opening;
+  const movements = all
+    .filter(r => (!start || r.date >= start) && (!end || r.date <= end))
+    .map(r => ({ ...r, balance: (balance = r2(balance + r.signed_amount)) }));
   return c.json(ok({
     start,
     end,
     movements,
+    opening_balance: opening,
+    closing_balance: r2(balance),
     total_in: r2(movements.filter(m => m.signed_amount > 0).reduce((s, m) => s + m.signed_amount, 0)),
     total_out: r2(Math.abs(movements.filter(m => m.signed_amount < 0).reduce((s, m) => s + m.signed_amount, 0))),
     net: r2(movements.reduce((s, m) => s + m.signed_amount, 0)),
@@ -414,6 +492,8 @@ api.put("/cashbook/:source/:id", async c => {
   req(amount > 0, "Monto inválido");
   if (source === "capital_contribution") {
     req(b.person || b.partner_name, "Socio obligatorio");
+    const origin = contributionOrigin(qGet<any>("SELECT * FROM capital_contributions WHERE id=?", id));
+    req(!origin, `Este aporte se generó desde ${origin}: editalo ahí.`);
     qRun("UPDATE capital_contributions SET partner_name=?,amount=?,description=?,contribution_date=?,received_account=? WHERE id=?", normPartner(b.person || b.partner_name), amount, b.detail || b.description || "", b.date || today(), normAccount(b.account || b.received_account || b.person), id);
   } else if (source === "sales_payment") {
     const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
@@ -423,10 +503,24 @@ api.put("/cashbook/:source/:id", async c => {
   } else if (source === "expense") {
     const cur = qGet<any>("SELECT * FROM expenses WHERE id=?", id);
     req(cur, "Gasto no encontrado");
-    qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,paid_from_account=? WHERE id=?", b.date || today(), b.category_id || cur.category_id, amount, b.detail || b.description || null, b.person || cur.paid_by || "Sistema", b.supplier || cur.supplier || null, b.notes || cur.notes || null, normAccount(b.account || cur.paid_from_account || cur.paid_by), id);
+    // Misma lógica que Gastos: si la cuenta es Itza, se (re)genera su aporte espejo por el monto nuevo.
+    const account = normAccount(b.account || cur.paid_from_account || cur.paid_by);
+    const byItza = account === "Itza";
+    updateManualExpense(id, {
+      expense_date: b.date || cur.expense_date,
+      category_id: b.category_id || cur.category_id,
+      amount,
+      description: b.detail || b.description || cur.description || null,
+      supplier: b.supplier ?? cur.supplier ?? null,
+      notes: b.notes ?? cur.notes ?? null,
+      funding_source: byItza ? "partner_contribution" : "business_account",
+      paid_from_account: account,
+      partner_name: byItza ? "Itza" : null,
+    });
   } else if (source === "withdrawal") {
     const cur = qGet<any>("SELECT * FROM withdrawals WHERE id=?", id);
     req(cur, "Retiro no encontrado");
+    if (cur.kind === "capital_return") checkCapitalReturn(normPartner(b.person || cur.partner_name), amount, id);
     qRun("UPDATE withdrawals SET partner_name=?,amount=?,month=?,paid_from_account=?,notes=?,created_at=? WHERE id=?", normPartner(b.person || cur.partner_name), amount, (b.date || today()).slice(0, 7), normAccount(b.account || cur.paid_from_account || "Axel"), b.detail || b.notes || null, setIsoDate(cur.created_at, b.date || today()), id);
   } else {
     return c.json(fail("Movimiento inválido"), 400);
@@ -437,13 +531,19 @@ api.put("/cashbook/:source/:id", async c => {
 api.delete("/cashbook/:source/:id", c => {
   const source = c.req.param("source");
   const id = Number(c.req.param("id"));
-  if (source === "capital_contribution") qRun("DELETE FROM capital_contributions WHERE id=?", id);
-  else if (source === "sales_payment") {
+  if (source === "capital_contribution") {
+    const origin = contributionOrigin(qGet<any>("SELECT * FROM capital_contributions WHERE id=?", id));
+    req(!origin, `Este aporte se generó desde ${origin}: borralo ahí.`);
+    qRun("DELETE FROM capital_contributions WHERE id=?", id);
+  } else if (source === "sales_payment") {
     const cur = qGet<any>("SELECT * FROM sales_payments WHERE id=?", id);
     qRun("DELETE FROM sales_payments WHERE id=?", id);
     if (cur?.order_id) recalcSO(Number(cur.order_id));
-  } else if (source === "expense") deleteExpenseWithMirror(id);
-  else if (source === "withdrawal") qRun("DELETE FROM withdrawals WHERE id=?", id);
+  } else if (source === "expense") {
+    const origin = expenseOrigin(qGet<any>("SELECT * FROM expenses WHERE id=?", id));
+    req(!origin, `Este gasto se generó desde ${origin}: borralo ahí.`);
+    deleteExpenseWithMirror(id);
+  } else if (source === "withdrawal") qRun("DELETE FROM withdrawals WHERE id=?", id);
   else return c.json(fail("Movimiento inválido"), 400);
   return c.json(ok(true));
 });
@@ -451,7 +551,7 @@ api.delete("/cashbook/:source/:id", c => {
 // ===== SETTINGS =====
 api.get("/settings", c => c.json(ok(getSettings())));
 // Never allow arbitrary/secret settings to be written to the database.
-const editableSettings = new Set(["business_name", "business_tagline", "default_loss_pct", "default_green_cost_per_kg", "machine_kw", "kwh_price", "roast_operators"]);
+const editableSettings = new Set(["business_name", "business_tagline", "default_loss_pct", "default_green_cost_per_kg", "roast_operators"]);
 api.put("/settings", async c => {
   const b = await body(c);
   if (!b || typeof b !== "object" || Array.isArray(b)) return c.json(fail("Configuración inválida"), 400);
@@ -778,16 +878,8 @@ api.post("/sales-orders", async c => {
       }
     }
 
-    // Wholesale: check green stock
-    if (type === "mayoreo" && totalKg > 0) {
-      const needGreen = greenNeededForRoasted(totalKg);
-      const greenAvail = invTotal("green_coffee");
-      const deficit = r2(Math.max(0, needGreen - greenAvail));
-      if (deficit > 0) {
-        createPO({ sourceType: "sales_order", sourceId: orderId, description: `Café verde para ${orderNo} (merma ${estimatedLoss()}%)`, requestedKg: deficit, estimatedCost: r2(deficit * getNum("default_green_cost_per_kg", 0)) });
-      }
-    }
-
+    // El stock de café verde no condiciona la venta ni genera órdenes de compra automáticas:
+    // las compras se cargan a mano cuando realmente se hacen.
     recalcSO(orderId);
     return qGet("SELECT * FROM sales_orders WHERE id=?", orderId);
   });
@@ -795,7 +887,16 @@ api.post("/sales-orders", async c => {
 });
 
 api.put("/sales-orders/:id", async c => { const b = await body(c); const cur = qGet<any>("SELECT isr_amount FROM sales_orders WHERE id=?", c.req.param("id")); const isr = b.isr_amount !== undefined ? r2(num(b.isr_amount)) : Number(cur?.isr_amount || 0); qRun("UPDATE sales_orders SET client_id=?,delivery_date=?,total_weight_kg=?,price_per_kg=?,total_amount=?,isr_amount=?,notes=?,updated_at=? WHERE id=?", b.client_id||null, b.delivery_date||null, num(b.total_weight_kg), num(b.price_per_kg), num(b.total_amount), isr, b.notes||null, now(), c.req.param("id")); return c.json(ok(recalcSO(Number(c.req.param("id"))))); });
-api.patch("/sales-orders/:id/status", async c => { const b = await body(c); qRun("UPDATE sales_orders SET status=?,updated_at=? WHERE id=?", b.status, now(), c.req.param("id")); return c.json(ok(true)); });
+// Cancelar o reactivar un pedido. Cancelado se mantiene aunque después se registren pagos o envíos;
+// al reactivarlo, el estado se recalcula solo según lo cobrado/tostado/enviado.
+api.patch("/sales-orders/:id/status", async c => {
+  const id = Number(c.req.param("id"));
+  const b = await body(c);
+  req(qGet("SELECT id FROM sales_orders WHERE id=?", id), "Pedido no encontrado");
+  if (b.status === "cancelado") qRun("UPDATE sales_orders SET status='cancelado',updated_at=? WHERE id=?", now(), id);
+  else { qRun("UPDATE sales_orders SET status='abierto',updated_at=? WHERE id=?", now(), id); recalcSO(id); }
+  return c.json(ok(qGet("SELECT * FROM sales_orders WHERE id=?", id)));
+});
 api.delete("/sales-orders/:id", c => {
   const id = Number(c.req.param("id"));
   const order = qGet<any>("SELECT * FROM sales_orders WHERE id=?", id);
@@ -1239,14 +1340,16 @@ api.post("/capital-contributions", async c => {
   if (requestId) refreshCapitalRequest(requestId);
   return c.json(ok(qGet("SELECT * FROM capital_contributions WHERE id=?", Number(r.lastInsertRowid))));
 });
-api.put("/capital-contributions/:id", async c => { const b = await body(c); qRun("UPDATE capital_contributions SET partner_name=?,amount=?,description=?,contribution_date=?,received_account=? WHERE id=?", normPartner(b.partner_name), r2(num(b.amount)), b.description, b.contribution_date, normAccount(b.received_account || b.partner_name), c.req.param("id")); if (b.capital_request_id) refreshCapitalRequest(Number(b.capital_request_id)); return c.json(ok(true)); });
-api.delete("/capital-contributions/:id", c => { qRun("DELETE FROM capital_contributions WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
+api.put("/capital-contributions/:id", async c => { const b = await body(c); const origin = contributionOrigin(qGet<any>("SELECT * FROM capital_contributions WHERE id=?", c.req.param("id"))); req(!origin, `Este aporte se generó desde ${origin}: editalo ahí.`); qRun("UPDATE capital_contributions SET partner_name=?,amount=?,description=?,contribution_date=?,received_account=? WHERE id=?", normPartner(b.partner_name), r2(num(b.amount)), b.description, b.contribution_date, normAccount(b.received_account || b.partner_name), c.req.param("id")); if (b.capital_request_id) refreshCapitalRequest(Number(b.capital_request_id)); return c.json(ok(true)); });
+api.delete("/capital-contributions/:id", c => { const origin = contributionOrigin(qGet<any>("SELECT * FROM capital_contributions WHERE id=?", c.req.param("id"))); req(!origin, `Este aporte se generó desde ${origin}: borralo ahí.`); qRun("DELETE FROM capital_contributions WHERE id=?", c.req.param("id")); return c.json(ok(true)); });
 
 api.get("/withdrawals", c => c.json(ok(qAll("SELECT * FROM withdrawals ORDER BY created_at ASC, id ASC"))));
 api.post("/withdrawals/capital-return", async c => {
   const b = await body(c); req(normPartner(b.partner_name), "Socio obligatorio"); req(num(b.amount)>0, "Monto inválido");
   const pn = normPartner(b.partner_name);
-  // Sin bloqueos por fondos ni por capital pendiente: se permite dejar saldos en negativo.
+  // No se bloquea por fondos (la cuenta puede quedar en negativo), pero sí por capital:
+  // no se puede devolver más de lo que el socio aportó y todavía no se le devolvió.
+  checkCapitalReturn(pn, r2(num(b.amount)));
   // La fecha la elige el usuario (puede ser un movimiento pasado) y es la que se usa en el libro de caja.
   const date = (b.date || (b.month ? `${b.month}-01` : today())).slice(0, 10);
   const createdAt = setIsoDate(now(), date);
@@ -1302,21 +1405,16 @@ api.post("/expenses", async c => {
   return c.json(ok(qGet("SELECT * FROM expenses WHERE id=?", id)));
 });
 api.put("/expenses/:id", async c => {
-  const id = Number(c.req.param("id"));
-  const b = await body(c);
-  const funding = expenseFunding(b);
-  const amount = r2(num(b.amount));
-  const date = b.expense_date || today();
-  const edit = tx(() => {
-    qRun("UPDATE expenses SET expense_date=?,category_id=?,amount=?,description=?,paid_by=?,supplier=?,notes=?,from_cashbox=?,from_utilities=?,paid_from_account=? WHERE id=?", date, b.category_id, amount, b.description ?? null, funding.paidBy, b.supplier ?? null, b.notes ?? null, funding.fromCashbox, funding.fromUtilities, funding.paidFromAccount, id);
-    // Re-sync the mirror capital contribution so changing the money source keeps the books right.
-    qRun("DELETE FROM capital_contributions WHERE ref_type='expense' AND ref_id=?", id);
-    registerDirectFunding(funding.partner, amount, date, `Gasto pagado por ${funding.partner}: ${b.description || "sin descripción"}`, funding.partner, null, "expense", id);
-  });
-  edit();
+  updateManualExpense(Number(c.req.param("id")), await body(c));
   return c.json(ok(true));
 });
-api.delete("/expenses/:id", c => { deleteExpenseWithMirror(Number(c.req.param("id"))); return c.json(ok(true)); });
+api.delete("/expenses/:id", c => {
+  const id = Number(c.req.param("id"));
+  const origin = expenseOrigin(qGet<any>("SELECT * FROM expenses WHERE id=?", id));
+  req(!origin, `Este gasto se generó desde ${origin}: borralo ahí.`);
+  deleteExpenseWithMirror(id);
+  return c.json(ok(true));
+});
 
 // ===== ROASTING =====
 api.get("/roasting-sessions", c => c.json(ok(qAll("SELECT rs.*, COALESCE((SELECT COUNT(*) FROM roasting_batches WHERE session_id=rs.id),0) AS batch_count, COALESCE((SELECT SUM(green_kg) FROM roasting_batches WHERE session_id=rs.id),0) AS total_green, COALESCE((SELECT SUM(roasted_kg) FROM roasting_batches WHERE session_id=rs.id),0) AS total_roasted, COALESCE((SELECT SUM(machine_minutes) FROM roasting_batches WHERE session_id=rs.id),0) AS total_minutes FROM roasting_sessions rs ORDER BY rs.session_date DESC"))));
@@ -1337,18 +1435,13 @@ api.post("/roasting-sessions/:id/batches", async c => {
   req(b.green_inventory_item_id, "Seleccioná el café verde"); req(num(b.green_kg)>0, "Kg verde inválidos");
   const gi = qGet<any>("SELECT * FROM inventory_items WHERE id=?", b.green_inventory_item_id);
   req(gi, "Inventario no encontrado"); req(gi.item_type === "green_coffee", "Debe ser café verde");
-  const greenKg = r2(num(b.green_kg));
-  // Not enough green for this batch: trigger a green-coffee purchase order and stop.
-  if (Number(gi.quantity || 0) < greenKg) {
-    const deficit = r2(greenKg - Number(gi.quantity || 0));
-    const po = createPO({ sourceType: "manual", description: `Café verde para tostar: ${gi.item_name}`, requestedKg: deficit, estimatedCost: r2(deficit * getNum("default_green_cost_per_kg", 0)) });
-    return c.json(fail(`No hay suficiente café verde (disponible ${Number(gi.quantity || 0).toFixed(1)} kg, requerido ${greenKg.toFixed(1)} kg). Se generó la orden de compra ${po?.po_no} por ${deficit.toFixed(1)} kg.`), 400);
-  }
+  // Si no hay verde cargado igual se puede tostar (el stock queda en negativo hasta que se cargue
+  // la compra): el inventario de verde no frena la operación ni genera órdenes de compra solas.
   const create = tx(() => {
     const rkg = b.roasted_kg === null || b.roasted_kg === undefined || b.roasted_kg === "" ? null : r2(num(b.roasted_kg));
     const lp = rkg && num(b.green_kg) > 0 ? r2(((num(b.green_kg) - rkg) / num(b.green_kg)) * 100) : null;
     const bno = docNo("RB");
-    invMove(Number(b.green_inventory_item_id), "out", r2(num(b.green_kg)), `Tostado ${bno}`, b.registered_by||"Sistema");
+    invMove(Number(b.green_inventory_item_id), "out", r2(num(b.green_kg)), `Tostado ${bno}`, b.registered_by||"Sistema", true);
     const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1");
     req(ri?.id, "No existe inventario de café tostado");
     if (rkg && rkg > 0) invMove(ri!.id, "in", rkg, `Batch ${bno}`, b.registered_by||"Sistema");
@@ -1370,7 +1463,7 @@ api.patch("/roasting-batches/:id", async c => {
     const curR = cur.roasted_kg ? Number(cur.roasted_kg) : 0;
     const delta = r2((newR || 0) - curR);
     if (delta > 0) invMove(ri.id, "in", delta, `Ajuste batch ${cur.batch_no}`, "Sistema");
-    else if (delta < 0) invMove(ri.id, "out", Math.abs(delta), `Ajuste batch ${cur.batch_no}`, "Sistema");
+    else if (delta < 0) invMove(ri.id, "out", Math.abs(delta), `Ajuste batch ${cur.batch_no}`, "Sistema", true);
     const lp = newR && cur.green_kg > 0 ? r2(((cur.green_kg - newR) / cur.green_kg) * 100) : null;
     qRun("UPDATE roasting_batches SET roast_profile_id=?,sales_order_id=?,roasted_kg=?,loss_pct=?,machine_minutes=?,notes=? WHERE id=?", b.roast_profile_id||cur.roast_profile_id||null, b.sales_order_id||cur.sales_order_id||null, newR, lp, r2(num(b.machine_minutes, cur.machine_minutes)), b.notes??cur.notes??null, id);
     if (cur.sales_order_id) recalcSO(cur.sales_order_id);
@@ -1383,13 +1476,17 @@ api.delete("/roasting-batches/:id", c => {
   const id = Number(c.req.param("id"));
   const batch = qGet<any>("SELECT * FROM roasting_batches WHERE id=?", id);
   if (!batch) return c.json(fail("No encontrado"), 404);
+  const photos = qAll<any>("SELECT stored_name FROM batch_photos WHERE batch_id=?", id);
   const rm = tx(() => {
     invMove(batch.green_inventory_item_id, "in", batch.green_kg, `Reverso ${batch.batch_no}`, "Sistema");
-    if (batch.roasted_kg) { const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1"); if (ri?.id) invMove(ri.id, "out", batch.roasted_kg, `Reverso ${batch.batch_no}`, "Sistema"); }
+    if (batch.roasted_kg) { const ri = qGet<{ id: number }>("SELECT id FROM inventory_items WHERE item_type='roasted_coffee' ORDER BY id LIMIT 1"); if (ri?.id) invMove(ri.id, "out", batch.roasted_kg, `Reverso ${batch.batch_no}`, "Sistema", true); }
     qRun("DELETE FROM roasting_batches WHERE id=?", id);
     if (batch.sales_order_id) recalcSO(batch.sales_order_id);
   });
-  rm(); return c.json(ok(true));
+  rm();
+  // Las fotos se borran del disco (antes quedaban huérfanas).
+  for (const p of photos) { try { fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(p.stored_name))); } catch {} }
+  return c.json(ok(true));
 });
 api.delete("/roasting-sessions/:id", c => {
   const batches = qAll("SELECT id FROM roasting_batches WHERE session_id=?", c.req.param("id"));
@@ -1397,31 +1494,15 @@ api.delete("/roasting-sessions/:id", c => {
   qRun("DELETE FROM roasting_sessions WHERE id=?", c.req.param("id")); return c.json(ok(true));
 });
 
-// Artisan upload + AI
-api.post("/roasting-batches/:id/artisan", async c => {
-  const id = Number(c.req.param("id"));
-  const batch = qGet<any>("SELECT rb.*, rp.name AS roast_name FROM roasting_batches rb LEFT JOIN roast_profiles rp ON rp.id=rb.roast_profile_id WHERE rb.id=?", id);
-  if (!batch) return c.json(fail("No encontrado"), 404);
-  const fd = await c.req.formData(); const file = fd.get("file"); req(file && typeof file !== "string", "Adjuntá un archivo");
-  const f = file as File; const payload = await f.text();
-  qRun("UPDATE roasting_batches SET artisan_file_name=?, artisan_data=? WHERE id=?", f.name, payload, id);
-  const apiKey = process.env.ANTHROPIC_API_KEY || "";
-  if (!apiKey) return c.json(ok({ artisan_file_name: f.name, ai_review: null, warning: "Configurá ANTHROPIC_API_KEY en Railway" }));
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1400, messages: [{ role: "user", content: `Eres un maestro tostador. Analiza esta curva de Artisan.\nBatch: ${batch.batch_no}\nVerde: ${batch.green_kg}kg → Tostado: ${batch.roasted_kg??'N/D'}kg\nMerma: ${batch.loss_pct??'N/D'}%\nMinutos: ${batch.machine_minutes}\nPerfil: ${batch.roast_name||'N/D'}\n\nArchivo (${f.name}):\n${payload.slice(0,120000)}\n\nDame: 1)Resumen 2)Qué salió bien 3)Qué faltó 4)Problemas 5)Sabor esperado 6)Recomendación para el próximo batch. Español, directo.` }] }) });
-    const data = await res.json() as any;
-    const review = data?.content?.[0]?.text || null;
-    qRun("UPDATE roasting_batches SET ai_review=? WHERE id=?", review, id);
-    return c.json(ok({ artisan_file_name: f.name, ai_review: review }));
-  } catch (e: any) { return c.json(ok({ artisan_file_name: f.name, ai_review: null, warning: e.message })); }
-});
-
-// Batch photos
+// Batch photos (solo imágenes)
+const PHOTO_EXT: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/heic": ".heic", "image/heif": ".heif", "image/avif": ".avif" };
 api.post("/roasting-batches/:id/photos", async c => {
   const id = Number(c.req.param("id"));
   req(qGet("SELECT id FROM roasting_batches WHERE id=?", id), "Batch no encontrado");
   const fd = await c.req.formData(); const file = fd.get("file"); req(file && typeof file !== "string", "Adjuntá una foto");
-  const img = file as File; const ext = path.extname(img.name || "") || ".bin";
+  const img = file as File;
+  const ext = PHOTO_EXT[img.type];
+  req(ext, "Solo se pueden subir fotos (JPG, PNG, WebP, GIF, HEIC o AVIF).");
   const stored = `${Date.now()}-${crypto.randomUUID()}${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, stored), Buffer.from(await img.arrayBuffer()));
   const r = qRun("INSERT INTO batch_photos(batch_id,file_name,stored_name,mime_type,notes,created_at) VALUES (?,?,?,?,NULL,?)", id, img.name||stored, stored, img.type||"application/octet-stream", now());
@@ -1429,13 +1510,18 @@ api.post("/roasting-batches/:id/photos", async c => {
 });
 api.delete("/batch-photos/:id", c => {
   const row = qGet<any>("SELECT * FROM batch_photos WHERE id=?", c.req.param("id"));
-  if (row) { try { fs.unlinkSync(path.join(UPLOAD_DIR, row.stored_name)); } catch {} qRun("DELETE FROM batch_photos WHERE id=?", row.id); }
+  if (row) { try { fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(row.stored_name))); } catch {} qRun("DELETE FROM batch_photos WHERE id=?", row.id); }
   return c.json(ok(true));
 });
+// Solo sirve fotos registradas en la base. Antes, un nombre como "..%2Fcafetier.db" salía de la
+// carpeta de fotos y permitía descargar la base o leer las variables de entorno del servidor.
 api.get("/uploads/:name", c => {
-  const abs = path.join(UPLOAD_DIR, c.req.param("name"));
+  const name = c.req.param("name");
+  const photo = qGet<{ stored_name: string; mime_type: string }>("SELECT stored_name, mime_type FROM batch_photos WHERE stored_name=?", name);
+  if (!photo || path.basename(name) !== name) return c.json(fail("No encontrado"), 404);
+  const abs = path.join(UPLOAD_DIR, name);
   if (!fs.existsSync(abs)) return c.json(fail("No encontrado"), 404);
-  return new Response(Bun.file(abs));
+  return new Response(Bun.file(abs), { headers: { "Content-Type": photo.mime_type || "application/octet-stream", "Content-Disposition": "inline" } });
 });
 
 // ===== ADMIN =====

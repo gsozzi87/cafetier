@@ -10,7 +10,21 @@ export const db = new Database(DB_PATH, { create: true });
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA foreign_keys = ON");
 
-export const now = () => new Date().toISOString();
+// Fechas en la hora local del negocio (CDMX), no en UTC: antes, después de las 6 pm
+// todo quedaba registrado con la fecha del día siguiente (y el último día del mes, en el mes siguiente).
+// Se guarda como ISO con offset, p. ej. "2026-11-11T18:40:12.345-06:00"; substr(1,10) da la fecha local.
+const APP_TZ = process.env.APP_TZ || "America/Mexico_City";
+const tzParts = new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+export function now() {
+  const d = new Date();
+  const p: Record<string, string> = {};
+  for (const x of tzParts.formatToParts(d)) p[x.type] = x.value;
+  const localAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  const offMin = Math.round((localAsUtc - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+  const abs = Math.abs(offMin);
+  const off = `${offMin >= 0 ? "+" : "-"}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}.${String(d.getMilliseconds()).padStart(3, "0")}${off}`;
+}
 export const today = () => now().slice(0, 10);
 export const thisMonth = () => now().slice(0, 7);
 export function docNo(prefix: string) {
@@ -273,7 +287,7 @@ function migrateInventoryTypes() {
 // so writing a Spanish status fails the old CHECK. Rebuild any drifted table,
 // translating existing values, so the schema matches the code exactly.
 const PO_CREATE = "CREATE TABLE purchase_orders_new (id INTEGER PRIMARY KEY AUTOINCREMENT, po_no TEXT NOT NULL UNIQUE, source_type TEXT DEFAULT 'manual' CHECK(source_type IN ('sales_order','manual')), source_id INTEGER, status TEXT DEFAULT 'pendiente' CHECK(status IN ('sin_fondos','pendiente','parcial','recibida','cancelada')), description TEXT NOT NULL, requested_kg REAL DEFAULT 0, estimated_cost REAL DEFAULT 0, estimated_shipping_cost REAL DEFAULT 0, actual_cost REAL DEFAULT 0, actual_shipping_cost REAL DEFAULT 0, received_kg REAL DEFAULT 0, supplier TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)";
-const SO_CREATE = "CREATE TABLE sales_orders_new (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT NOT NULL UNIQUE, order_type TEXT NOT NULL CHECK(order_type IN ('mostrador','mayoreo')), client_id INTEGER, status TEXT DEFAULT 'abierto' CHECK(status IN ('abierto','esperando_compra','en_produccion','listo','envio_parcial','completado','cancelado')), delivery_date TEXT, total_weight_kg REAL DEFAULT 0, price_per_kg REAL DEFAULT 0, total_amount REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (client_id) REFERENCES clients(id))";
+const SO_CREATE = "CREATE TABLE sales_orders_new (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT NOT NULL UNIQUE, order_type TEXT NOT NULL CHECK(order_type IN ('mostrador','mayoreo')), client_id INTEGER, status TEXT DEFAULT 'abierto' CHECK(status IN ('abierto','esperando_compra','en_produccion','listo','envio_parcial','completado','cancelado')), delivery_date TEXT, total_weight_kg REAL DEFAULT 0, price_per_kg REAL DEFAULT 0, total_amount REAL DEFAULT 0, isr_amount REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (client_id) REFERENCES clients(id))";
 const ML_CREATE = "CREATE TABLE machine_logs_new (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT NOT NULL, log_type TEXT NOT NULL CHECK(log_type IN ('mantenimiento','mejora','pieza','incidencia')), description TEXT NOT NULL, cost REAL DEFAULT 0, registered_by TEXT, expense_id INTEGER, created_at TEXT NOT NULL)";
 
 // Rebuild a drifted table. Tries to preserve+translate rows; if the copy fails
@@ -324,8 +338,8 @@ function migrateStatusSchema() {
       const status = cols.has("status")
         ? "CASE status WHEN 'open' THEN 'abierto' WHEN 'pending_purchase' THEN 'esperando_compra' WHEN 'in_production' THEN 'en_produccion' WHEN 'ready' THEN 'listo' WHEN 'partial_shipped' THEN 'envio_parcial' WHEN 'completed' THEN 'completado' WHEN 'cancelled' THEN 'cancelado' WHEN 'abierto' THEN 'abierto' WHEN 'esperando_compra' THEN 'esperando_compra' WHEN 'en_produccion' THEN 'en_produccion' WHEN 'listo' THEN 'listo' WHEN 'envio_parcial' THEN 'envio_parcial' WHEN 'completado' THEN 'completado' WHEN 'cancelado' THEN 'cancelado' ELSE 'abierto' END"
         : "'abierto'";
-      return `INSERT INTO sales_orders_new (id,order_no,order_type,client_id,status,delivery_date,total_weight_kg,price_per_kg,total_amount,notes,created_at,updated_at)
-        SELECT id, ${has(cols, "order_no", "'VTA-'||id")}, ${orderType}, ${has(cols, "client_id", "NULL")}, ${status}, ${has(cols, "delivery_date", "NULL")}, COALESCE(${has(cols, "total_weight_kg", "0")},0), COALESCE(${has(cols, "price_per_kg", "0")},0), COALESCE(${has(cols, "total_amount", "0")},0), ${has(cols, "notes", "NULL")}, COALESCE(${has(cols, "created_at", "NULL")},CURRENT_TIMESTAMP), COALESCE(${has(cols, "updated_at", "NULL")},CURRENT_TIMESTAMP)
+      return `INSERT INTO sales_orders_new (id,order_no,order_type,client_id,status,delivery_date,total_weight_kg,price_per_kg,total_amount,isr_amount,notes,created_at,updated_at)
+        SELECT id, ${has(cols, "order_no", "'VTA-'||id")}, ${orderType}, ${has(cols, "client_id", "NULL")}, ${status}, ${has(cols, "delivery_date", "NULL")}, COALESCE(${has(cols, "total_weight_kg", "0")},0), COALESCE(${has(cols, "price_per_kg", "0")},0), COALESCE(${has(cols, "total_amount", "0")},0), COALESCE(${has(cols, "isr_amount", "0")},0), ${has(cols, "notes", "NULL")}, COALESCE(${has(cols, "created_at", "NULL")},CURRENT_TIMESTAMP), COALESCE(${has(cols, "updated_at", "NULL")},CURRENT_TIMESTAMP)
         FROM sales_orders`;
     }
   );
@@ -361,7 +375,8 @@ export function invMove(itemId: number, dir: "in" | "out" | "adjust", qty: numbe
 // El stock de un ítem es el resultado de reproducir su historial de movimientos (la fuente de verdad).
 export function inventoryReplay(itemId: number) {
   let qty = 0;
-  for (const m of qAll<any>("SELECT direction, quantity FROM inventory_movements WHERE item_id=? ORDER BY created_at ASC, id ASC", itemId)) {
+  // julianday() ordena bien aunque convivan fechas viejas en UTC ("Z") y nuevas con offset ("-06:00").
+  for (const m of qAll<any>("SELECT direction, quantity FROM inventory_movements WHERE item_id=? ORDER BY julianday(created_at) ASC, id ASC", itemId)) {
     if (m.direction === "in") qty += Number(m.quantity || 0);
     else if (m.direction === "out") qty -= Number(m.quantity || 0);
     else qty = Number(m.quantity || 0); // adjust = valor absoluto
@@ -388,19 +403,21 @@ function reconcileInventoryLedger() {
 export function recalcSO(id: number) {
   const o = qGet<any>("SELECT * FROM sales_orders WHERE id=?", id);
   if (!o) return null;
+  // Un pedido cancelado queda cancelado: ningún pago, envío o compra posterior lo reabre.
+  // Para reactivarlo hay que hacerlo a propósito (PATCH /status), que vuelve a llamar acá.
+  if (o.status === "cancelado") return o;
   const paid = Number(qVal("SELECT COALESCE(SUM(amount),0) AS v FROM sales_payments WHERE order_id=?", id) ?? 0);
   // El ISR retenido no entra a caja, pero junto con lo cobrado completa el valor de la venta.
   const settled = r2(paid + Number(o.isr_amount || 0));
   const shipped = Number(qVal("SELECT COALESCE(SUM(weight_kg),0) AS v FROM sales_shipments WHERE order_id=?", id) ?? 0);
   const roasted = Number(qVal("SELECT COALESCE(SUM(roasted_kg),0) AS v FROM roasting_batches WHERE sales_order_id=?", id) ?? 0);
-  const hasPendPO = Number(qVal("SELECT COUNT(*) AS v FROM purchase_orders WHERE source_type='sales_order' AND source_id=? AND status NOT IN ('recibida','cancelada')", id) ?? 0);
+  // El stock de café verde no condiciona las ventas: un pedido nunca queda "esperando compra".
   let status = o.status;
   if (o.order_type === "mostrador") status = settled >= o.total_amount ? "completado" : "abierto";
   else if (shipped >= (o.total_weight_kg || 0) && o.total_weight_kg > 0) status = settled >= o.total_amount ? "completado" : "listo";
   else if (shipped > 0) status = "envio_parcial";
   else if (roasted >= (o.total_weight_kg || 0) && o.total_weight_kg > 0) status = "listo";
   else if (roasted > 0) status = "en_produccion";
-  else if (hasPendPO > 0) status = "esperando_compra";
   else status = "abierto";
   qRun("UPDATE sales_orders SET status=?, updated_at=? WHERE id=?", status, now(), id);
   return qGet("SELECT * FROM sales_orders WHERE id=?", id);
@@ -411,9 +428,9 @@ export function recalcPO(poId: number) {
   if (!po) return null;
   const received = Number(qVal("SELECT COALESCE(SUM(quantity_kg),0) AS v FROM purchase_entries WHERE purchase_order_id=?", poId) ?? 0);
   const cost = Number(qVal("SELECT COALESCE(SUM(total_cost+shipping_cost),0) AS v FROM purchase_entries WHERE purchase_order_id=?", poId) ?? 0);
-  const status = received >= po.requested_kg && po.requested_kg > 0 ? "recibida" : received > 0 ? "parcial" : "pendiente";
+  // Una OC cancelada sigue cancelada aunque se editen o borren sus recepciones.
+  const status = po.status === "cancelada" ? "cancelada" : received >= po.requested_kg && po.requested_kg > 0 ? "recibida" : received > 0 ? "parcial" : "pendiente";
   qRun("UPDATE purchase_orders SET received_kg=?, actual_cost=?, status=?, updated_at=? WHERE id=?", r2(received), r2(cost), status, now(), poId);
-  if (status === "recibida" && po.source_type === "sales_order" && po.source_id) recalcSO(po.source_id);
   return qGet("SELECT * FROM purchase_orders WHERE id=?", poId);
 }
 
@@ -475,7 +492,7 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS partner_assets (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_name TEXT NOT NULL, owner_partner TEXT NOT NULL, purchased_by TEXT, purchase_date TEXT NOT NULL, amount REAL DEFAULT 0, notes TEXT, status TEXT DEFAULT 'active', created_at TEXT NOT NULL);
 
     CREATE TABLE IF NOT EXISTS roasting_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, session_date TEXT NOT NULL, operator TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS roasting_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, batch_no TEXT NOT NULL UNIQUE, green_inventory_item_id INTEGER NOT NULL, roast_profile_id INTEGER, sales_order_id INTEGER, green_kg REAL NOT NULL, roasted_kg REAL, loss_pct REAL, machine_minutes REAL DEFAULT 0, notes TEXT, artisan_file_name TEXT, artisan_data TEXT, ai_review TEXT, created_at TEXT NOT NULL, FOREIGN KEY (session_id) REFERENCES roasting_sessions(id) ON DELETE CASCADE, FOREIGN KEY (green_inventory_item_id) REFERENCES inventory_items(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id), FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id));
+    CREATE TABLE IF NOT EXISTS roasting_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, batch_no TEXT NOT NULL UNIQUE, green_inventory_item_id INTEGER NOT NULL, roast_profile_id INTEGER, sales_order_id INTEGER, green_kg REAL NOT NULL, roasted_kg REAL, loss_pct REAL, machine_minutes REAL DEFAULT 0, notes TEXT, created_at TEXT NOT NULL, FOREIGN KEY (session_id) REFERENCES roasting_sessions(id) ON DELETE CASCADE, FOREIGN KEY (green_inventory_item_id) REFERENCES inventory_items(id), FOREIGN KEY (roast_profile_id) REFERENCES roast_profiles(id), FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id));
     CREATE TABLE IF NOT EXISTS batch_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER NOT NULL, file_name TEXT NOT NULL, stored_name TEXT NOT NULL, mime_type TEXT, notes TEXT, created_at TEXT NOT NULL, FOREIGN KEY (batch_id) REFERENCES roasting_batches(id) ON DELETE CASCADE);
 
     CREATE TABLE IF NOT EXISTS machine_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_date TEXT NOT NULL, log_type TEXT NOT NULL CHECK(log_type IN ('mantenimiento','mejora','pieza','incidencia')), description TEXT NOT NULL, cost REAL DEFAULT 0, registered_by TEXT, expense_id INTEGER, created_at TEXT NOT NULL);
@@ -485,13 +502,21 @@ export function initDB() {
     INSERT OR IGNORE INTO roast_profiles (name) VALUES ('Filtro'),('Espresso'),('Omniroast'),('Claro'),('Medio'),('Oscuro');
     INSERT OR IGNORE INTO origins (name) VALUES ('Chiapas'),('Veracruz'),('Oaxaca'),('Puebla'),('Guerrero'),('Nayarit'),('Colombia'),('Brasil'),('Guatemala'),('Etiopía'),('Blend');
     INSERT OR IGNORE INTO varieties (name) VALUES ('Typica'),('Bourbon'),('Caturra'),('Catuaí'),('Geisha'),('SL28'),('Pacamara'),('Maragogipe'),('Mundo Novo'),('Catimor'),('Blend');
-    INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',1),('Electricidad',1),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Impuestos',0),('Gastos fijos',0),('Servicios',0),('Sueldos',0),('Herramientas',0),('Repuestos',0),('Otros',0);
+    INSERT OR IGNORE INTO expense_categories (name, is_direct_cost) VALUES ('Café verde',1),('Gas',0),('Electricidad',0),('Empaques',1),('Envíos',1),('Mantenimiento',0),('Marketing',0),('Renta',0),('Impuestos',0),('Gastos fijos',0),('Servicios',0),('Sueldos',0),('Herramientas',0),('Repuestos',0),('Otros',0);
     INSERT OR IGNORE INTO carriers (name) VALUES ('Estafeta'),('DHL'),('FedEx'),('Paquetexpress'),('Correos de México'),('Retiro en local');
     INSERT OR IGNORE INTO inventory_catalog (name, item_type, category, unit) VALUES ('Café verde','green_coffee','Café verde','kg'),('Café tostado','roasted_coffee','Café tostado','kg'),('Café empaquetado','packaged_coffee','Café empaquetado','pz'),('Caja de cartón','supply','Empaque','pz'),('Bolsa','supply','Empaque','pz'),('Etiqueta','supply','Empaque','pz');
-    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','20'),('machine_kw','0'),('kwh_price','0'),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('business_name','CAFETIER'),('business_tagline','Culto por el café'),('default_loss_pct','20'),('operators','Axel|Itza'),('people','Itza|Axel'),('individual_people','Itza|Axel'),('roast_operators','Axel|Itza');
   `);
-  // Remove any API key previously persisted in SQLite (the new key lives in Railway).
-  qRun("DELETE FROM settings WHERE key='claude_api_key'");
+  // Sin IA ni cálculo de luz: se borran la API key vieja y los parámetros de electricidad.
+  qRun("DELETE FROM settings WHERE key IN ('claude_api_key','machine_kw','kwh_price')");
+  // El costo por kilo solo incluye café verde, empaques y envíos: gas y luz son gastos comunes.
+  qRun("UPDATE expense_categories SET is_direct_cost=0 WHERE name IN ('Gas','Electricidad')");
+  // Se quitó el análisis de curvas de Artisan: se borran sus columnas (y los archivos guardados en ellas).
+  for (const col of ["artisan_file_name", "artisan_data", "ai_review"]) {
+    if (qAll<{ name: string }>("PRAGMA table_info(roasting_batches)").some(c => c.name === col)) {
+      try { db.exec(`ALTER TABLE roasting_batches DROP COLUMN ${col}`); } catch (e) { console.error(`[initDB] no se pudo borrar ${col}: ${(e as Error).message}`); }
+    }
+  }
   ensureColumn("clients", "cafe_name", "TEXT");
   ensureColumn("clients", "contact_name", "TEXT");
   ensureColumn("clients", "contact_phone", "TEXT");
@@ -551,6 +576,8 @@ export function initDB() {
   ensureInvItem({ item_type: "roasted_coffee", item_name: "Café tostado disponible", unit: "kg" });
   // Asegura que el historial de movimientos explique exactamente el stock de cada ítem.
   reconcileInventoryLedger();
+  // Los pedidos ya no esperan compras de café verde: se recalculan los que habían quedado trabados.
+  for (const r of qAll<{ id: number }>("SELECT id FROM sales_orders WHERE status='esperando_compra'")) recalcSO(r.id);
 
   // One-shot data reset via env var (set RESET_DB_ON_BOOT=operativo|todo in the host,
   // redeploy once). A marker prevents it from wiping again on later restarts.
