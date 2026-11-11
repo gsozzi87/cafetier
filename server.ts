@@ -56,11 +56,17 @@ app.use("*", async (c, next) => {
     return c.text("Autenticación requerida.", 401);
   }
 
-  // A browser from another origin cannot submit a privileged state-changing request.
+  // CSRF: the custom header X-Cafetier-Request cannot be sent cross-origin without CORS preflight.
+  // Origin check uses the Host/X-Forwarded-Host header so it works behind Railway's reverse proxy.
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-    const origin = c.req.header("Origin");
-    if (origin && origin !== url.origin) return c.text("Origen no autorizado.", 403);
     if (c.req.header("X-Cafetier-Request") !== "1") return c.text("Solicitud no autorizada.", 403);
+    const origin = c.req.header("Origin");
+    if (origin) {
+      const fwdHost = c.req.header("X-Forwarded-Host") || c.req.header("Host") || url.host;
+      const fwdProto = c.req.header("X-Forwarded-Proto") || url.protocol.replace(":", "");
+      const expected = `${fwdProto}://${fwdHost}`;
+      if (origin !== expected) return c.json({ success: false, error: "Origen no autorizado." }, 403);
+    }
   }
   return next();
 });
